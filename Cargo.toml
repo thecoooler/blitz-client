@@ -2,7 +2,7 @@
 name = "blitz-mod-installer"
 version = "0.1.0"
 edition = "2024"
-description = "Tanks Blitz resource mod installer"
+description = "Tanks Blitz client analysis and resource mod tools"
 license = "MIT"
 
 [lib]
@@ -10,7 +10,7 @@ name = "blitz_mod_installer"
 path = "src/lib.rs"
 
 [[bin]]
-name = "blitz-mod"
+name = "blitz-client"
 path = "src/main.rs"
 
 [dependencies]

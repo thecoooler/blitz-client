@@ -1,16 +1,27 @@
+mod asset_archive;
+mod client;
 mod dvpl;
 mod game_dir;
 mod git_diff;
 mod installer;
 mod manifest;
 mod patch;
+mod tank_armor;
+mod tank_export;
+mod tank_model;
 
+pub use client::{
+    ClientTank, TankModelFiles, discover_client_tanks, is_known_nation, list_client_tanks,
+};
 pub use game_dir::{ResolvedGameDir, discover_game_dir, resolve_game_dir};
 pub use installer::{
     FileValidation, InstallReport, RemovalReport, ValidationReport, install_mod, remove_mod,
     validate_mod,
 };
 pub use manifest::{Action, Manifest, ModFile, load_manifest, update_from_git_diff};
+pub use tank_export::{
+    TankExportFailure, TankExportOptions, TankExportReport, export_tank_catalog,
+};
 
 use serde::Serialize;
 use std::fmt;

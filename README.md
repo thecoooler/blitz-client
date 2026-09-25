@@ -1,32 +1,58 @@
-# Tanks Blitz Mod Installer
+# Tanks Blitz Client Tools
 
-Rust library and CLI for installing text-resource mods in Tanks Blitz clients. The core library can also be called directly from a Tauri Rust backend.
+Rust library and CLI for inspecting the installed Tanks Blitz client, exporting tank models for the local viewer, and installing resource mods. The same library can be called from a Tauri Rust backend.
 
-## Commands
+## CLI
+
+The executable is `blitz-client`.
 
 ```text
-blitz-mod locate-game [--json]
-blitz-mod validate <mod-dir|mod.toml> [--game-dir <path>] [--json]
-blitz-mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]
-blitz-mod uninstall <mod-id> [--game-dir <path>] [--json]
-blitz-mod mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]
+blitz-client client locate [--game-dir <path>] [--json]
+blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
+blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
+
+blitz-client mod validate <mod-dir|mod.toml> [--game-dir <path>] [--json]
+blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]
+blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
+blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]
 ```
 
-`--game-dir` is optional. Without it, the first existing default candidate for the current OS is used. If it is supplied, an invalid path is an error and automatic discovery is not attempted.
+`--game-dir` accepts either the game directory or the `Data` directory. It is optional; the first existing default path for the current OS is used. An invalid explicit path is an error and never falls back to auto-detection.
 
-The default search candidates are ordered in `src/game_dir.rs`:
+```sh
+blitz-client client locate
+blitz-client client tanks list --json
+blitz-client client tanks list --nation ussr
 
-- Windows: `C:\Games\TanksBlitz\Data` first, then standard Steam locations under `ProgramFiles(x86)`, `ProgramFiles`, and `LOCALAPPDATA`; `C:\Steam`, `D:\Steam`, `C:\Games\Steam`; WindowsApps package folders; and common per-user Games/XboxGames folders.
-- macOS: `/Applications/Tanks Blitz.app/Contents/Resources/Data` first, then `~/Library/Application Support/Steam/steamapps/common/World of Tanks Blitz`, including the app bundle's `Contents/Resources/Data` folder.
-- Linux: the usual Steam locations under `~/.local/share/Steam`, `~/.steam/steam`, Steam Flatpak, and Steam Snap, plus system Steam directories.
+blitz-client client tanks export \
+  --viewer-dir "/path/to/viewer" \
+  --limit 10
 
-Custom Steam libraries and other non-default locations can be selected with `--game-dir`.
+blitz-client client tanks export \
+  --viewer-dir "/path/to/viewer" \
+  --tank china/Ch48_BZ_75
+```
 
-## Mod manifest
+`client tanks list` reports the vehicles with both showroom model files installed. The JSON response contains `count` and a `tanks` array with the ID, localized name, nation, level, `userString`, and source model paths.
 
-The logical target omits the final `.dvpl` suffix. The installer resolves `UI/.../Minimap.yaml` to either `Minimap.yaml.dvpl` or a plain `Minimap.yaml`, rejecting the case where both exist.
+The exporter is implemented in Rust and writes to `<viewer-dir>/assets/tanks`. It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
 
-Exact replacement is supported:
+Exporter options:
+
+- `--tank <ID|nation/ID>` can be repeated. An unqualified ID must be unique across nations.
+- `--nation <nation>` filters automatic discovery; `--limit N` exports at most N successful models. A limit of 0 means all models.
+- `--max-texture-size original|N|WIDTHxHEIGHT` caps source textures; the default is `1024x1024`.
+- `--texture-format webp|png` selects texture format; WebP is the default. `--webp-quality 0..100` sets lossy base-color quality.
+- `--pbr` exports the PBR maps and tangent basis. `--no-compress` writes plain model JSON and geometry instead of `.br` assets.
+- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Rust exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
+
+SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Rust code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+
+## Mod commands
+
+The logical target in a manifest omits the final `.dvpl` suffix. The installer resolves `UI/.../Minimap.yaml` to either `Minimap.yaml.dvpl` or a plain `Minimap.yaml`, rejecting the case where both exist.
+
+Exact replacement:
 
 ```toml
 id = "NoMapName"
@@ -49,28 +75,40 @@ patch = "patches/UI/Screens/Battle/Minimap.yaml.<diff-crc>.patch"
 generated_by = "git"
 ```
 
-`update-from-git` compares the selected base revision (default `HEAD`) with the working tree, including staged and unstaged changes. The repository paths must mirror the game's unpacked resource paths. It handles modifications to existing tracked text resources; additions, deletions, renames, and binary changes are rejected. `.dvpl` files must be unpacked before generating a diff.
+`update-from-git` compares the selected base revision (default `HEAD`) with the working tree, including staged and unstaged changes. Repository paths must mirror the game's unpacked resource paths. It handles modifications to existing tracked text resources; additions, deletions, renames, and binary changes are rejected. `.dvpl` files must be unpacked before generating a diff.
 
-## Install and restore behavior
+The game must be closed during installation and uninstallation. Active mods are recomposed from the current game resources and saved installation state, so mod removal order does not affect the remaining patches. The installer does not use a fixed game-file hash to identify a clean client.
 
-- `validate` is read-only and checks the manifest, resource, DVPL footer/CRC, text decoding, and patch application.
-- `install` uses the file's current contents as the base and does not require a hash for a clean game version. It saves a neighboring `*.tanks-blitz-mod-installer-original` file if one does not already exist, and stores a managed base snapshot under `.tanks-blitz-mod-installer/bases`.
-- A state file in `.tanks-blitz-mod-installer/state.json` tracks installed mods and their operations. Each install recomputes affected resources from the saved base, applying active mods in sorted mod ID order. Independent patches compose regardless of installation order. Incompatible edits to the same text fail with a conflict.
-- `uninstall` removes a mod from the active set and recomputes affected resources, so mods can be uninstalled in any order. The managed base snapshot is deleted when its last mod is removed; the adjacent original file is kept. The stored CRC detects changes made outside the installer and prevents overwriting them.
-- The game must be closed during installation and uninstallation.
+## Game directory defaults
+
+The ordered platform candidates are implemented in `src/game_dir.rs`.
+
+- Windows: `C:\Games\TanksBlitz\Data` first, followed by standard Steam, WindowsApps, and user game folders.
+- macOS: `/Applications/Tanks Blitz.app/Contents/Resources/Data` first, then the Steam installation under the user's Library.
+- Linux: common Steam, Flatpak, and Snap installation folders.
 
 ## Rust API
 
 ```rust,no_run
 use std::path::PathBuf;
-use blitz_mod_installer::{install_mod, remove_mod, update_from_git_diff, validate_mod};
+use blitz_mod_installer::{
+    TankExportOptions, export_tank_catalog, install_mod, list_client_tanks,
+    remove_mod, update_from_git_diff, validate_mod,
+};
 
-let game_dir: Option<PathBuf> = None; // auto-discover
+let game_dir: Option<PathBuf> = None;
+let tanks = list_client_tanks(game_dir.clone())?;
+let mut export = TankExportOptions::new("/path/to/viewer");
+export.game_dir = game_dir.clone();
+export.limit = 10;
+let catalog = export_tank_catalog(&export)?;
+
 let report = validate_mod("mods/NoMapName", game_dir.clone())?;
 if report.valid {
     install_mod("mods/NoMapName", game_dir)?;
 }
 remove_mod("NoMapName", None)?;
 update_from_git_diff("mods/NoMapName", "mods/NoMapName", Some("HEAD"))?;
+# let _ = (tanks, catalog);
 # Ok::<(), blitz_mod_installer::InstallerError>(())
 ```
