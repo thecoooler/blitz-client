@@ -6,6 +6,7 @@ mod git_diff;
 mod installer;
 mod manifest;
 mod patch;
+mod replay;
 mod tank_armor;
 mod tank_export;
 mod tank_model;
@@ -19,6 +20,7 @@ pub use installer::{
     validate_mod,
 };
 pub use manifest::{Action, Manifest, ModFile, load_manifest, update_from_git_diff};
+pub use replay::{ReplayAnalysis, ReplayOptions, analyze_replay, find_latest_replay};
 pub use tank_export::{
     TankExportFailure, TankExportOptions, TankExportReport, export_tank_catalog,
 };

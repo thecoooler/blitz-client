@@ -1,6 +1,7 @@
 use blitz_mod_installer::{
-    InstallerError, TankExportOptions, export_tank_catalog, install_mod, is_known_nation,
-    list_client_tanks, remove_mod, resolve_game_dir, update_from_git_diff, validate_mod,
+    InstallerError, ReplayAnalysis, ReplayOptions, TankExportOptions, analyze_replay,
+    export_tank_catalog, find_latest_replay, install_mod, is_known_nation, list_client_tanks,
+    remove_mod, resolve_game_dir, update_from_git_diff, validate_mod,
 };
 use std::env;
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ fn run() -> i32 {
     let result = match args[0].as_str() {
         "client" => run_client(&args[1..], json),
         "mod" => run_mod(&args[1..], json),
+        "replay" => run_replay(&args[1..], json),
         command => Err(usage_error(&format!("unknown command: {command}"))),
     };
 
@@ -401,6 +403,157 @@ fn run_update(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> 
     Ok(true)
 }
 
+fn run_replay(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+    match args.first().map(String::as_str) {
+        Some("inspect") => run_replay_analysis(&args[1..], json, false),
+        Some("latest") => run_replay_analysis(&args[1..], json, true),
+        _ => Err(usage_error("expected replay inspect or replay latest")),
+    }
+}
+
+fn run_replay_analysis(
+    args: &[String],
+    json: bool,
+    use_latest: bool,
+) -> blitz_mod_installer::Result<bool> {
+    let mut path = None;
+    let mut directory = None;
+    let mut out = None;
+    let mut include_data = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--data" => include_data = true,
+            "--dir" => {
+                i += 1;
+                directory = args.get(i).map(PathBuf::from);
+                if directory.is_none() {
+                    return Err(usage_error("--dir requires a path"));
+                }
+            }
+            "--out" => {
+                i += 1;
+                out = args.get(i).map(PathBuf::from);
+                if out.is_none() {
+                    return Err(usage_error("--out requires a path"));
+                }
+            }
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("unknown option: {flag}")));
+            }
+            value if path.is_none() => path = Some(PathBuf::from(value)),
+            value => return Err(usage_error(&format!("unexpected argument: {value}"))),
+        }
+        i += 1;
+    }
+
+    let replay = if use_latest {
+        if path.is_some() {
+            return Err(usage_error("replay latest accepts no replay path"));
+        }
+        find_latest_replay(directory)?
+    } else {
+        if directory.is_some() {
+            return Err(usage_error("--dir is only valid for replay latest"));
+        }
+        path.ok_or_else(|| usage_error("replay inspect requires a .tbreplay path"))?
+    };
+
+    let analysis = analyze_replay(&replay, ReplayOptions { include_data })?;
+    if let Some(out) = &out {
+        write_replay_json(out, &analysis)?;
+    }
+    if json {
+        print_json(&analysis);
+    } else {
+        print_replay_summary(&analysis);
+        if let Some(out) = &out {
+            println!("json: {}", out.display());
+        }
+    }
+    Ok(true)
+}
+
+fn write_replay_json(path: &PathBuf, analysis: &ReplayAnalysis) -> blitz_mod_installer::Result<()> {
+    let json = serde_json::to_vec_pretty(analysis)
+        .map_err(|error| InstallerError::new("JSON_SERIALIZE_FAILED", error.to_string()))?;
+    std::fs::write(path, json).map_err(|error| {
+        InstallerError::at(
+            "IO_ERROR",
+            format!("cannot write the replay JSON: {error}"),
+            path,
+        )
+    })
+}
+
+fn print_replay_summary(analysis: &ReplayAnalysis) {
+    let meta = &analysis.meta;
+    let results = &analysis.battle_results;
+    let author = &results["author"];
+    println!("{}", analysis.source);
+    println!("client: {}", json_field(meta, "version"));
+    println!(
+        "map: {} (id {}), vehicle: {}",
+        json_field(meta, "mapName"),
+        json_field(meta, "mapId"),
+        json_field(meta, "playerVehicleName")
+    );
+    println!(
+        "author: {} (dbid {}, damage {}, shots {}, hits {}, hp left {})",
+        json_field(meta, "playerName"),
+        json_field(meta, "dbid"),
+        json_field(author, "damage_dealt"),
+        json_field(author, "n_shots"),
+        json_field(author, "n_hits"),
+        json_field(author, "hitpoints_left")
+    );
+    println!(
+        "battle: {:.1}s, arena {}, winner team {}, players {}",
+        meta["battleDuration"].as_f64().unwrap_or_default(),
+        json_field(meta, "arenaUniqueId"),
+        json_field(results, "winner_team_number"),
+        results["players"].as_array().map_or(0, Vec::len)
+    );
+
+    let Some(telemetry) = &analysis.telemetry else {
+        return;
+    };
+    if let Some(packets) = analysis
+        .data
+        .as_ref()
+        .and_then(|data| data["packets"].as_array())
+    {
+        println!("packets: {}", packets.len());
+    }
+    println!("decoder: {}", json_field(telemetry, "decoder"));
+    let summary = &telemetry["summary"];
+    if summary["packet_layout_decoding_supported"] != serde_json::Value::Bool(true) {
+        println!(
+            "telemetry: packet layouts are verified only for {}",
+            json_field(telemetry, "supported_client_version")
+        );
+        return;
+    }
+    println!(
+        "telemetry: shots {}/{}, hits {}/{}, health updates {}, transform updates {}, results snapshots {}",
+        json_field(summary, "projectile_position_packets"),
+        json_field(summary, "shots_in_battle_results"),
+        json_field(summary, "hit_messages"),
+        json_field(summary, "hits_received_in_battle_results"),
+        json_field(summary, "vehicle_health_updates"),
+        json_field(summary, "vehicle_transform_updates"),
+        json_field(summary, "battle_results_snapshot_packets")
+    );
+}
+
+fn json_field(value: &serde_json::Value, key: &str) -> String {
+    match &value[key] {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Null => "?".to_owned(),
+        other => other.to_string(),
+    }
+}
+
 fn take_game_dir(args: &[String]) -> blitz_mod_installer::Result<(Vec<String>, Option<PathBuf>)> {
     let mut positional = Vec::new();
     let mut game_dir = None;
@@ -446,7 +599,10 @@ fn print_usage() {
          blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]\n\
          blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]\n\
          blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]\n\
+         blitz-client replay inspect <replay.tbreplay> [--data] [--out <path>] [--json]\n\
+         blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]\n\
          \n\
-         --game-dir is optional. Without it the first existing default path for this OS is used."
+         --game-dir is optional. Without it the first existing default path for this OS is used.\n\
+         replay latest uses the newest .tbreplay of the platform replay folder; --dir overrides it."
     );
 }

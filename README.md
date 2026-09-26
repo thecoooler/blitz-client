@@ -15,6 +15,9 @@ blitz-client mod validate <mod-dir|mod.toml> [--game-dir <path>] [--json]
 blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]
 blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
 blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]
+
+blitz-client replay inspect <replay.tbreplay> [--data] [--out <path>] [--json]
+blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]
 ```
 
 `--game-dir` accepts either the game directory or the `Data` directory. It is optional; the first existing default path for the current OS is used. An invalid explicit path is an error and never falls back to auto-detection.
@@ -47,6 +50,14 @@ Exporter options:
 - `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Rust exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
 
 SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Rust code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+
+## Replay analysis
+
+`replay inspect` decodes a `.tbreplay` ZIP archive: `meta.json`, the protocol-2 pickle `battle_results.dat` and, with `--data`, the framed `data.replay` packet stream with the recovered telemetry (shots, hits, health and transform updates, booster counters, task markers, packet annotations). A human-readable summary goes to stdout, `--json` prints the whole document and `--out <path>` writes it to a file.
+
+`replay latest` picks the newest `.tbreplay` of the platform replay folder (macOS: `~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/replays`); `--dir <path>` selects another folder.
+
+Packet layouts were verified on `26.8.0_ruby_apple` replays. Other client versions still decode the archive and battle results, keep every raw payload and report `unsupported-client-version` telemetry. Pickle values are read as builtins only: the decoder never imports or runs Python code.
 
 ## Mod commands
 
