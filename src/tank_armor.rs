@@ -33,7 +33,8 @@ pub(crate) fn export_armor(
     let armor_by_part = armor_thickness(&root)?;
     let mount_offsets = mount_offsets(&root)?;
     let scene = asset_archive::parse_sc2_scene(sc2_data)?;
-    let scene_parts = scene_parts(&scene)?;
+    let expected_parts = part_collision_models(&root);
+    let scene_parts = scene_parts(&scene, &expected_parts)?;
     let groups = asset_archive::parse_scg(scg_data)?;
     let mut groups_by_id = HashMap::new();
     for group in groups {
@@ -42,12 +43,12 @@ pub(crate) fn export_armor(
             return Err("duplicate SCG polygon group IDs".to_owned());
         }
     }
-    let scene_ids: HashSet<_> = scene_parts.keys().copied().collect();
-    let group_ids: HashSet<_> = groups_by_id.keys().copied().collect();
-    if scene_ids != group_ids {
-        return Err(format!(
-            "SC2/SCG geometry ID mismatch: SC2={scene_ids:?}, SCG={group_ids:?}"
-        ));
+    for geometry_id in scene_parts.keys() {
+        if !groups_by_id.contains_key(geometry_id) {
+            return Err(format!(
+                "SC2 geometry ID {geometry_id} has no SCG polygon group"
+            ));
+        }
     }
 
     let mut positions = Vec::<f32>::new();
@@ -106,12 +107,7 @@ pub(crate) fn export_armor(
             let position = read_vec3(vertex_data, base)?;
             let normal = read_vec3(vertex_data, base + 12)?;
             let zone_value = read_f32(vertex_data, base + label_offset)?;
-            if !position
-                .iter()
-                .chain(normal.iter())
-                .all(|value| value.is_finite())
-                || !zone_value.is_finite()
-            {
+            if !position.iter().all(|value| value.is_finite()) || !zone_value.is_finite() {
                 return Err(format!("non-finite SCG vertex data in group {geometry_id}"));
             }
             let zone = zone_value.round();
@@ -160,6 +156,21 @@ pub(crate) fn export_armor(
                     )
                 })?;
             let first_triangle_index = indices.len();
+            // The shipped collision meshes contain degenerate triangles whose stored
+            // normals are NaN; derive the plane normal instead, or skip the face when
+            // the triangle has no area to render.
+            let repaired_normal = if triangle.iter().any(|index| {
+                !local_normals[*index as usize]
+                    .iter()
+                    .all(|value| value.is_finite())
+            }) {
+                match triangle_face_normal(&local_positions, triangle) {
+                    Some(normal) => Some(normal),
+                    None => continue,
+                }
+            } else {
+                None
+            };
             for index in triangle {
                 let index = *index as usize;
                 positions.extend(tank_model::transform_position(
@@ -167,7 +178,7 @@ pub(crate) fn export_armor(
                     &transform,
                 )?);
                 normals.extend(tank_model::transform_normal(
-                    local_normals[index],
+                    repaired_normal.unwrap_or(local_normals[index]),
                     &transform,
                 )?);
                 indices.push(indices.len() as u32);
@@ -249,9 +260,41 @@ pub(crate) fn export_armor(
     })
 }
 
-fn scene_parts(scene: &KaValue) -> Result<BTreeMap<u64, ScenePart>, String> {
-    let canonical = [("gun_01", "gun"), ("hull", "hull"), ("turret_01", "turret")];
+fn part_collision_models(root: &XmlNode) -> Vec<(&'static str, String)> {
+    let hull = root.children.iter().find(|node| node.name == "hull");
+    let turret = root
+        .children
+        .iter()
+        .find(|node| node.name == "turrets0")
+        .and_then(|node| node.children.first());
+    let gun = turret
+        .and_then(|node| node.children.iter().find(|child| child.name == "guns"))
+        .and_then(|node| node.children.first());
+    [("hull", hull), ("turret", turret), ("gun", gun)]
+        .into_iter()
+        .filter_map(|(part, node)| {
+            node.and_then(collision_model_name)
+                .map(|model| (part, model))
+        })
+        .collect()
+}
+
+fn collision_model_name(node: &XmlNode) -> Option<String> {
+    let model = node
+        .children
+        .iter()
+        .find(|child| child.name == "hitTester")
+        .and_then(|hit_tester| child_text(hit_tester, "collisionModel"))?;
+    let file = model.rsplit('/').next()?;
+    Some(file.split('.').next()?.to_ascii_lowercase())
+}
+
+fn scene_parts(
+    scene: &KaValue,
+    expected: &[(&'static str, String)],
+) -> Result<BTreeMap<u64, ScenePart>, String> {
     let mut result = BTreeMap::new();
+    let mut scene_names = Vec::new();
     for node in scene
         .get("#hierarchy")
         .and_then(KaValue::as_array)
@@ -261,7 +304,10 @@ fn scene_parts(scene: &KaValue) -> Result<BTreeMap<u64, ScenePart>, String> {
             .get("name")
             .and_then(KaValue::as_str)
             .unwrap_or_default();
-        let Some((_, part_name)) = canonical.iter().find(|(node_name, _)| *node_name == name)
+        scene_names.push(name.to_owned());
+        let Some((part_name, _)) = expected
+            .iter()
+            .find(|(_, model)| model.eq_ignore_ascii_case(name))
         else {
             continue;
         };
@@ -299,10 +345,17 @@ fn scene_parts(scene: &KaValue) -> Result<BTreeMap<u64, ScenePart>, String> {
         );
     }
     let found: HashSet<_> = result.values().map(|part| part.part).collect();
-    if found != HashSet::from(["gun", "hull", "turret"]) {
-        return Err(format!(
-            "collision scene must contain hull, turret and gun; found {found:?}"
-        ));
+    for required in ["hull", "gun"] {
+        if !found.contains(required) {
+            let model = expected
+                .iter()
+                .find(|(part, _)| *part == required)
+                .map(|(_, model)| model.as_str())
+                .unwrap_or("?");
+            return Err(format!(
+                "collision scene has no {required} node (expected {model:?}); scene nodes: {scene_names:?}"
+            ));
+        }
     }
     Ok(result)
 }
@@ -517,6 +570,35 @@ fn read_vec3(bytes: &[u8], offset: usize) -> Result<[f32; 3], String> {
         read_f32(bytes, offset + 4)?,
         read_f32(bytes, offset + 8)?,
     ])
+}
+
+fn triangle_face_normal(positions: &[[f32; 3]], triangle: &[u32]) -> Option<[f32; 3]> {
+    let [a, b, c] = [
+        triangle[0] as usize,
+        triangle[1] as usize,
+        triangle[2] as usize,
+    ];
+    let (start, second, third) = (positions[a], positions[b], positions[c]);
+    let edge1 = [
+        second[0] - start[0],
+        second[1] - start[1],
+        second[2] - start[2],
+    ];
+    let edge2 = [
+        third[0] - start[0],
+        third[1] - start[1],
+        third[2] - start[2],
+    ];
+    let normal = [
+        edge1[1] * edge2[2] - edge1[2] * edge2[1],
+        edge1[2] * edge2[0] - edge1[0] * edge2[2],
+        edge1[0] * edge2[1] - edge1[1] * edge2[0],
+    ];
+    let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    if length <= f32::EPSILON {
+        return None;
+    }
+    Some([normal[0] / length, normal[1] / length, normal[2] / length])
 }
 
 fn decode_indices(group: &KaValue, count: usize) -> Result<Vec<u32>, String> {

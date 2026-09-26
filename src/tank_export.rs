@@ -503,6 +503,7 @@ fn export_one(
         .ok_or_else(|| "tank scene path has no parent directory".to_owned())?;
     let mut seen_textures = HashSet::new();
     let mut texture_conversions = 0usize;
+    let mut placeholder_textures = 0usize;
     for texture in &model.textures {
         if !seen_textures.insert(texture.file.clone()) {
             continue;
@@ -519,7 +520,22 @@ fn export_one(
             model_directory.join(relative_source)
         };
         if !source.is_file() {
-            return Err(format!("client texture not found: {}", source.display()));
+            // Some client maps ship only as PVRTC variants, which ffmpeg cannot
+            // decode; emit the placeholder color in the requested format so the
+            // file still matches the extension the model declares.
+            placeholder_textures += 1;
+            let temp = TempDirectory::new("blitz-tank-texture")?;
+            let placeholder = temp.path.join("placeholder.png");
+            write_fallback_png(&placeholder, &texture.role)?;
+            convert_texture(
+                &placeholder,
+                &target,
+                options.max_texture_size,
+                &options.texture_format,
+                options.webp_quality,
+                texture.lossless,
+            )?;
+            continue;
         }
         convert_texture(
             &source,
@@ -536,6 +552,7 @@ fn export_one(
     let elapsed = started.elapsed().as_secs_f64();
     let bundle_url = format!("./assets/tanks/{}/{}/", tank.nation, tank.id);
     let suffix = if options.compress { ".br" } else { "" };
+    let fallback_maps = model.fallback_maps + placeholder_textures;
     let entry = json!({
         "id": format!("{}/{}", tank.nation, tank.id),
         "name": tank.name,
@@ -557,7 +574,7 @@ fn export_one(
         "triangles": model.triangle_count,
         "vertices": model.vertex_count,
         "materials": model.material_count,
-        "fallbackMaps": model.fallback_maps,
+        "fallbackMaps": fallback_maps,
         "generatedUvGroups": model.generated_uv_groups,
         "modelJsonBytes": model_json_stats.stored_bytes,
         "modelJsonUncompressedBytes": model_json_stats.uncompressed_bytes,
@@ -587,7 +604,7 @@ fn export_one(
         "vertices": model.vertex_count,
         "triangles": model.triangle_count,
         "materials": model.material_count,
-        "fallbackMaps": model.fallback_maps,
+        "fallbackMaps": fallback_maps,
         "generatedUvGroups": model.generated_uv_groups,
         "modelJsonBytes": model_json_stats.stored_bytes,
         "modelJsonUncompressedBytes": model_json_stats.uncompressed_bytes,

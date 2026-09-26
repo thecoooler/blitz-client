@@ -711,22 +711,26 @@ fn material_info(id: u64, materials: &HashMap<u64, KaValue>) -> Result<MaterialI
             1
         }
     });
-    let slots = [
-        ("baseColor", "baseColorMap"),
-        ("normal", "baseNormalMap"),
-        ("roughnessMetallic", "baseRMMap"),
-        ("misc", "miscMap"),
+    // Older client assets carry only the pre-PBR slot names, so each role accepts
+    // candidate slots in priority order.
+    let slots: [(&str, &[&str]); 4] = [
+        ("baseColor", &["baseColorMap", "albedo"]),
+        ("normal", &["baseNormalMap", "normalmap"]),
+        ("roughnessMetallic", &["baseRMMap"]),
+        ("misc", &["miscMap"]),
     ];
     let mut selected: Option<(usize, BTreeMap<String, String>, &KaValue)> = None;
     for config in configs {
         let mut maps = BTreeMap::new();
         let textures = config.get("textures");
-        for (role, slot) in slots {
-            if let Some(path) = textures
-                .and_then(|value| value.get(slot))
-                .and_then(KaValue::as_str)
-                .filter(|path| !path.is_empty())
-            {
+        for (role, candidates) in slots {
+            let path = candidates.iter().find_map(|slot| {
+                textures
+                    .and_then(|value| value.get(slot))
+                    .and_then(KaValue::as_str)
+                    .filter(|path| !path.is_empty())
+            });
+            if let Some(path) = path {
                 maps.insert(role.to_owned(), path.to_owned());
             }
         }
