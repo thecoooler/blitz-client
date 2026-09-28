@@ -113,6 +113,23 @@ pub fn export_tank_catalog(options: &TankExportOptions) -> Result<TankExportRepo
     let discovery_started = Instant::now();
     let discovered = discover_client_tanks(&resolved.resource_dir)?;
     let discovery_seconds = discovery_started.elapsed().as_secs_f64();
+    export_tank_catalog_from_discovered(
+        options,
+        &resolved.resource_dir,
+        discovered,
+        discovery_seconds,
+        total_started,
+    )
+}
+
+pub(crate) fn export_tank_catalog_from_discovered(
+    options: &TankExportOptions,
+    resource_dir: &Path,
+    discovered: Vec<ClientTank>,
+    discovery_seconds: f64,
+    total_started: Instant,
+) -> Result<TankExportReport> {
+    validate_options(options)?;
     let ordered = select_tanks(&discovered, options)?;
     let requested_count = if options.tanks.is_empty() {
         if options.limit == 0 {
@@ -146,7 +163,7 @@ pub fn export_tank_catalog(options: &TankExportOptions) -> Result<TankExportRepo
         if !attempted.insert((tank.nation.clone(), tank.id.clone())) {
             continue;
         }
-        match export_one(&tank, &resolved.resource_dir, &output_root, options) {
+        match export_one(&tank, resource_dir, &output_root, options) {
             Ok((entry, measurement)) => {
                 entries.push(entry);
                 per_tank.push(measurement);
@@ -185,7 +202,7 @@ pub fn export_tank_catalog(options: &TankExportOptions) -> Result<TankExportRepo
     let summary = ExportSummary {
         started_at,
         finished_at: iso_timestamp(SystemTime::now()),
-        data_root: resolved.resource_dir.to_string_lossy().into_owned(),
+        data_root: resource_dir.to_string_lossy().into_owned(),
         discovered_client_tank_count: discovered.len(),
         discovery_seconds,
         requested_limit,
@@ -445,18 +462,34 @@ fn export_one(
     let armor_mesh_path = bundle.join("armor-mesh.json");
     remove_asset(&armor_path);
     remove_asset(&armor_mesh_path);
-    let collision_root = data_root.join("3d/Tanks/CollisionMeshes");
-    let collision_sc2 = collision_root.join(format!("{}-{}.sc2.dvpl", tank.nation, tank.id));
-    let collision_scg = collision_root.join(format!("{}-{}.scg.dvpl", tank.nation, tank.id));
-    let vehicle_xml = data_root
-        .join("XML/item_defs/vehicles")
-        .join(&tank.nation)
-        .join(format!("{}.xml.dvpl", tank.id));
+    let collision_sc2 = crate::client::resolve_client_asset(
+        data_root,
+        &format!(
+            "3d/Tanks/CollisionMeshes/{}-{}.sc2.dvpl",
+            tank.nation, tank.id
+        ),
+    );
+    let collision_scg = crate::client::resolve_client_asset(
+        data_root,
+        &format!(
+            "3d/Tanks/CollisionMeshes/{}-{}.scg.dvpl",
+            tank.nation, tank.id
+        ),
+    );
+    let vehicle_xml = crate::client::resolve_client_asset(
+        data_root,
+        &format!(
+            "XML/item_defs/vehicles/{}/{}.xml.dvpl",
+            tank.nation, tank.id
+        ),
+    );
     let mut has_armor = false;
     let mut armor_note = None;
     let mut armor_stats = AssetStats::default();
     let mut armor_mesh_stats = AssetStats::default();
-    if collision_sc2.is_file() && collision_scg.is_file() && vehicle_xml.is_file() {
+    if let (Some(collision_sc2), Some(collision_scg), Some(vehicle_xml)) =
+        (collision_sc2, collision_scg, vehicle_xml)
+    {
         let armor_result = (|| {
             let result = tank_armor::export_armor(
                 &read_decoded(&collision_sc2)?,
@@ -664,7 +697,7 @@ fn write_compressed_asset(path: &Path, bytes: &[u8], compress: bool) -> Result<A
     })
 }
 
-fn write_json(path: &Path, value: &Json, compress: bool) -> Result<()> {
+pub(crate) fn write_json(path: &Path, value: &impl Serialize, compress: bool) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| InstallerError::new("JSON_SERIALIZE_FAILED", error.to_string()))?;
     write_compressed_asset(path, &bytes, compress).map(|_| ())

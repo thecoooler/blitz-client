@@ -1,7 +1,8 @@
 use blitz_mod_installer::{
-    InstallerError, ReplayAnalysis, ReplayOptions, TankExportOptions, analyze_replay,
-    export_tank_catalog, find_latest_replay, install_mod, is_known_nation, list_client_tanks,
-    remove_mod, resolve_game_dir, update_from_git_diff, validate_mod,
+    ClientExportOptions, InstallerError, ReplayAnalysis, ReplayOptions, TankExportOptions,
+    analyze_replay, export_client, export_tank_catalog, find_latest_replay, install_mod,
+    is_known_nation, list_client_tanks, remove_mod, resolve_game_dir, update_from_git_diff,
+    validate_mod,
 };
 use std::env;
 use std::path::PathBuf;
@@ -58,6 +59,7 @@ fn run_client(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> 
         });
     }
     match args {
+        [action, rest @ ..] if action == "export" => run_client_export(rest, json),
         [group, action, rest @ ..] if group == "tanks" && action == "list" => {
             run_tank_list(rest, json)
         }
@@ -65,7 +67,7 @@ fn run_client(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> 
             run_tank_export(rest, json)
         }
         _ => Err(usage_error(
-            "expected client locate or client tanks list/export",
+            "expected client locate, client export, or client tanks list/export",
         )),
     }
 }
@@ -147,8 +149,66 @@ fn run_tank_list(args: &[String], json: bool) -> blitz_mod_installer::Result<boo
 }
 
 fn run_tank_export(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+    let (mut options, viewer_dir, _) = parse_model_export_options(args, false)?;
+    options.viewer_dir = viewer_dir
+        .ok_or_else(|| usage_error("client tanks export requires --viewer-dir <path>"))?;
+    let report = export_tank_catalog(&options)?;
+    if json {
+        print_json(&report);
+    } else {
+        println!(
+            "Exported {} tank model(s); {} failed",
+            report.exported_count, report.failed_count
+        );
+        println!("catalog: {}", report.catalog.display());
+        println!("report: {}", report.export_report.display());
+        for failure in report.failures {
+            eprintln!("FAIL {}: {}", failure.id, failure.error);
+        }
+    }
+    Ok(true)
+}
+
+fn run_client_export(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+    let (model_options, output_dir, data_only) = parse_model_export_options(args, true)?;
+    let mut options = ClientExportOptions::new(
+        output_dir.ok_or_else(|| usage_error("client export requires --output-dir <path>"))?,
+    );
+    options.game_dir = model_options.game_dir.clone();
+    options.model_options = model_options;
+    options.data_only = data_only;
+    let report = export_client(&options)?;
+    if json {
+        print_json(&report);
+    } else {
+        println!(
+            "Exported {} map(s) and {} tank record(s)",
+            report.map_count, report.tank_count
+        );
+        println!("maps: {}", report.maps_file.display());
+        println!("tanks: {}", report.tanks_file.display());
+        if let Some(models) = report.model_export {
+            println!(
+                "Exported {} tank model(s); {} failed",
+                models.exported_count, models.failed_count
+            );
+            println!("model catalog: {}", models.catalog.display());
+            println!("model report: {}", models.export_report.display());
+            for failure in models.failures {
+                eprintln!("FAIL {}: {}", failure.id, failure.error);
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn parse_model_export_options(
+    args: &[String],
+    unified: bool,
+) -> blitz_mod_installer::Result<(TankExportOptions, Option<PathBuf>, bool)> {
     let mut options = TankExportOptions::new(".");
-    let mut viewer_dir = None;
+    let mut output_dir = None;
+    let mut data_only = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -159,13 +219,21 @@ fn run_tank_export(args: &[String], json: bool) -> blitz_mod_installer::Result<b
                     return Err(usage_error("--game-dir requires a path"));
                 }
             }
-            "--viewer-dir" => {
+            "--viewer-dir" if !unified => {
                 i += 1;
-                viewer_dir = args.get(i).map(PathBuf::from);
-                if viewer_dir.is_none() {
+                output_dir = args.get(i).map(PathBuf::from);
+                if output_dir.is_none() {
                     return Err(usage_error("--viewer-dir requires a path"));
                 }
             }
+            "--output-dir" if unified => {
+                i += 1;
+                output_dir = args.get(i).map(PathBuf::from);
+                if output_dir.is_none() {
+                    return Err(usage_error("--output-dir requires a path"));
+                }
+            }
+            "--data-only" if unified => data_only = true,
             "--tank" => {
                 i += 1;
                 options.tanks.push(
@@ -225,23 +293,7 @@ fn run_tank_export(args: &[String], json: bool) -> blitz_mod_installer::Result<b
         }
         i += 1;
     }
-    options.viewer_dir = viewer_dir
-        .ok_or_else(|| usage_error("client tanks export requires --viewer-dir <path>"))?;
-    let report = export_tank_catalog(&options)?;
-    if json {
-        print_json(&report);
-    } else {
-        println!(
-            "Exported {} tank model(s); {} failed",
-            report.exported_count, report.failed_count
-        );
-        println!("catalog: {}", report.catalog.display());
-        println!("report: {}", report.export_report.display());
-        for failure in report.failures {
-            eprintln!("FAIL {}: {}", failure.id, failure.error);
-        }
-    }
-    Ok(true)
+    Ok((options, output_dir, data_only))
 }
 
 fn parse_texture_size(value: &str) -> blitz_mod_installer::Result<Option<(u32, u32)>> {
@@ -594,6 +646,7 @@ fn print_usage() {
          \n\
          blitz-client client locate [--game-dir <path>] [--json]\n\
          blitz-client client tanks list [--game-dir <path>] [--json]\n\
+         blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]\n\
          blitz-client client tanks export [--game-dir <path>] --viewer-dir <path> [--tank <nation/ID>] [--limit <N>] [--pbr] [--no-compress] [--json]\n\
          blitz-client mod validate <mod-dir|mod.toml> [--game-dir <path>] [--json]\n\
          blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]\n\

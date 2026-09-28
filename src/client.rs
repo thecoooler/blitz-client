@@ -1,4 +1,4 @@
-use crate::{InstallerError, Result, dvpl, resolve_game_dir};
+use crate::{Result, dvpl, resolve_game_dir};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -54,56 +54,10 @@ pub fn list_client_tanks(game_dir: Option<PathBuf>) -> Result<Vec<ClientTank>> {
 
 /// Read the client's vehicle lists and keep entries with a paired SC2/SCG model.
 pub fn discover_client_tanks(data_dir: &Path) -> Result<Vec<ClientTank>> {
-    let vehicles_dir = data_dir.join("XML/item_defs/vehicles");
-    if !vehicles_dir.is_dir() {
-        return Err(InstallerError::at(
-            "CLIENT_DATA_INVALID",
-            "the selected directory does not contain XML/item_defs/vehicles",
-            data_dir.to_path_buf(),
-        ));
-    }
-    let localized_names = read_localized_names(data_dir)?;
-    let mut vehicles = Vec::new();
-
-    for (nation, model_folder, nation_label) in NATIONS {
-        let list_path = vehicles_dir.join(nation).join("list.xml.dvpl");
-        if !list_path.is_file() {
-            continue;
-        }
-        let list_bytes = read_client_asset(&list_path)?;
-        let root = parse_xml(&list_bytes).map_err(|message| {
-            InstallerError::at("CLIENT_XML_INVALID", message, list_path.clone())
-        })?;
-        let model_dir = data_dir.join("3d/Tanks").join(model_folder);
-
-        for item in &root.children {
-            let scene = model_dir.join(format!("{}.sc2.dvpl", item.name));
-            let geometry = model_dir.join(format!("{}.scg.dvpl", item.name));
-            if !scene.is_file() || !geometry.is_file() {
-                continue;
-            }
-            let user_string = child_text(item, "userString");
-            let fallback_name = item.name.replace('_', " ");
-            let name = user_string
-                .as_deref()
-                .and_then(|key| localized_names.get(key))
-                .cloned()
-                .unwrap_or(fallback_name);
-            vehicles.push(ClientTank {
-                id: item.name.clone(),
-                nation: nation.to_owned(),
-                nation_label: nation_label.to_owned(),
-                level: child_text(item, "level"),
-                user_string,
-                name,
-                model_files: TankModelFiles { scene, geometry },
-            });
-        }
-    }
-    Ok(vehicles)
+    crate::client_catalog::discover_models(data_dir)
 }
 
-fn read_client_asset(path: &Path) -> Result<Vec<u8>> {
+pub(crate) fn read_client_asset(path: &Path) -> Result<Vec<u8>> {
     let bytes = fs::read(path)
         .map_err(|error| crate::io_error("could not read client resource", path, error))?;
     dvpl::decode(&bytes)
@@ -114,11 +68,10 @@ fn read_client_asset(path: &Path) -> Result<Vec<u8>> {
         })
 }
 
-fn read_localized_names(data_dir: &Path) -> Result<HashMap<String, String>> {
-    let path = data_dir.join("Strings/ru.yaml.dvpl");
-    if !path.is_file() {
+pub(crate) fn read_localized_names(data_dir: &Path) -> Result<HashMap<String, String>> {
+    let Some(path) = resolve_client_asset(data_dir, "Strings/ru.yaml") else {
         return Ok(HashMap::new());
-    }
+    };
     let bytes = read_client_asset(&path)?;
     let content = String::from_utf8_lossy(&bytes);
     let mut names = HashMap::new();
@@ -130,6 +83,29 @@ fn read_localized_names(data_dir: &Path) -> Result<HashMap<String, String>> {
         names.insert(key, value);
     }
     Ok(names)
+}
+
+pub(crate) fn resolve_client_asset(data_dir: &Path, relative: &str) -> Option<PathBuf> {
+    if let Some(plain_relative) = relative.strip_suffix(".dvpl") {
+        let plain_path = data_dir.join(plain_relative);
+        if plain_path.is_file() {
+            return Some(plain_path);
+        }
+        let dvpl_path = data_dir.join(relative);
+        if dvpl_path.is_file() {
+            return Some(dvpl_path);
+        }
+    } else {
+        let path = data_dir.join(relative);
+        if path.is_file() {
+            return Some(path);
+        }
+        let dvpl_path = data_dir.join(format!("{relative}.dvpl"));
+        if dvpl_path.is_file() {
+            return Some(dvpl_path);
+        }
+    }
+    None
 }
 
 fn parse_quoted_yaml_pair(line: &str) -> Option<(String, String)> {

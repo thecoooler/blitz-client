@@ -1,5 +1,7 @@
 mod asset_archive;
 mod client;
+mod client_catalog;
+mod client_export;
 mod dvpl;
 mod game_dir;
 mod git_diff;
@@ -14,6 +16,10 @@ mod tank_model;
 pub use client::{
     ClientTank, TankModelFiles, discover_client_tanks, is_known_nation, list_client_tanks,
 };
+pub use client_catalog::{
+    ClientCatalog, ClientMap, ClientPrice, ClientTankMetadata, discover as discover_client_catalog,
+};
+pub use client_export::{ClientExportOptions, ClientExportReport, export_client};
 pub use game_dir::{ResolvedGameDir, discover_game_dir, resolve_game_dir};
 pub use installer::{
     FileValidation, InstallReport, RemovalReport, ValidationReport, install_mod, remove_mod,
