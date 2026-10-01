@@ -239,6 +239,35 @@ seconds, then writes 1,024 bytes every 25 ms. Start the printed follower command
 in another terminal; it also reads any bytes written before it starts. The
 completed or interrupted file is kept for inspection.
 
+To simulate the game's recording layout in its real replay folder:
+
+```sh
+python3 scripts/simulate-replay.py --game-replays
+```
+
+This uses the same macOS/Windows default paths as `client locate` and creates
+`recording_ReplaySimulator.tbreplay/data.replay`. Choose another nickname with
+`--nickname`; the nickname only changes the directory name, not player names or
+other bytes inside the source replay:
+
+```sh
+python3 scripts/simulate-replay.py --game-replays --nickname iCooLER
+```
+
+The recording directory must not already exist, even if it is empty. The script
+refuses to reuse it to protect an ongoing real battle. Choose another nickname
+for repeated runs. After writing, the directory is kept for inspection; the
+script does not package it into a finished replay ZIP.
+
+Use a specific replay folder (also on OSes without a configured default):
+
+```sh
+python3 scripts/simulate-replay.py --replay-dir /tmp/test-replays --nickname TestPlayer
+```
+
+`--game-replays`, `--replay-dir`, and `--output` are mutually exclusive.
+Chunk sizes, delays, and source selection work the same in all modes.
+
 For a known destination, start the follower first in one terminal:
 
 ```sh
@@ -267,6 +296,12 @@ inside the original recording are preserved and do not determine write timing.
 Use `--interval-ms 0 --start-delay 0` for a fast copy. Stop the follower with
 Ctrl+C after the writer finishes, or configure its `--idle-timeout-ms` longer
 than the initial wait and chunk interval.
+
+Run the simulator checks (they write only into temporary directories):
+
+```sh
+python3 -B -m unittest discover -s tests -p test_simulate_replay.py
+```
 
 ## Mod commands
 
