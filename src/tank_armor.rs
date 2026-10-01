@@ -35,16 +35,9 @@ pub(crate) fn export_armor(
     let scene = asset_archive::parse_sc2_scene(sc2_data)?;
     let expected_parts = part_collision_models(&root);
     let scene_parts = scene_parts(&scene, &expected_parts)?;
-    let groups = asset_archive::parse_scg(scg_data)?;
-    let mut groups_by_id = HashMap::new();
-    for group in groups {
-        let id = asset_archive::group_id(&group.fields)?;
-        if groups_by_id.insert(id, group.fields).is_some() {
-            return Err("duplicate SCG polygon group IDs".to_owned());
-        }
-    }
+    let geometry = asset_archive::parse_scg(scg_data)?;
     for geometry_id in scene_parts.keys() {
-        if !groups_by_id.contains_key(geometry_id) {
+        if !geometry.contains_group(*geometry_id) {
             return Err(format!(
                 "SC2 geometry ID {geometry_id} has no SCG polygon group"
             ));
@@ -64,7 +57,7 @@ pub(crate) fn export_armor(
     let mut ordered_parts: Vec<_> = scene_parts.iter().collect();
     ordered_parts.sort_by_key(|(geometry_id, _)| **geometry_id);
     for (geometry_id, part) in ordered_parts {
-        let group = groups_by_id.get(geometry_id).unwrap();
+        let group = geometry.decode(*geometry_id)?;
         let mut transform = part.transform.clone();
         let offset = mount_offsets
             .get(part.part)
@@ -73,40 +66,15 @@ pub(crate) fn export_armor(
             transform.translation[axis] += value;
         }
 
-        let vertex_format = field_u64(group, "vertexFormat")? as u32;
-        if vertex_format & 1 == 0 || vertex_format & (1 << 1) == 0 || vertex_format & (1 << 9) == 0
-        {
-            return Err(format!(
-                "SCG group {geometry_id} lacks position, normal or armor-zone attribute"
-            ));
-        }
-        let stride: usize = (0..20)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let vertex_data = field_bytes(group, "vertices")?;
-        let vertex_count = field_u64(group, "vertexCount")? as usize;
-        let index_count = field_u64(group, "indexCount")? as usize;
-        if vertex_data.len() != stride.saturating_mul(vertex_count) {
-            return Err(format!(
-                "SCG vertex buffer size mismatch in group {geometry_id}"
-            ));
-        }
-        if field_u64(group, "rhi_primitiveType")? != 1 {
-            return Err(format!("SCG group {geometry_id} is not a triangle list"));
-        }
-        let label_offset: usize = (0..9)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let mut local_positions = Vec::with_capacity(vertex_count);
-        let mut local_normals = Vec::with_capacity(vertex_count);
-        let mut zones = Vec::with_capacity(vertex_count);
-        for vertex in 0..vertex_count {
-            let base = vertex * stride;
-            let position = read_vec3(vertex_data, base)?;
-            let normal = read_vec3(vertex_data, base + 12)?;
-            let zone_value = read_f32(vertex_data, base + label_offset)?;
+        let local_positions = group.positions;
+        let local_normals = group
+            .normals
+            .ok_or_else(|| format!("SCG group {geometry_id} lacks normal attribute"))?;
+        let zone_values = group
+            .armor_zones
+            .ok_or_else(|| format!("SCG group {geometry_id} lacks armor-zone attribute"))?;
+        let mut zones = Vec::with_capacity(zone_values.len());
+        for (position, zone_value) in local_positions.iter().zip(zone_values) {
             if !position.iter().all(|value| value.is_finite()) || !zone_value.is_finite() {
                 return Err(format!("non-finite SCG vertex data in group {geometry_id}"));
             }
@@ -117,16 +85,9 @@ pub(crate) fn export_armor(
                     "non-integer SCG armor label {zone_value} in group {geometry_id}"
                 ));
             }
-            local_positions.push(position);
-            local_normals.push(normal);
             zones.push(zone as i32);
         }
-        let local_indices = decode_indices(group, index_count)?;
-        if index_count % 3 != 0 {
-            return Err(format!(
-                "SCG triangle index count is not divisible by 3 in group {geometry_id}"
-            ));
-        }
+        let local_indices = group.indices;
         let numeric_part = part_numeric_id
             .iter()
             .find(|(name, _)| *name == part.part)
@@ -135,9 +96,6 @@ pub(crate) fn export_armor(
         let first_face = faces.len();
         let first_index = indices.len();
         for triangle in local_indices.chunks_exact(3) {
-            if triangle.iter().any(|index| *index as usize >= vertex_count) {
-                return Err(format!("SCG index out of range in geometry {geometry_id}"));
-            }
             let mut label_iter = triangle.iter().map(|index| zones[*index as usize]);
             let armor_id = label_iter.next().unwrap();
             if label_iter.any(|label| label != armor_id) {
@@ -542,36 +500,6 @@ fn client_position(value: Option<&str>, label: &str) -> Result<[f32; 3], String>
     Ok([numbers[0], numbers[2], numbers[1]])
 }
 
-fn field_u64(map: &KaValue, field: &str) -> Result<u64, String> {
-    map.get(field)
-        .and_then(KaValue::as_u64)
-        .ok_or_else(|| format!("missing/invalid SCG field {field}"))
-}
-
-fn field_bytes<'a>(map: &'a KaValue, field: &str) -> Result<&'a [u8], String> {
-    map.get(field)
-        .and_then(KaValue::as_bytes)
-        .ok_or_else(|| format!("missing/invalid SCG byte field {field}"))
-}
-
-fn read_f32(bytes: &[u8], offset: usize) -> Result<f32, String> {
-    let end = offset
-        .checked_add(4)
-        .ok_or_else(|| "vertex offset overflow".to_owned())?;
-    let bytes = bytes
-        .get(offset..end)
-        .ok_or_else(|| "vertex attribute outside SCG buffer".to_owned())?;
-    Ok(f32::from_le_bytes(bytes.try_into().unwrap()))
-}
-
-fn read_vec3(bytes: &[u8], offset: usize) -> Result<[f32; 3], String> {
-    Ok([
-        read_f32(bytes, offset)?,
-        read_f32(bytes, offset + 4)?,
-        read_f32(bytes, offset + 8)?,
-    ])
-}
-
 fn triangle_face_normal(positions: &[[f32; 3]], triangle: &[u32]) -> Option<[f32; 3]> {
     let [a, b, c] = [
         triangle[0] as usize,
@@ -599,22 +527,4 @@ fn triangle_face_normal(positions: &[[f32; 3]], triangle: &[u32]) -> Option<[f32
         return None;
     }
     Some([normal[0] / length, normal[1] / length, normal[2] / length])
-}
-
-fn decode_indices(group: &KaValue, count: usize) -> Result<Vec<u32>, String> {
-    let bytes = field_bytes(group, "indices")?;
-    match field_u64(group, "indexFormat")? {
-        0 if bytes.len() == count.saturating_mul(2) => Ok(bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]) as u32)
-            .collect()),
-        1 if bytes.len() == count.saturating_mul(4) => Ok(bytes
-            .chunks_exact(4)
-            .map(|quad| u32::from_le_bytes(quad.try_into().unwrap()))
-            .collect()),
-        format @ (0 | 1) => Err(format!(
-            "SCG index buffer size mismatch for format {format}"
-        )),
-        format => Err(format!("unknown SCG index format {format}")),
-    }
 }

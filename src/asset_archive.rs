@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 const MAX_DEPTH: usize = 100;
 const MAX_VALUE_COUNT: usize = 16_000_000;
-const ATTRIBUTE_BYTES: [usize; 20] = [
-    12, 12, 4, 8, 8, 8, 8, 12, 12, 4, 16, 12, 4, 8, 16, 16, 12, 12, 12, 12,
-];
+mod scg;
+
+pub(crate) use scg::ScgGeometry;
 
 #[derive(Debug, Clone)]
 pub(crate) enum KaValue {
@@ -82,11 +82,6 @@ impl KaValue {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ScgGroup {
-    pub(crate) fields: KaValue,
-}
-
 pub(crate) fn parse_sc2_scene(data: &[u8]) -> Result<KaValue, String> {
     let mut reader = Reader::new(data);
     if reader.take(4)? != b"SFV2" {
@@ -104,7 +99,7 @@ pub(crate) fn parse_sc2_scene(data: &[u8]) -> Result<KaValue, String> {
     Ok(root)
 }
 
-pub(crate) fn parse_scg(data: &[u8]) -> Result<Vec<ScgGroup>, String> {
+pub(crate) fn parse_scg(data: &[u8]) -> Result<ScgGeometry, String> {
     let mut reader = Reader::new(data);
     if reader.take(4)? != b"SCPG" {
         return Err("SCG input does not begin with SCPG".to_owned());
@@ -119,30 +114,12 @@ pub(crate) fn parse_scg(data: &[u8]) -> Result<Vec<ScgGroup>, String> {
     }
     let mut groups = Vec::with_capacity(count);
     for _ in 0..count {
-        groups.push(ScgGroup {
-            fields: reader.archive(None, 0)?,
-        });
+        groups.push(reader.archive(None, 0)?);
     }
     if reader.remaining() != 0 {
         return Err(format!("unparsed SCG bytes remain: {}", reader.remaining()));
     }
-    Ok(groups)
-}
-
-pub(crate) fn group_id(group: &KaValue) -> Result<u64, String> {
-    match group.get("#id") {
-        Some(KaValue::Bytes(bytes)) if bytes.len() == 8 => {
-            Ok(u64::from_le_bytes(bytes.as_slice().try_into().unwrap()))
-        }
-        Some(value) => value
-            .as_u64()
-            .ok_or_else(|| format!("unexpected SCG polygon group id: {value:?}")),
-        None => Err("SCG polygon group has no #id".to_owned()),
-    }
-}
-
-pub(crate) fn attribute_bytes(bit: usize) -> usize {
-    ATTRIBUTE_BYTES[bit]
+    ScgGeometry::from_groups(groups)
 }
 
 struct Reader<'a> {
@@ -415,3 +392,6 @@ fn value_key(value: &KaValue) -> String {
         other => format!("{other:?}"),
     }
 }
+
+#[cfg(test)]
+mod tests;

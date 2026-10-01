@@ -71,21 +71,13 @@ pub(crate) fn export_model(
     if bindings.is_empty() {
         return Err("SC2 scene contains no visible render batches".to_owned());
     }
-    let groups = asset_archive::parse_scg(scg_data)?;
-    let mut groups_by_id = HashMap::new();
-    for group in groups {
-        let id = asset_archive::group_id(&group.fields)?;
-        if groups_by_id.insert(id, group.fields).is_some() {
-            return Err(format!("duplicate SCG polygon group id {id}"));
-        }
-    }
-    let available_group_ids: BTreeSet<_> = groups_by_id.keys().copied().collect();
+    let geometry = asset_archive::parse_scg(scg_data)?;
     let missing: Vec<_> = bindings
         .iter()
         .map(|binding| binding.geometry_id)
         .collect::<BTreeSet<_>>()
-        .difference(&available_group_ids)
-        .copied()
+        .into_iter()
+        .filter(|id| !geometry.contains_group(*id))
         .collect();
     if !missing.is_empty() {
         return Err(format!(
@@ -136,118 +128,41 @@ pub(crate) fn export_model(
     });
 
     for (binding_index, binding) in ordered_bindings {
-        let group = groups_by_id
-            .get(&binding.geometry_id)
-            .ok_or_else(|| format!("missing SCG geometry group {}", binding.geometry_id))?;
-        let vertex_format = field_u64(group, "vertexFormat")? as u32;
-        if vertex_format & 1 == 0 {
-            return Err(format!("SCG group {} lacks positions", binding.geometry_id));
-        }
-        let stride: usize = (0..20)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let raw_vertices = field_bytes(group, "vertices")?;
-        let vertex_count = field_u64(group, "vertexCount")? as usize;
-        if raw_vertices.len() != stride.saturating_mul(vertex_count) {
-            return Err(format!(
-                "SCG vertex buffer size mismatch in group {}",
-                binding.geometry_id
-            ));
-        }
-        if field_u64(group, "rhi_primitiveType")? != 1 {
-            return Err(format!(
-                "SCG group {} is not a triangle list",
-                binding.geometry_id
-            ));
-        }
-
-        let normal_offset = asset_archive::attribute_bytes(0);
-        let uv_offset: usize = (0..3)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let color_offset: usize = (0..2)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let tangent_offset: usize = (0..7)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let binormal_offset: usize = (0..8)
-            .filter(|bit| vertex_format & (1 << bit) != 0)
-            .map(asset_archive::attribute_bytes)
-            .sum();
-        let has_normals = vertex_format & (1 << 1) != 0;
-        let has_color = vertex_format & (1 << 2) != 0;
-        let has_uvs = vertex_format & (1 << 3) != 0;
-        let has_tangents = include_pbr && vertex_format & (1 << 7) != 0;
-        let has_binormals = include_pbr && vertex_format & (1 << 8) != 0;
-
-        let mut local_positions = Vec::with_capacity(vertex_count);
-        let mut local_normals = Vec::with_capacity(vertex_count);
-        let mut local_uvs = Vec::with_capacity(vertex_count);
-        let mut local_colors = Vec::with_capacity(vertex_count);
-        let mut local_tangents = Vec::with_capacity(vertex_count);
-        let mut local_binormals = Vec::with_capacity(vertex_count);
-        for vertex in 0..vertex_count {
-            let base = vertex * stride;
-            let p = read_vec3(raw_vertices, base)?;
-            let n = if has_normals {
-                read_vec3(raw_vertices, base + normal_offset)?
-            } else {
-                [0.0; 3]
-            };
-            let uv = if has_uvs {
-                read_vec2(raw_vertices, base + uv_offset)?
-            } else {
-                [0.0; 2]
-            };
-            if !p.iter().chain(uv.iter()).all(|value| value.is_finite()) {
-                return Err(format!(
-                    "non-finite vertex attribute in SCG group {}",
-                    binding.geometry_id
-                ));
-            }
-            local_positions.push(p);
-            local_normals.push(n);
-            local_uvs.push(uv);
-            if has_color {
-                let color_bytes = raw_vertices
-                    .get(base + color_offset..base + color_offset + 4)
-                    .ok_or_else(|| "SCG color attribute outside vertex buffer".to_owned())?;
-                local_colors.push(std::array::from_fn(|index| {
-                    color_bytes[index] as f32 / 255.0
-                }));
-            } else {
-                local_colors.push([1.0; 4]);
-            }
-            if include_pbr {
-                local_tangents.push(if has_tangents {
-                    read_vec3(raw_vertices, base + tangent_offset)?
-                } else {
-                    [0.0; 3]
-                });
-                local_binormals.push(if has_binormals {
-                    read_vec3(raw_vertices, base + binormal_offset)?
-                } else {
-                    [0.0; 3]
-                });
-            }
-        }
-
-        let local_indices = decode_indices(group)?;
-        if local_indices.len() % 3 != 0
-            || local_indices
-                .iter()
-                .any(|index| *index as usize >= vertex_count)
+        let group = geometry.decode(binding.geometry_id)?;
+        let vertex_count = group.positions.len();
+        let has_uvs = group.uvs.is_some();
+        let local_positions = group.positions;
+        let mut local_normals = group
+            .normals
+            .unwrap_or_else(|| vec![[0.0; 3]; vertex_count]);
+        let mut local_uvs = group.uvs.unwrap_or_else(|| vec![[0.0; 2]; vertex_count]);
+        if !local_positions
+            .iter()
+            .flatten()
+            .chain(local_uvs.iter().flatten())
+            .all(|value| value.is_finite())
         {
             return Err(format!(
-                "invalid SCG index buffer for geometry {}",
+                "non-finite vertex attribute in SCG group {}",
                 binding.geometry_id
             ));
         }
+        let local_colors = group.colors.unwrap_or_else(|| vec![[1.0; 4]; vertex_count]);
+        let local_tangents = if include_pbr {
+            group
+                .tangents
+                .unwrap_or_else(|| vec![[0.0; 3]; vertex_count])
+        } else {
+            Vec::new()
+        };
+        let local_binormals = if include_pbr {
+            group
+                .binormals
+                .unwrap_or_else(|| vec![[0.0; 3]; vertex_count])
+        } else {
+            Vec::new()
+        };
+        let local_indices = group.indices;
         if !has_uvs {
             local_uvs = planar_uvs(&local_positions);
             generated_uv_groups += 1;
@@ -836,58 +751,6 @@ fn build_material_json(
             item
         })
         .collect()
-}
-
-fn decode_indices(group: &KaValue) -> Result<Vec<u32>, String> {
-    let format = field_u64(group, "indexFormat")?;
-    let bytes = field_bytes(group, "indices")?;
-    let count = field_u64(group, "indexCount")? as usize;
-    match format {
-        0 if bytes.len() == count * 2 => Ok(bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]) as u32)
-            .collect()),
-        1 if bytes.len() == count * 4 => Ok(bytes
-            .chunks_exact(4)
-            .map(|quad| u32::from_le_bytes(quad.try_into().unwrap()))
-            .collect()),
-        0 | 1 => Err("SCG index buffer size mismatch".to_owned()),
-        other => Err(format!("unknown SCG index format {other}")),
-    }
-}
-
-fn field_u64(map: &KaValue, field: &str) -> Result<u64, String> {
-    map.get(field)
-        .and_then(KaValue::as_u64)
-        .ok_or_else(|| format!("missing or invalid SC2/SCG field {field}"))
-}
-
-fn field_bytes<'a>(map: &'a KaValue, field: &str) -> Result<&'a [u8], String> {
-    map.get(field)
-        .and_then(KaValue::as_bytes)
-        .ok_or_else(|| format!("missing or invalid SC2/SCG byte field {field}"))
-}
-
-fn read_f32(bytes: &[u8], offset: usize) -> Result<f32, String> {
-    let end = offset
-        .checked_add(4)
-        .ok_or_else(|| "vertex offset overflow".to_owned())?;
-    let data = bytes
-        .get(offset..end)
-        .ok_or_else(|| "vertex attribute outside SCG buffer".to_owned())?;
-    Ok(f32::from_le_bytes(data.try_into().unwrap()))
-}
-
-fn read_vec3(bytes: &[u8], offset: usize) -> Result<Vec3, String> {
-    Ok([
-        read_f32(bytes, offset)?,
-        read_f32(bytes, offset + 4)?,
-        read_f32(bytes, offset + 8)?,
-    ])
-}
-
-fn read_vec2(bytes: &[u8], offset: usize) -> Result<Vec2, String> {
-    Ok([read_f32(bytes, offset)?, read_f32(bytes, offset + 4)?])
 }
 
 fn planar_uvs(positions: &[Vec3]) -> Vec<Vec2> {

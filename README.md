@@ -73,6 +73,12 @@ The following model options apply to both model export commands:
 
 SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Rust code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
 
+SCG groups share binary-layout, buffer-size, and triangle-index validation.
+Geometry is decoded only for groups referenced by the selected scene nodes;
+unused groups still require valid, unique IDs. Used groups with unknown vertex
+layout bits or overflowing counts produce an explicit error. Showroom UV/normal
+repairs and collision armor-zone checks remain specific to their export paths.
+
 ## Replay analysis
 
 `replay inspect` decodes a `.tbreplay` ZIP archive: `meta.json`, the protocol-2 pickle `battle_results.dat` and, with `--data`, the framed `data.replay` packet stream with the recovered telemetry (shots, hits, health and transform updates, booster counters, task markers, packet annotations). A human-readable summary goes to stdout, `--json` prints the whole document and `--out <path>` writes it to a file.
