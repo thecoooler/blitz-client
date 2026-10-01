@@ -41,8 +41,10 @@ The preferred imports are `blitz_client::client::*`, `blitz_client::export::*`,
 `blitz_client::mods::*`, `blitz_client::replay::*`, and `blitz_client::resources::*`.
 Original crate-root imports remain available under the corresponding feature.
 `InstallerError` is an alias for `Error`; its serialized fields and error codes are
-unchanged. Replay `Packet`, `Payload`, and `EntityMethod` types are reexported from
-`replay`, so callers need no direct dependency on the underlying parser.
+unchanged. Replay `Packet`, `Payload`, and `EntityMethod` are local types exported
+from `replay`. Packet decoding and replay schemas live in `src/replay/models/`;
+`prost` and `serde-pickle` handle the generic protobuf and pickle formats. The
+adapted schemas retain their MIT attribution and license in that directory.
 
 Module dependencies run from high-level operations toward resource readers:
 `export` and `mods` use `client` and `resources`; `client` uses `resources`;

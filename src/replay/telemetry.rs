@@ -1,11 +1,8 @@
+use super::models::{BattleResults, EntityMethod, Packet, Payload};
 use flate2::read::ZlibDecoder;
 use serde_json::{Value as Json, json};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use wotbreplay_parser::models::{
-    battle_results::BattleResults,
-    data::{entity_method::EntityMethod, packet::Packet, payload::Payload},
-};
 const RECOVERED_LAYOUT_VERSION: &str = "26.8.0_ruby_apple";
 
 /// Decode the packet layouts verified against local replays while keeping every

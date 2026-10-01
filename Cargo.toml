@@ -32,7 +32,7 @@ resources = ["dep:crc32fast", "dep:lz4_flex", "dep:miniz_oxide"]
 client = ["resources", "dep:serde_json"]
 export = ["client"]
 mods = ["client", "dep:serde_json", "dep:toml", "dep:toml_edit"]
-replay = ["dep:flate2", "dep:serde_json", "dep:serde-pickle", "dep:wotbreplay-parser", "dep:zip"]
+replay = ["dep:flate2", "dep:serde_json", "dep:serde-pickle", "dep:prost", "dep:serde_bytes", "dep:zip"]
 cli = ["export", "mods", "replay"]
 
 [dependencies]
@@ -45,5 +45,6 @@ serde-pickle = { version = "1.2.0", optional = true }
 serde_json = { version = "1.0", optional = true }
 toml = { version = "0.8", optional = true }
 toml_edit = { version = "0.22", optional = true }
-wotbreplay-parser = { version = "0.4.2", features = ["raw-payload"], optional = true }
+prost = { version = "0.11.9", optional = true }
+serde_bytes = { version = "0.11", optional = true }
 zip = { version = "0.6.6", default-features = false, features = ["deflate"], optional = true }

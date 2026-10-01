@@ -1,7 +1,7 @@
 //! Incremental framing of `data.replay` bytes.
+use super::models::{Packet, Payload};
 use crate::{Error, Result};
 use serde::Serialize;
-use wotbreplay_parser::models::data::{packet::Packet, payload::Payload};
 
 pub(super) const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 

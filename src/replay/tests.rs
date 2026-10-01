@@ -2,10 +2,9 @@ use super::stream::MAX_PAYLOAD_BYTES;
 use super::*;
 use crate::Error;
 use std::fs::File;
-use std::io::{Cursor, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use wotbreplay_parser::models::data::Data;
 
 fn header() -> Vec<u8> {
     let mut bytes = 0x12345678_u32.to_le_bytes().to_vec();
@@ -54,9 +53,13 @@ impl Drop for TempDir {
 }
 
 #[test]
-fn arbitrary_chunk_boundaries_match_dependency_decoder() {
+fn arbitrary_chunk_boundaries_preserve_expected_packets() {
     let bytes = replay();
-    let expected = Data::from_reader(Cursor::new(&bytes)).unwrap();
+    let expected = serde_json::json!([
+        {"clock": 0.0, "payload": {"Unknown": {"packet_type": 99}}, "raw_payload": "010203"},
+        {"clock": f64::from(0.2_f32), "payload": {"Unknown": {"packet_type": 7}}, "raw_payload": "000000000000000000000000"},
+        {"clock": f64::from(0.3_f32), "payload": {"Unknown": {"packet_type": 99}}, "raw_payload": ""},
+    ]);
     for chunk_size in 1..=bytes.len() {
         let mut decoder = ReplayStreamDecoder::default();
         let mut packets = Vec::new();
@@ -70,7 +73,7 @@ fn arbitrary_chunk_boundaries_match_dependency_decoder() {
                             client_version,
                             header_bytes,
                         } => {
-                            assert_eq!(client_version, expected.client_version);
+                            assert_eq!(client_version, "26.8.0_ruby_apple");
                             assert_eq!(header_bytes, offset);
                             headers += 1;
                         }
@@ -93,10 +96,7 @@ fn arbitrary_chunk_boundaries_match_dependency_decoder() {
         }
         decoder.finish().unwrap();
         assert_eq!(headers, 1);
-        assert_eq!(
-            serde_json::to_value(packets).unwrap(),
-            serde_json::to_value(&expected.packets).unwrap()
-        );
+        assert_eq!(serde_json::to_value(packets).unwrap(), expected);
     }
 }
 

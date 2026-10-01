@@ -1,3 +1,4 @@
+use super::models::{BattleResults, BattleResultsDat, Data};
 use super::stream::{ReplayStreamDecoder, ReplayStreamEvent};
 use super::telemetry::recover_telemetry;
 use crate::{Error, Result, io_error};
@@ -9,9 +10,6 @@ use std::fs::{self, File};
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wotbreplay_parser::models::battle_results::BattleResults;
-use wotbreplay_parser::models::battle_results_dat::BattleResultsDat;
-use wotbreplay_parser::models::data::Data;
 use zip::ZipArchive;
 
 const META_ENTRY: &str = "meta.json";
