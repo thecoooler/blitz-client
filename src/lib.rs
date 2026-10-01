@@ -5,7 +5,7 @@ mod error;
 mod paths;
 pub use error::{Error, Result};
 #[cfg(any(feature = "client", feature = "replay"))]
-pub use paths::default_replay_dir;
+pub use paths::{default_cache_dir, default_replay_dir};
 /// Compatibility name for the shared error type.
 pub type InstallerError = Error;
 #[cfg(any(

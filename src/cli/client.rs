@@ -17,6 +17,9 @@ pub(super) fn run(args: &[String], json: bool) -> blitz_client::Result<bool> {
             } else {
                 println!("{}", resolved.game_dir.display());
                 println!("resource directory: {}", resolved.resource_dir.display());
+                if let Some(cache_dir) = &resolved.cache_dir {
+                    println!("cache directory: {}", cache_dir.display());
+                }
                 if let Some(replay_dir) = &resolved.replay_dir {
                     println!("replay directory: {}", replay_dir.display());
                 }

@@ -336,11 +336,41 @@ The game must be closed during installation and uninstallation. Active mods are 
 
 ## Game directory defaults
 
-The ordered platform candidates are implemented in `src/game_dir.rs`.
+The ordered installation candidates are implemented in `src/client/location.rs`.
 
-- Windows: `C:\Games\TanksBlitz\Data` first, followed by standard Steam, WindowsApps, and user game folders.
+- Windows: `C:\Games\Tanks_Blitz` first (resources in its `Data` subdirectory), followed by standard Steam, WindowsApps, and user game folders.
 - macOS: `/Applications/Tanks Blitz.app/Contents/Resources/Data` first, then the Steam installation under the user's Library.
 - Linux: common Steam, Flatpak, and Snap installation folders.
+
+`client locate` returns `game_dir` (installation), `resource_dir` (installed
+resources), `cache_dir` (downloaded resources in `packs`), and `replay_dir`.
+The cache path is independent of `--game-dir` and does not need to exist yet.
+It is also available through `client::default_cache_dir()`:
+
+- macOS: `~/Library/Containers/com.tanksblitz/Data/Library/Caches/packs`
+- Windows (Tanks Blitz): `%USERPROFILE%\Documents\TanksBlitz\packs`, confirmed
+  in the inspected wblitz and BlitzHata mod sources. This path has not been
+  verified on a Windows installation of this project.
+
+This Windows default targets Tanks Blitz (Lesta). On other operating systems,
+or when the required
+home-directory environment variable is missing, `default_cache_dir()` returns
+`CACHE_DIR_NOT_FOUND` and `client locate` reports `cache_dir: null`.
+
+The inspected Windows mods use the following paths beneath the Windows
+Documents folder:
+
+| Path | Purpose | Source |
+| --- | --- | --- |
+| `TanksBlitz\packs` | Downloaded resource cache | wblitz `ModInstaller.cs`, BlitzHata `scripts/lib-client.js` |
+| `TanksBlitz\replays` | Battle recordings | wblitz `MainWindow.cs`, BlitzHata `scripts/live-battle.js` |
+| `TanksBlitz\cache` | Player dossier data | wblitz `DossierUploader.cs`, `DossierMarks.cs` |
+| `TanksBlitz\battle_results\<accountId>_Russia` | Battle results | wblitz `BattleResultsUploader.cs` |
+
+The mods account for Windows Documents-folder redirection (for example to
+OneDrive): wblitz uses `Environment.GetFolderPath(SpecialFolder.Personal)`, and
+BlitzHata accepts the resolved folder through `BH_DOCUMENTS_DIR`. This project's
+current defaults assume `%USERPROFILE%\Documents`.
 
 ## Rust API
 

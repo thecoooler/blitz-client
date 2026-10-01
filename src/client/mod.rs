@@ -4,7 +4,7 @@ mod catalog;
 mod localization;
 mod location;
 mod tanks;
-pub use crate::paths::default_replay_dir;
+pub use crate::paths::{default_cache_dir, default_replay_dir};
 #[cfg(feature = "export")]
 pub(crate) use assets::resolve_client_asset;
 pub use catalog::{

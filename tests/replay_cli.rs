@@ -28,7 +28,7 @@ impl Drop for TempDir {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn locate_returns_replay_path_even_before_folder_creation() {
+fn locate_returns_replay_and_cache_paths_even_before_folder_creation() {
     let temp = TempDir::new();
     let home = temp.0.join("home");
     let game = temp.0.join("game");
@@ -49,6 +49,9 @@ fn locate_returns_replay_path_even_before_folder_creation() {
         json["replay_dir"],
         serde_json::to_value(replay_dir).unwrap()
     );
+    let cache_dir = home.join("Library/Containers/com.tanksblitz/Data/Library/Caches/packs");
+    assert!(!cache_dir.exists());
+    assert_eq!(json["cache_dir"], serde_json::to_value(cache_dir).unwrap());
     assert_eq!(json["source"], "explicit");
     assert_eq!(
         json["game_dir"],

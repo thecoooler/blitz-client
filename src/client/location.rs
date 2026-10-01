@@ -9,6 +9,9 @@ pub struct ResolvedGameDir {
     pub game_dir: PathBuf,
     /// Resource root used to resolve paths from mod.toml.
     pub resource_dir: PathBuf,
+    /// Standard downloaded-resource cache (packs), independent of the install path.
+    /// The directory need not exist yet.
+    pub cache_dir: Option<PathBuf>,
     pub source: String,
     /// Standard replay folder for this OS; it need not exist yet.
     pub replay_dir: Option<PathBuf>,
@@ -32,6 +35,7 @@ pub fn resolve_game_dir(explicit: Option<PathBuf>) -> Result<ResolvedGameDir> {
         return Ok(ResolvedGameDir {
             game_dir,
             resource_dir,
+            cache_dir: crate::paths::default_cache_dir().ok(),
             source: "explicit".to_owned(),
             replay_dir: crate::paths::default_replay_dir().ok(),
         });
@@ -52,6 +56,7 @@ pub fn discover_game_dir() -> Result<ResolvedGameDir> {
             return Ok(ResolvedGameDir {
                 game_dir,
                 resource_dir,
+                cache_dir: crate::paths::default_cache_dir().ok(),
                 source: "default".to_owned(),
                 replay_dir: crate::paths::default_replay_dir().ok(),
             });
@@ -133,8 +138,8 @@ fn push_steam_install(out: &mut Vec<PathBuf>, steam_root: &Path) {
 
 #[cfg(target_os = "windows")]
 fn windows_candidates(out: &mut Vec<PathBuf>) {
-    out.push(PathBuf::from(r"C:\Games\TanksBlitz\Data"));
-    out.push(PathBuf::from(r"C:\Games\TanksBlitz"));
+    out.push(PathBuf::from(r"C:\Games\Tanks_Blitz"));
+    out.push(PathBuf::from(r"C:\Games\Tanks_Blitz\Data"));
 
     let mut steam_roots = Vec::new();
     for key in ["ProgramFiles(x86)", "ProgramFiles"] {
