@@ -1,3 +1,4 @@
+use crate::replay_stream::{ReplayStreamDecoder, ReplayStreamEvent};
 use crate::{InstallerError, Result, io_error};
 use flate2::read::ZlibDecoder;
 use serde::Serialize;
@@ -37,7 +38,8 @@ impl ReplayOptions {
     }
 }
 
-/// Decoded `.tbreplay` archive. JSON field names match the recovered schema of
+/// Decoded `.tbreplay` archive or standalone `data.replay` (metadata/results are null).
+/// JSON field names match the recovered schema of
 /// the original replay CLI so existing tooling keeps working.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReplayAnalysis {
@@ -55,7 +57,19 @@ pub struct ReplayAnalysis {
 /// telemetry. Packet payloads the recovered layout does not cover stay raw.
 pub fn analyze_replay(path: impl AsRef<Path>, options: ReplayOptions) -> Result<ReplayAnalysis> {
     let path = path.as_ref();
-    let file = File::open(path).map_err(|error| io_error("cannot open replay", path, error))?;
+    let mut file = File::open(path).map_err(|error| io_error("cannot open replay", path, error))?;
+    let mut magic = [0; 4];
+    let count = file
+        .read(&mut magic)
+        .map_err(|error| io_error("cannot read replay", path, error))?;
+    use std::io::{Seek, SeekFrom};
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| io_error("cannot rewind replay", path, error))?;
+    if (count == 4 && magic == 0x12345678_u32.to_le_bytes())
+        || path.extension() == Some(OsStr::new("replay"))
+    {
+        return analyze_data_replay(path, file);
+    }
     let mut archive = ZipArchive::new(file).map_err(|error| {
         InstallerError::at(
             "REPLAY_ARCHIVE_INVALID",
@@ -74,15 +88,14 @@ pub fn analyze_replay(path: impl AsRef<Path>, options: ReplayOptions) -> Result<
     })?;
 
     let results_bytes = read_entry(&mut archive, path, RESULTS_ENTRY)?;
-    let raw_results = BattleResultsDat::from_reader(Cursor::new(&results_bytes[..])).map_err(
-        |error| {
+    let raw_results =
+        BattleResultsDat::from_reader(Cursor::new(&results_bytes[..])).map_err(|error| {
             InstallerError::at(
                 "REPLAY_RESULTS_INVALID",
                 format!("cannot decode the {RESULTS_ENTRY} pickle: {error}"),
                 path,
             )
-        },
-    )?;
+        })?;
     let results_blob = raw_results.buffer.to_vec();
     let battle_results: BattleResults = raw_results.try_into().map_err(|error| {
         InstallerError::at(
@@ -96,17 +109,11 @@ pub fn analyze_replay(path: impl AsRef<Path>, options: ReplayOptions) -> Result<
     let mut data = None;
     if options.include_data {
         let data_bytes = read_entry(&mut archive, path, DATA_ENTRY)?;
-        let packets = Data::from_reader(Cursor::new(&data_bytes[..])).map_err(|error| {
-            InstallerError::at(
-                "REPLAY_DATA_INVALID",
-                format!("cannot decode the {DATA_ENTRY} packet stream: {error}"),
-                path,
-            )
-        })?;
+        let packets = read_data_replay(Cursor::new(&data_bytes), path)?;
         telemetry = Some(recover_telemetry(
             &packets.packets,
             &packets.client_version,
-            &battle_results,
+            Some(&battle_results),
             &results_blob,
         ));
         data = Some(serialize(&packets)?);
@@ -122,6 +129,57 @@ pub fn analyze_replay(path: impl AsRef<Path>, options: ReplayOptions) -> Result<
         battle_results: serialize(&battle_results)?,
         telemetry,
         data,
+    })
+}
+
+fn read_data_replay(mut reader: impl Read, path: &Path) -> Result<Data> {
+    let mut decoder = ReplayStreamDecoder::default();
+    let mut packets = Vec::new();
+    let mut client_version = String::new();
+    let mut chunk = [0; 64 * 1024];
+    loop {
+        let count = reader
+            .read(&mut chunk)
+            .map_err(|error| io_error("cannot read data.replay", path, error))?;
+        if count == 0 {
+            break;
+        }
+        decoder.feed(&chunk[..count], |event| {
+            match event {
+                ReplayStreamEvent::Header {
+                    client_version: version,
+                    ..
+                } => client_version = version,
+                ReplayStreamEvent::Packet { packet, .. } => packets.push(packet),
+                ReplayStreamEvent::Reset { .. } => unreachable!("decoder does not emit resets"),
+            }
+            Ok(())
+        })?;
+    }
+    decoder.finish()?;
+    Ok(Data {
+        client_version,
+        packets,
+    })
+}
+
+fn analyze_data_replay(path: &Path, file: File) -> Result<ReplayAnalysis> {
+    let packets = read_data_replay(file, path)?;
+    Ok(ReplayAnalysis {
+        source: path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or("data.replay")
+            .to_owned(),
+        meta: Json::Null,
+        battle_results: Json::Null,
+        telemetry: Some(recover_telemetry(
+            &packets.packets,
+            &packets.client_version,
+            None,
+            &[],
+        )),
+        data: Some(serialize(&packets)?),
     })
 }
 
@@ -154,7 +212,8 @@ pub fn find_latest_replay(directory: Option<PathBuf>) -> Result<PathBuf> {
         .map_err(|error| io_error("cannot scan the replay folder", &directory, error))?;
     let mut latest: Option<(SystemTime, PathBuf)> = None;
     for entry in entries {
-        let entry = entry.map_err(|error| io_error("cannot read a replay folder entry", &directory, error))?;
+        let entry = entry
+            .map_err(|error| io_error("cannot read a replay folder entry", &directory, error))?;
         let path = entry.path();
         if path.extension() != Some(OsStr::new(REPLAY_EXTENSION)) {
             continue;
@@ -220,28 +279,31 @@ fn default_replay_dirs() -> Vec<PathBuf> {
 fn recover_telemetry(
     packets: &[Packet],
     client_version: &str,
-    results: &BattleResults,
+    results: Option<&BattleResults>,
     results_blob: &[u8],
 ) -> Json {
-    let arena_context = packets.iter().enumerate().find_map(|(packet_index, packet)| {
-        let Payload::BasePlayerCreate {
-            author_nickname,
-            arena_unique_id,
-            arena_type_id,
-            arguments,
-        } = &packet.payload
-        else {
-            return None;
-        };
-        Some(json!({
-            "packet_index": packet_index,
-            "clock": packet.clock_secs,
-            "author_nickname": author_nickname,
-            "arena_unique_id": arena_unique_id,
-            "arena_type_id": arena_type_id,
-            "arguments": arguments,
-        }))
-    });
+    let arena_context = packets
+        .iter()
+        .enumerate()
+        .find_map(|(packet_index, packet)| {
+            let Payload::BasePlayerCreate {
+                author_nickname,
+                arena_unique_id,
+                arena_type_id,
+                arguments,
+            } = &packet.payload
+            else {
+                return None;
+            };
+            Some(json!({
+                "packet_index": packet_index,
+                "clock": packet.clock_secs,
+                "author_nickname": author_nickname,
+                "arena_unique_id": arena_unique_id,
+                "arena_type_id": arena_type_id,
+                "arguments": arguments,
+            }))
+        });
     if client_version != RECOVERED_LAYOUT_VERSION {
         return json!({
             "decoder": "unsupported-client-version",
@@ -263,304 +325,34 @@ fn recover_telemetry(
         });
     }
 
-    let players_by_result_id = player_lookup(results);
+    let players_by_result_id = results.map(player_lookup).unwrap_or_default();
     let mut packet_annotations = vec![Json::Null; packets.len()];
-    let mut shots = Vec::<Json>::new();
-    let mut shot_indices = HashMap::<u32, Vec<usize>>::new();
-    let mut launches_by_projectile = HashMap::<u32, Vec<Json>>::new();
-    let mut auxiliaries_by_projectile = HashMap::<u32, Vec<Json>>::new();
-    let mut hits = Vec::<Json>::new();
-    let mut vehicle_updates = Vec::<Json>::new();
-    let mut vehicle_health_updates = Vec::<Json>::new();
-    let mut booster_counter_snapshots = Vec::<Json>::new();
-    let mut method_48_task_markers = Vec::<Json>::new();
-    let mut previous_health_by_entity = HashMap::<u32, u16>::new();
-    let mut result_snapshots = 0_usize;
-    let mut type_7_opcodes = HashMap::<u32, usize>::new();
-    let mut type_7_sizes = HashMap::<usize, usize>::new();
-    let mut type_5_sizes = HashMap::<usize, usize>::new();
-
+    let mut state = TelemetryState::default();
     for (packet_index, packet) in packets.iter().enumerate() {
-        let raw = &packet.raw_payload;
-        let clock = packet.clock_secs;
-        if matches!(&packet.payload, Payload::Unknown { packet_type: 7 }) {
-            *type_7_sizes.entry(raw.len()).or_default() += 1;
-            if let Some(opcode) = read_u32(raw, 4) {
-                *type_7_opcodes.entry(opcode).or_default() += 1;
-            }
-        }
-        if matches!(&packet.payload, Payload::Unknown { packet_type: 5 }) {
-            *type_5_sizes.entry(raw.len()).or_default() += 1;
-        }
-
-        match &packet.payload {
-            Payload::EntityMethod(EntityMethod::Unknown { sub_type: 25 }) if raw.len() == 28 => {
-                if let (Some(projectile_id), Some(position), Some(entity_id)) =
-                    (read_u32(raw, 12), read_vec3(raw, 16), read_u32(raw, 0))
-                {
-                    let shot_index = shots.len();
-                    shot_indices
-                        .entry(projectile_id)
-                        .or_default()
-                        .push(shot_index);
-                    shots.push(json!({
-                        "clock": clock,
-                        "projectile_id": projectile_id,
-                        "position": position,
-                        "entity_id": entity_id,
-                        "packet_index": packet_index,
-                        "launch_records": [],
-                        "auxiliary_records": [],
-                    }));
-                    packet_annotations[packet_index] = json!({
-                        "kind": "projectile_position",
-                        "label": "Точка снаряда",
-                        "projectile_id": projectile_id,
-                        "position": position,
-                    });
-                }
-            }
-            Payload::EntityMethod(EntityMethod::Unknown { sub_type: 35 }) if raw.len() == 49 => {
-                if let (
-                    Some(source_result_id),
-                    Some(projectile_id),
-                    Some(origin),
-                    Some(velocity),
-                    Some(parameter),
-                ) = (
-                    read_u32(raw, 12),
-                    read_u32(raw, 16),
-                    read_vec3(raw, 21),
-                    read_vec3(raw, 33),
-                    read_f32(raw, 45),
-                ) {
-                    let launch = json!({
-                        "clock": clock,
-                        "projectile_id": projectile_id,
-                        "source_result_id": source_result_id,
-                        "source_player": player_json(&players_by_result_id, source_result_id),
-                        "entity_id": read_u32(raw, 0),
-                        "marker": raw[20],
-                        "origin": origin,
-                        "velocity": velocity,
-                        "unknown_scalar": parameter,
-                        "packet_index": packet_index,
-                    });
-                    launches_by_projectile
-                        .entry(projectile_id)
-                        .or_default()
-                        .push(launch);
-                    packet_annotations[packet_index] = json!({
-                        "kind": "projectile_launch",
-                        "label": "Запуск снаряда",
-                        "projectile_id": projectile_id,
-                        "source_result_id": source_result_id,
-                        "source_player": player_json(&players_by_result_id, source_result_id),
-                        "origin": origin,
-                        "velocity": velocity,
-                        "marker": raw[20],
-                        "unknown_scalar": parameter,
-                    });
-                }
-            }
-            Payload::EntityMethod(EntityMethod::Unknown { sub_type: 9 }) if raw.len() == 33 => {
-                if let (Some(target_result_id), Some(source_result_id), Some(body_target_id)) =
-                    (read_u32(raw, 0), read_u32(raw, 12), read_u32(raw, 16))
-                {
-                    let hit = json!({
-                        "clock": clock,
-                        "source_result_id": source_result_id,
-                        "source_player": player_json(&players_by_result_id, source_result_id),
-                        "target_result_id": body_target_id,
-                        "target_player": player_json(&players_by_result_id, body_target_id),
-                        "entity_id": target_result_id,
-                        "target_matches_entity_id": target_result_id == body_target_id,
-                        "opaque_hex": hex(&raw[20..]),
-                        "packet_index": packet_index,
-                    });
-                    hits.push(hit);
-                    packet_annotations[packet_index] = json!({
-                        "kind": "hit_received",
-                        "label": "Сообщение о попадании",
-                        "source_result_id": source_result_id,
-                        "source_player": player_json(&players_by_result_id, source_result_id),
-                        "target_result_id": body_target_id,
-                        "target_player": player_json(&players_by_result_id, body_target_id),
-                        "opaque_hex": hex(&raw[20..]),
-                    });
-                }
-            }
-            Payload::EntityMethod(EntityMethod::Unknown { sub_type: 33 }) if raw.len() == 46 => {
-                if let (Some(projectile_id), Some(position)) =
-                    (read_u32(raw, 12), read_vec3(raw, 21))
-                {
-                    let auxiliary = json!({
-                        "clock": clock,
-                        "projectile_id": projectile_id,
-                        "position": position,
-                        "opaque_hex": hex(&raw[20..]),
-                        "packet_index": packet_index,
-                    });
-                    auxiliaries_by_projectile
-                        .entry(projectile_id)
-                        .or_default()
-                        .push(auxiliary);
-                    packet_annotations[packet_index] = json!({
-                        "kind": "projectile_auxiliary",
-                        "label": "Дополнительное сообщение снаряда",
-                        "projectile_id": projectile_id,
-                        "position": position,
-                        "opaque_hex": hex(&raw[20..]),
-                    });
-                }
-            }
-            Payload::EntityMethod(EntityMethod::Unknown { sub_type: 51 }) => {
-                if let (Some(entity_id), Some(item_counters), Some(prefix)) = (
-                    read_u32(raw, 0),
-                    decode_method_51_counters(raw),
-                    raw.get(12..21),
-                ) {
-                    let counter_count = item_counters.len();
-                    let snapshot_index = booster_counter_snapshots.len();
-                    booster_counter_snapshots.push(json!({
-                        "clock": clock,
-                        "entity_id": entity_id,
-                        "packet_index": packet_index,
-                        "opaque_prefix_hex": hex(prefix),
-                        "item_counters": item_counters,
-                    }));
-                    packet_annotations[packet_index] = json!({
-                        "kind": "method_51_counters",
-                        "label": "Счётчики предметов · метод 51",
-                        "entity_id": entity_id,
-                        "item_counter_count": counter_count,
-                        "snapshot_index": snapshot_index,
-                    });
-                }
-            }
-            Payload::EntityMethod(EntityMethod::Unknown { sub_type: 48 }) => {
-                if let (Some(entity_id), Some(task_key)) =
-                    (read_u32(raw, 0), decode_method_48_task_key(raw))
-                {
-                    let marker_index = method_48_task_markers.len();
-                    method_48_task_markers.push(json!({
-                        "clock": clock,
-                        "entity_id": entity_id,
-                        "task_key": task_key,
-                        "packet_index": packet_index,
-                    }));
-                    packet_annotations[packet_index] = json!({
-                        "kind": "method_48_task_marker",
-                        "label": "Ключ задачи · метод 48",
-                        "entity_id": entity_id,
-                        "task_key": task_key,
-                        "marker_index": marker_index,
-                    });
-                }
-            }
-            Payload::Unknown { packet_type: 10 } if raw.len() == 49 => {
-                if let (Some(result_id), Some(position), Some(correction), Some(orientation)) = (
-                    read_u32(raw, 0),
-                    read_vec3(raw, 12),
-                    read_vec3(raw, 24),
-                    read_vec3(raw, 36),
-                ) {
-                    let update_index = vehicle_updates.len();
-                    vehicle_updates.push(json!({
-                        "clock": clock,
-                        "entity_id": result_id,
-                        "player": player_json(&players_by_result_id, result_id),
-                        "secondary_word": read_u32(raw, 4),
-                        "unknown_word": read_u32(raw, 8),
-                        "position": position,
-                        "correction_vector": correction,
-                        "orientation_values": orientation,
-                        "flag": raw[48],
-                        "packet_index": packet_index,
-                    }));
-                    packet_annotations[packet_index] = json!({
-                        "kind": "vehicle_transform",
-                        "label": "Обновление положения техники",
-                        "entity_id": result_id,
-                        "player": player_json(&players_by_result_id, result_id),
-                        "position": position,
-                        "update_index": update_index,
-                    });
-                }
-            }
-            Payload::Unknown { packet_type: 7 }
-                if raw.len() == 14 && read_u32(raw, 4) == Some(3) && read_u32(raw, 8) == Some(2) =>
-            {
-                if let (Some(entity_id), Some(remaining_hp)) = (read_u32(raw, 0), read_u16(raw, 12))
-                {
-                    let previous_hp = previous_health_by_entity.insert(entity_id, remaining_hp);
-                    let health_change =
-                        previous_hp.map(|previous| i32::from(remaining_hp) - i32::from(previous));
-                    let hp_lost = health_change.map(|change| (-change).max(0));
-                    let update_index = vehicle_health_updates.len();
-                    vehicle_health_updates.push(json!({
-                        "clock": clock,
-                        "entity_id": entity_id,
-                        "player": player_json(&players_by_result_id, entity_id),
-                        "remaining_hp": remaining_hp,
-                        "previous_hp": previous_hp,
-                        "health_change": health_change,
-                        "hp_lost_since_previous_update": hp_lost,
-                        "destroyed_at_zero_hp": remaining_hp == 0,
-                        "packet_index": packet_index,
-                        "matched_hit_packet_indices": [],
-                        "matched_hit_source_result_ids": [],
-                    }));
-                    packet_annotations[packet_index] = json!({
-                        "kind": "vehicle_health_update",
-                        "label": "Обновление оставшегося HP",
-                        "entity_id": entity_id,
-                        "player": player_json(&players_by_result_id, entity_id),
-                        "remaining_hp": remaining_hp,
-                        "previous_hp": previous_hp,
-                        "health_change": health_change,
-                        "hp_lost_since_previous_update": hp_lost,
-                        "health_update_index": update_index,
-                    });
-                }
-            }
-            Payload::Unknown { packet_type: 7 } if raw.len() >= 12 => {
-                if let (Some(entity_id), Some(opcode), Some(body_word)) =
-                    (read_u32(raw, 0), read_u32(raw, 4), read_u32(raw, 8))
-                {
-                    packet_annotations[packet_index] = json!({
-                        "kind": "unclassified_entity_update",
-                        "label": format!("Сообщение типа 7 · код {opcode}"),
-                        "entity_id": entity_id,
-                        "opcode": opcode,
-                        "body_word": body_word,
-                        "tail_hex": hex(&raw[12..]),
-                        "candidate_tail_float": if raw.len() == 16 { read_f32(raw, 12) } else { None },
-                    });
-                }
-            }
-            Payload::Unknown { packet_type: 5 } if raw.len() >= 5 => {
-                packet_annotations[packet_index] = json!({
-                    "kind": "unclassified_entity_message",
-                    "label": format!("Сообщение типа 5 · маркер {}", raw[4]),
-                    "first_word": read_u32(raw, 0),
-                    "marker": raw[4],
-                    "tail_hex": hex(&raw[5..]),
-                });
-            }
-            Payload::Unknown { packet_type: 13 } => {
-                if let Some(snapshot) = find_results_snapshot(raw, results_blob) {
-                    result_snapshots += 1;
-                    packet_annotations[packet_index] = json!({
-                        "kind": "battle_results_snapshot",
-                        "label": "Снимок итогов боя",
-                        "snapshot": snapshot,
-                    });
-                }
-            }
-            _ => {}
-        }
+        packet_annotations[packet_index] = decode_telemetry_packet(
+            packet,
+            packet_index,
+            &players_by_result_id,
+            results_blob,
+            &mut state,
+        );
     }
+    let TelemetryState {
+        mut shots,
+        shot_indices,
+        launches_by_projectile,
+        auxiliaries_by_projectile,
+        hits,
+        vehicle_updates,
+        mut vehicle_health_updates,
+        booster_counter_snapshots,
+        method_48_task_markers,
+        previous_health_by_entity: _,
+        result_snapshots,
+        type_7_opcodes,
+        type_7_sizes,
+        type_5_sizes,
+    } = state;
 
     for health_update in &mut vehicle_health_updates {
         let entity_id = health_update["entity_id"].as_u64().unwrap_or_default() as u32;
@@ -588,14 +380,14 @@ fn recover_telemetry(
                 .map(|index| json!(index))
                 .collect(),
         );
-        health_update["matched_hit_source_result_ids"] = Json::Array(
-            source_result_ids
+        health_update["matched_hit_source_result_ids"] =
+            Json::Array(source_result_ids.iter().map(|id| json!(id)).collect());
+        packet_annotations[packet_index]["matched_hit_packet_indices"] = Json::Array(
+            hit_packet_indices
                 .iter()
-                .map(|id| json!(id))
+                .map(|index| json!(index))
                 .collect(),
         );
-        packet_annotations[packet_index]["matched_hit_packet_indices"] =
-            Json::Array(hit_packet_indices.iter().map(|index| json!(index)).collect());
         packet_annotations[packet_index]["matched_hit_source_result_ids"] =
             Json::Array(source_result_ids.iter().map(|id| json!(id)).collect());
     }
@@ -615,16 +407,20 @@ fn recover_telemetry(
         }
     }
 
-    let expected_shots: u32 = results
-        .player_results
-        .iter()
-        .map(|row| row.info.n_shots)
-        .sum();
-    let expected_hits_received: u32 = results
-        .player_results
-        .iter()
-        .map(|row| row.info.n_hits_received)
-        .sum();
+    let expected_shots: Option<u32> = results.map(|results| {
+        results
+            .player_results
+            .iter()
+            .map(|row| row.info.n_shots)
+            .sum()
+    });
+    let expected_hits_received: Option<u32> = results.map(|results| {
+        results
+            .player_results
+            .iter()
+            .map(|row| row.info.n_hits_received)
+            .sum()
+    });
     let mapped_hits = hits
         .iter()
         .filter(|hit| hit["target_matches_entity_id"] == true)
@@ -671,7 +467,7 @@ fn recover_telemetry(
             "method_48_task_markers": method_48_task_markers.len(),
             "projectile_position_packets": shots.len(),
             "shots_in_battle_results": expected_shots,
-            "shot_count_matches_results": shots.len() == expected_shots as usize,
+            "shot_count_matches_results": expected_shots.map(|expected| shots.len() == expected as usize),
             "shots_with_launch_metadata": linked_shots,
             "hit_messages": hits.len(),
             "hits_received_in_battle_results": expected_hits_received,
@@ -712,6 +508,363 @@ fn recover_telemetry(
         "vehicle_updates": vehicle_updates,
         "packet_annotations": packet_annotations,
     })
+}
+
+#[derive(Default)]
+struct TelemetryState {
+    shots: Vec<Json>,
+    shot_indices: HashMap<u32, Vec<usize>>,
+    launches_by_projectile: HashMap<u32, Vec<Json>>,
+    auxiliaries_by_projectile: HashMap<u32, Vec<Json>>,
+    hits: Vec<Json>,
+    vehicle_updates: Vec<Json>,
+    vehicle_health_updates: Vec<Json>,
+    booster_counter_snapshots: Vec<Json>,
+    method_48_task_markers: Vec<Json>,
+    previous_health_by_entity: HashMap<u32, u16>,
+    result_snapshots: usize,
+    type_7_opcodes: HashMap<u32, usize>,
+    type_7_sizes: HashMap<usize, usize>,
+    type_5_sizes: HashMap<usize, usize>,
+}
+
+fn decode_telemetry_packet(
+    packet: &Packet,
+    packet_index: usize,
+    players_by_result_id: &HashMap<u32, Json>,
+    results_blob: &[u8],
+    state: &mut TelemetryState,
+) -> Json {
+    let TelemetryState {
+        shots,
+        shot_indices,
+        launches_by_projectile,
+        auxiliaries_by_projectile,
+        hits,
+        vehicle_updates,
+        vehicle_health_updates,
+        booster_counter_snapshots,
+        method_48_task_markers,
+        previous_health_by_entity,
+        result_snapshots,
+        type_7_opcodes,
+        type_7_sizes,
+        type_5_sizes,
+    } = state;
+    let mut annotation = Json::Null;
+    let raw = &packet.raw_payload;
+    let clock = packet.clock_secs;
+    if matches!(&packet.payload, Payload::Unknown { packet_type: 7 }) {
+        *type_7_sizes.entry(raw.len()).or_default() += 1;
+        if let Some(opcode) = read_u32(raw, 4) {
+            *type_7_opcodes.entry(opcode).or_default() += 1;
+        }
+    }
+    if matches!(&packet.payload, Payload::Unknown { packet_type: 5 }) {
+        *type_5_sizes.entry(raw.len()).or_default() += 1;
+    }
+
+    match &packet.payload {
+        Payload::EntityMethod(EntityMethod::Unknown { sub_type: 25 }) if raw.len() == 28 => {
+            if let (Some(projectile_id), Some(position), Some(entity_id)) =
+                (read_u32(raw, 12), read_vec3(raw, 16), read_u32(raw, 0))
+            {
+                let shot_index = shots.len();
+                shot_indices
+                    .entry(projectile_id)
+                    .or_default()
+                    .push(shot_index);
+                shots.push(json!({
+                    "clock": clock,
+                    "projectile_id": projectile_id,
+                    "position": position,
+                    "entity_id": entity_id,
+                    "packet_index": packet_index,
+                    "launch_records": [],
+                    "auxiliary_records": [],
+                }));
+                annotation = json!({
+                    "kind": "projectile_position",
+                    "label": "Точка снаряда",
+                    "projectile_id": projectile_id,
+                    "position": position,
+                });
+            }
+        }
+        Payload::EntityMethod(EntityMethod::Unknown { sub_type: 35 }) if raw.len() == 49 => {
+            if let (
+                Some(source_result_id),
+                Some(projectile_id),
+                Some(origin),
+                Some(velocity),
+                Some(parameter),
+            ) = (
+                read_u32(raw, 12),
+                read_u32(raw, 16),
+                read_vec3(raw, 21),
+                read_vec3(raw, 33),
+                read_f32(raw, 45),
+            ) {
+                let launch = json!({
+                    "clock": clock,
+                    "projectile_id": projectile_id,
+                    "source_result_id": source_result_id,
+                    "source_player": player_json(&players_by_result_id, source_result_id),
+                    "entity_id": read_u32(raw, 0),
+                    "marker": raw[20],
+                    "origin": origin,
+                    "velocity": velocity,
+                    "unknown_scalar": parameter,
+                    "packet_index": packet_index,
+                });
+                launches_by_projectile
+                    .entry(projectile_id)
+                    .or_default()
+                    .push(launch);
+                annotation = json!({
+                    "kind": "projectile_launch",
+                    "label": "Запуск снаряда",
+                    "projectile_id": projectile_id,
+                    "source_result_id": source_result_id,
+                    "source_player": player_json(&players_by_result_id, source_result_id),
+                    "origin": origin,
+                    "velocity": velocity,
+                    "marker": raw[20],
+                    "unknown_scalar": parameter,
+                });
+            }
+        }
+        Payload::EntityMethod(EntityMethod::Unknown { sub_type: 9 }) if raw.len() == 33 => {
+            if let (Some(target_result_id), Some(source_result_id), Some(body_target_id)) =
+                (read_u32(raw, 0), read_u32(raw, 12), read_u32(raw, 16))
+            {
+                let hit = json!({
+                    "clock": clock,
+                    "source_result_id": source_result_id,
+                    "source_player": player_json(&players_by_result_id, source_result_id),
+                    "target_result_id": body_target_id,
+                    "target_player": player_json(&players_by_result_id, body_target_id),
+                    "entity_id": target_result_id,
+                    "target_matches_entity_id": target_result_id == body_target_id,
+                    "opaque_hex": hex(&raw[20..]),
+                    "packet_index": packet_index,
+                });
+                hits.push(hit);
+                annotation = json!({
+                    "kind": "hit_received",
+                    "label": "Сообщение о попадании",
+                    "source_result_id": source_result_id,
+                    "source_player": player_json(&players_by_result_id, source_result_id),
+                    "target_result_id": body_target_id,
+                    "target_player": player_json(&players_by_result_id, body_target_id),
+                    "opaque_hex": hex(&raw[20..]),
+                });
+            }
+        }
+        Payload::EntityMethod(EntityMethod::Unknown { sub_type: 33 }) if raw.len() == 46 => {
+            if let (Some(projectile_id), Some(position)) = (read_u32(raw, 12), read_vec3(raw, 21)) {
+                let auxiliary = json!({
+                    "clock": clock,
+                    "projectile_id": projectile_id,
+                    "position": position,
+                    "opaque_hex": hex(&raw[20..]),
+                    "packet_index": packet_index,
+                });
+                auxiliaries_by_projectile
+                    .entry(projectile_id)
+                    .or_default()
+                    .push(auxiliary);
+                annotation = json!({
+                    "kind": "projectile_auxiliary",
+                    "label": "Дополнительное сообщение снаряда",
+                    "projectile_id": projectile_id,
+                    "position": position,
+                    "opaque_hex": hex(&raw[20..]),
+                });
+            }
+        }
+        Payload::EntityMethod(EntityMethod::Unknown { sub_type: 51 }) => {
+            if let (Some(entity_id), Some(item_counters), Some(prefix)) = (
+                read_u32(raw, 0),
+                decode_method_51_counters(raw),
+                raw.get(12..21),
+            ) {
+                let counter_count = item_counters.len();
+                let snapshot_index = booster_counter_snapshots.len();
+                booster_counter_snapshots.push(json!({
+                    "clock": clock,
+                    "entity_id": entity_id,
+                    "packet_index": packet_index,
+                    "opaque_prefix_hex": hex(prefix),
+                    "item_counters": item_counters,
+                }));
+                annotation = json!({
+                    "kind": "method_51_counters",
+                    "label": "Счётчики предметов · метод 51",
+                    "entity_id": entity_id,
+                    "item_counter_count": counter_count,
+                    "snapshot_index": snapshot_index,
+                });
+            }
+        }
+        Payload::EntityMethod(EntityMethod::Unknown { sub_type: 48 }) => {
+            if let (Some(entity_id), Some(task_key)) =
+                (read_u32(raw, 0), decode_method_48_task_key(raw))
+            {
+                let marker_index = method_48_task_markers.len();
+                method_48_task_markers.push(json!({
+                    "clock": clock,
+                    "entity_id": entity_id,
+                    "task_key": task_key,
+                    "packet_index": packet_index,
+                }));
+                annotation = json!({
+                    "kind": "method_48_task_marker",
+                    "label": "Ключ задачи · метод 48",
+                    "entity_id": entity_id,
+                    "task_key": task_key,
+                    "marker_index": marker_index,
+                });
+            }
+        }
+        Payload::Unknown { packet_type: 10 } if raw.len() == 49 => {
+            if let (Some(result_id), Some(position), Some(correction), Some(orientation)) = (
+                read_u32(raw, 0),
+                read_vec3(raw, 12),
+                read_vec3(raw, 24),
+                read_vec3(raw, 36),
+            ) {
+                let update_index = vehicle_updates.len();
+                vehicle_updates.push(json!({
+                    "clock": clock,
+                    "entity_id": result_id,
+                    "player": player_json(&players_by_result_id, result_id),
+                    "secondary_word": read_u32(raw, 4),
+                    "unknown_word": read_u32(raw, 8),
+                    "position": position,
+                    "correction_vector": correction,
+                    "orientation_values": orientation,
+                    "flag": raw[48],
+                    "packet_index": packet_index,
+                }));
+                annotation = json!({
+                    "kind": "vehicle_transform",
+                    "label": "Обновление положения техники",
+                    "entity_id": result_id,
+                    "player": player_json(&players_by_result_id, result_id),
+                    "position": position,
+                    "update_index": update_index,
+                });
+            }
+        }
+        Payload::Unknown { packet_type: 7 }
+            if raw.len() == 14 && read_u32(raw, 4) == Some(3) && read_u32(raw, 8) == Some(2) =>
+        {
+            if let (Some(entity_id), Some(remaining_hp)) = (read_u32(raw, 0), read_u16(raw, 12)) {
+                let previous_hp = previous_health_by_entity.insert(entity_id, remaining_hp);
+                let health_change =
+                    previous_hp.map(|previous| i32::from(remaining_hp) - i32::from(previous));
+                let hp_lost = health_change.map(|change| (-change).max(0));
+                let update_index = vehicle_health_updates.len();
+                vehicle_health_updates.push(json!({
+                    "clock": clock,
+                    "entity_id": entity_id,
+                    "player": player_json(&players_by_result_id, entity_id),
+                    "remaining_hp": remaining_hp,
+                    "previous_hp": previous_hp,
+                    "health_change": health_change,
+                    "hp_lost_since_previous_update": hp_lost,
+                    "destroyed_at_zero_hp": remaining_hp == 0,
+                    "packet_index": packet_index,
+                    "matched_hit_packet_indices": [],
+                    "matched_hit_source_result_ids": [],
+                }));
+                annotation = json!({
+                    "kind": "vehicle_health_update",
+                    "label": "Обновление оставшегося HP",
+                    "entity_id": entity_id,
+                    "player": player_json(&players_by_result_id, entity_id),
+                    "remaining_hp": remaining_hp,
+                    "previous_hp": previous_hp,
+                    "health_change": health_change,
+                    "hp_lost_since_previous_update": hp_lost,
+                    "health_update_index": update_index,
+                });
+            }
+        }
+        Payload::Unknown { packet_type: 7 } if raw.len() >= 12 => {
+            if let (Some(entity_id), Some(opcode), Some(body_word)) =
+                (read_u32(raw, 0), read_u32(raw, 4), read_u32(raw, 8))
+            {
+                annotation = json!({
+                    "kind": "unclassified_entity_update",
+                    "label": format!("Сообщение типа 7 · код {opcode}"),
+                    "entity_id": entity_id,
+                    "opcode": opcode,
+                    "body_word": body_word,
+                    "tail_hex": hex(&raw[12..]),
+                    "candidate_tail_float": if raw.len() == 16 { read_f32(raw, 12) } else { None },
+                });
+            }
+        }
+        Payload::Unknown { packet_type: 5 } if raw.len() >= 5 => {
+            annotation = json!({
+                "kind": "unclassified_entity_message",
+                "label": format!("Сообщение типа 5 · маркер {}", raw[4]),
+                "first_word": read_u32(raw, 0),
+                "marker": raw[4],
+                "tail_hex": hex(&raw[5..]),
+            });
+        }
+        Payload::Unknown { packet_type: 13 } => {
+            if let Some(snapshot) = find_results_snapshot(raw, results_blob) {
+                *result_snapshots += 1;
+                annotation = json!({
+                    "kind": "battle_results_snapshot",
+                    "label": "Снимок итогов боя",
+                    "snapshot": snapshot,
+                });
+            }
+        }
+        _ => {}
+    }
+    annotation
+}
+
+/// Stateful live annotations. Packet-local records are emitted immediately;
+/// offline analysis additionally links records and verifies final battle results.
+#[derive(Default)]
+pub struct TelemetryDecoder {
+    state: TelemetryState,
+}
+
+impl TelemetryDecoder {
+    pub fn on_packet(
+        &mut self,
+        packet: &Packet,
+        packet_index: usize,
+        client_version: &str,
+    ) -> Json {
+        if client_version != RECOVERED_LAYOUT_VERSION {
+            return Json::Null;
+        }
+        let annotation =
+            decode_telemetry_packet(packet, packet_index, &HashMap::new(), &[], &mut self.state);
+        let details = json!({
+            "annotation": annotation,
+            "shots": self.state.shots,
+            "hits": self.state.hits,
+            "health_updates": self.state.vehicle_health_updates,
+            "vehicle_updates": self.state.vehicle_updates,
+            "booster_counter_snapshots": self.state.booster_counter_snapshots,
+            "method_48_task_markers": self.state.method_48_task_markers,
+        });
+        // Keep only state needed by subsequent packets, never the full live history.
+        let previous_health = std::mem::take(&mut self.state.previous_health_by_entity);
+        self.state = TelemetryState::default();
+        self.state.previous_health_by_entity = previous_health;
+        details
+    }
 }
 
 fn player_lookup(results: &BattleResults) -> HashMap<u32, Json> {
@@ -966,8 +1119,8 @@ mod tests {
         let mut body = vec![0_u8; 9];
         body.push(pickle.len() as u8);
         body.extend_from_slice(&pickle);
-        let decoded = decode_method_51_counters(&method_payload(4, 51, &body))
-            .expect("counter snapshot");
+        let decoded =
+            decode_method_51_counters(&method_payload(4, 51, &body)).expect("counter snapshot");
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded["Booster_shells"], json!(12));
 

@@ -17,8 +17,9 @@ blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]
 blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
 blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]
 
-blitz-client replay inspect <replay.tbreplay> [--data] [--out <path>] [--json]
+blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]
 blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]
+blitz-client replay follow <data.replay> [--poll-ms <N>] [--idle-timeout-ms <N>] [--out <new-path>]
 ```
 
 `--game-dir` accepts either the game directory or the `Data` directory. It is optional; the first existing default path for the current OS is used. An invalid explicit path is an error and never falls back to auto-detection.
@@ -82,6 +83,20 @@ repairs and collision armor-zone checks remain specific to their export paths.
 ## Replay analysis
 
 `replay inspect` decodes a `.tbreplay` ZIP archive: `meta.json`, the protocol-2 pickle `battle_results.dat` and, with `--data`, the framed `data.replay` packet stream with the recovered telemetry (shots, hits, health and transform updates, booster counters, task markers, packet annotations). A human-readable summary goes to stdout, `--json` prints the whole document and `--out <path>` writes it to a file.
+
+`replay inspect data.replay` also accepts the standalone stream (detected by its magic or `.replay` extension). It always includes packets and telemetry; `--data` is unnecessary. `meta` and `battle_results` are `null`, as are result-based counters and comparisons. Player names from final results and exact result-snapshot matching are unavailable. Complete standalone and archived streams use the same incremental decoder; a trailing incomplete header or packet is an error in inspect mode.
+
+`replay follow data.replay` reads from the beginning and then polls every **25 ms** by default. It waits for file creation, buffers partial headers and packets, and emits complete packets immediately as **NDJSON**, flushing every line. Use `--poll-ms 10` to change the interval. The output contains:
+
+- `header`: `session_id`, `client_version`, `header_bytes`.
+- `packet`: `session_id`, `seq`, absolute byte `offset`, `packet_type`, `clock`, decoded `payload`, hex `raw_payload`, and `telemetry`.
+- `reset`: new `session_id` and a reason (`file_removed`, `file_replaced`, `file_truncated`, or `file_rewritten`). Sequence numbers and HP state restart for the new session.
+
+Live telemetry uses the same packet layouts as inspect and keeps previous HP per entity. Its records describe the current packet; linking shots to launches and hits to HP updates is performed by the complete inspect report. For unsupported client versions, packet `telemetry` is `null` and raw payloads remain available.
+
+Errors go to stderr, including with `--json`; follow always writes compact NDJSON. `--out <new-path>` writes to a new file instead of stdout and refuses to overwrite existing files. Ctrl+C stops following. `--idle-timeout-ms <N>` optionally stops after no new bytes or session resets for the specified duration (also applies while waiting for creation). An idle timeout does not certify a complete replay and may leave an incomplete frame unreported.
+
+Following expects append-only writes within a session. It detects replacement by file identity (device/inode on Unix, creation time elsewhere), observed truncation, and changes to the last 64 read bytes. A rewrite that restores those same bytes can escape detection. Consumer callbacks run synchronously, providing backpressure without accumulating the whole live history. The library exposes `ReplayStreamDecoder::feed/finish`, `TelemetryDecoder::on_packet`, and `ReplayFollower::poll`; callers control scheduling and cancellation. Payload size is limited to 16 MiB. Actual latency also depends on how frequently the game flushes its recording buffer.
 
 `replay latest` picks the newest `.tbreplay` of the platform replay folder (macOS: `~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/replays`); `--dir <path>` selects another folder.
 

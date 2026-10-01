@@ -1,8 +1,8 @@
 use blitz_client::{
-    ClientExportOptions, InstallerError, ReplayAnalysis, ReplayOptions, TankExportOptions,
-    analyze_replay, export_client, export_tank_catalog, find_latest_replay, install_mod,
-    is_known_nation, list_client_tanks, remove_mod, resolve_game_dir, update_from_git_diff,
-    validate_mod,
+    ClientExportOptions, InstallerError, ReplayAnalysis, ReplayFollower, ReplayOptions,
+    TankExportOptions, analyze_replay, export_client, export_tank_catalog, find_latest_replay,
+    install_mod, is_known_nation, list_client_tanks, remove_mod, resolve_game_dir,
+    update_from_git_diff, validate_mod,
 };
 use std::env;
 use std::path::PathBuf;
@@ -32,7 +32,7 @@ fn run() -> i32 {
         Ok(true) => 0,
         Ok(false) => 4,
         Err(error) => {
-            if json {
+            if json && !(args[0] == "replay" && args.get(1).is_some_and(|arg| arg == "follow")) {
                 print_json(&serde_json::json!({"ok": false, "error": error}));
             } else {
                 eprintln!("{error}");
@@ -459,7 +459,122 @@ fn run_replay(args: &[String], json: bool) -> blitz_client::Result<bool> {
     match args.first().map(String::as_str) {
         Some("inspect") => run_replay_analysis(&args[1..], json, false),
         Some("latest") => run_replay_analysis(&args[1..], json, true),
-        _ => Err(usage_error("expected replay inspect or replay latest")),
+        Some("follow") => run_replay_follow(&args[1..]),
+        _ => Err(usage_error(
+            "expected replay inspect, replay latest or replay follow",
+        )),
+    }
+}
+
+fn run_replay_follow(args: &[String]) -> blitz_client::Result<bool> {
+    use std::io::Write;
+    use std::time::{Duration, Instant};
+    let mut path = None;
+    let mut out = None;
+    let mut poll_ms = 25_u64;
+    let mut idle_timeout = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--poll-ms" | "--idle-timeout-ms" => {
+                let flag = &args[i];
+                i += 1;
+                let value = args
+                    .get(i)
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .filter(|value| *value > 0 && *value <= 86_400_000)
+                    .ok_or_else(|| {
+                        usage_error(&format!(
+                            "{flag} requires milliseconds between 1 and 86400000"
+                        ))
+                    })?;
+                if flag == "--poll-ms" {
+                    poll_ms = value;
+                } else {
+                    idle_timeout = Some(Duration::from_millis(value));
+                }
+            }
+            "--out" => {
+                i += 1;
+                out = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| usage_error("--out requires a path"))?,
+                ));
+            }
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("unknown option: {flag}")));
+            }
+            value if path.is_none() => path = Some(PathBuf::from(value)),
+            value => return Err(usage_error(&format!("unexpected argument: {value}"))),
+        }
+        i += 1;
+    }
+    let path = path.ok_or_else(|| usage_error("replay follow requires a data.replay path"))?;
+    if let Some(out) = &out {
+        let resolve = |value: &std::path::Path| -> blitz_client::Result<PathBuf> {
+            let parent = value
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| std::path::Path::new("."));
+            let parent = parent.canonicalize().map_err(|error| {
+                InstallerError::at(
+                    "IO_ERROR",
+                    format!("cannot resolve replay path: {error}"),
+                    value,
+                )
+            })?;
+            Ok(parent.join(
+                value
+                    .file_name()
+                    .ok_or_else(|| usage_error("expected a file path"))?,
+            ))
+        };
+        if resolve(&path)? == resolve(out)? {
+            return Err(usage_error("--out must differ from the live replay path"));
+        }
+    }
+    // Create exclusively: never truncate the source or an existing output file.
+    let mut output: Box<dyn Write> = if let Some(out) = &out {
+        Box::new(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(out)
+                .map_err(|error| {
+                    InstallerError::at(
+                        "IO_ERROR",
+                        format!("cannot create NDJSON output: {error}"),
+                        out,
+                    )
+                })?,
+        )
+    } else {
+        Box::new(std::io::stdout().lock())
+    };
+    let mut follower = ReplayFollower::new(&path);
+    let mut last_activity = Instant::now();
+    loop {
+        let mut reset = false;
+        let bytes = follower.poll(|event| {
+            reset |= matches!(&event.event, blitz_client::ReplayStreamEvent::Reset { .. });
+            let line = serde_json::to_vec(&event)
+                .map_err(|error| InstallerError::new("JSON_SERIALIZE_FAILED", error.to_string()))?;
+            output
+                .write_all(&line)
+                .and_then(|_| output.write_all(b"\n"))
+                .and_then(|_| output.flush())
+                .map_err(|error| InstallerError::new("REPLAY_OUTPUT_FAILED", error.to_string()))
+        })?;
+        if bytes > 0 || reset {
+            last_activity = Instant::now();
+        }
+        if idle_timeout.is_some_and(|timeout| last_activity.elapsed() >= timeout) {
+            return Ok(true);
+        }
+        let wait = idle_timeout.map_or(Duration::from_millis(poll_ms), |timeout| {
+            Duration::from_millis(poll_ms).min(timeout.saturating_sub(last_activity.elapsed()))
+        });
+        std::thread::sleep(wait);
     }
 }
 
@@ -508,7 +623,7 @@ fn run_replay_analysis(
         if directory.is_some() {
             return Err(usage_error("--dir is only valid for replay latest"));
         }
-        path.ok_or_else(|| usage_error("replay inspect requires a .tbreplay path"))?
+        path.ok_or_else(|| usage_error("replay inspect requires a .tbreplay or data.replay path"))?
     };
 
     let analysis = analyze_replay(&replay, ReplayOptions { include_data })?;
@@ -543,29 +658,38 @@ fn print_replay_summary(analysis: &ReplayAnalysis) {
     let results = &analysis.battle_results;
     let author = &results["author"];
     println!("{}", analysis.source);
-    println!("client: {}", json_field(meta, "version"));
     println!(
-        "map: {} (id {}), vehicle: {}",
-        json_field(meta, "mapName"),
-        json_field(meta, "mapId"),
-        json_field(meta, "playerVehicleName")
+        "client: {}",
+        analysis
+            .data
+            .as_ref()
+            .map(|data| json_field(data, "client_version"))
+            .unwrap_or_else(|| json_field(meta, "version"))
     );
-    println!(
-        "author: {} (dbid {}, damage {}, shots {}, hits {}, hp left {})",
-        json_field(meta, "playerName"),
-        json_field(meta, "dbid"),
-        json_field(author, "damage_dealt"),
-        json_field(author, "n_shots"),
-        json_field(author, "n_hits"),
-        json_field(author, "hitpoints_left")
-    );
-    println!(
-        "battle: {:.1}s, arena {}, winner team {}, players {}",
-        meta["battleDuration"].as_f64().unwrap_or_default(),
-        json_field(meta, "arenaUniqueId"),
-        json_field(results, "winner_team_number"),
-        results["players"].as_array().map_or(0, Vec::len)
-    );
+    if !meta.is_null() {
+        println!(
+            "map: {} (id {}), vehicle: {}",
+            json_field(meta, "mapName"),
+            json_field(meta, "mapId"),
+            json_field(meta, "playerVehicleName")
+        );
+        println!(
+            "author: {} (dbid {}, damage {}, shots {}, hits {}, hp left {})",
+            json_field(meta, "playerName"),
+            json_field(meta, "dbid"),
+            json_field(author, "damage_dealt"),
+            json_field(author, "n_shots"),
+            json_field(author, "n_hits"),
+            json_field(author, "hitpoints_left")
+        );
+        println!(
+            "battle: {:.1}s, arena {}, winner team {}, players {}",
+            meta["battleDuration"].as_f64().unwrap_or_default(),
+            json_field(meta, "arenaUniqueId"),
+            json_field(results, "winner_team_number"),
+            results["players"].as_array().map_or(0, Vec::len)
+        );
+    }
 
     let Some(telemetry) = &analysis.telemetry else {
         return;
@@ -652,8 +776,9 @@ fn print_usage() {
          blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]\n\
          blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]\n\
          blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]\n\
-         blitz-client replay inspect <replay.tbreplay> [--data] [--out <path>] [--json]\n\
+         blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]\n\
          blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]\n\
+         blitz-client replay follow <data.replay> [--poll-ms <N>] [--idle-timeout-ms <N>] [--out <new-path>]\n\
          \n\
          --game-dir is optional. Without it the first existing default path for this OS is used.\n\
          replay latest uses the newest .tbreplay of the platform replay folder; --dir overrides it."
