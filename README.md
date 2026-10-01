@@ -181,6 +181,47 @@ default path.
 
 Packet layouts were verified on `26.8.0_ruby_apple` replays. Other client versions still decode the archive and battle results, keep every raw payload and report `unsupported-client-version` telemetry. Pickle values are read as builtins only: the decoder never imports or runs Python code.
 
+### Live game recording
+
+During a battle, the game creates a directory named
+`recording_<nickname>.tbreplay` inside the replay folder. `<nickname>` is the
+player's nickname: for example, `iCooLER` in `recording_iCooLER.tbreplay`.
+Despite its `.tbreplay` suffix, this recording is a directory, rather than a
+completed ZIP archive.
+
+The live recording inspected on macOS on 2026-10-01 contained only:
+
+```text
+replays/
+└── recording_iCooLER.tbreplay/
+    └── data.replay
+```
+
+`data.replay` grew during the battle: observed sizes were 65,536, 131,072,
+and 258,048 bytes. Updates arrive when the game flushes its buffer, so polling
+more frequently cannot expose bytes that the game has not written yet. These
+sizes are observations, not a guaranteed write-chunk size.
+
+The file uses the same framing as a standalone replay: a stream header followed
+by packets with a little-endian payload length (`u32`), packet type (`u32`),
+clock in seconds (`f32`), and payload bytes. In this recording the header was
+65 bytes and identified client `26.10.0_ruby_apple`. The follower successfully
+decoded 2,959 packets from the 131,072-byte snapshot, through clock 32.387
+seconds, with no incomplete packet remaining at that snapshot's end. Packet
+framing works for this version; recovered telemetry is still version-gated as
+described above.
+
+Follow the live file directly, replacing `iCooLER` with the player's nickname:
+
+```sh
+blitz-client replay follow ~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/replays/recording_iCooLER.tbreplay/data.replay
+```
+
+The follower can start before the directory or file exists and waits for its
+creation. It buffers any incomplete packet at a temporary end of file.
+`meta.json` and `battle_results.dat` were absent from the inspected live
+directory; the completed test replay ZIP contains both alongside `data.replay`.
+
 ### Simulating a growing replay file
 
 A real replay copy is included at `tests/fixtures/sample.tbreplay`. The Python
