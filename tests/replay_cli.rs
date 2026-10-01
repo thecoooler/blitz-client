@@ -1,3 +1,5 @@
+#![cfg(feature = "cli")]
+
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;

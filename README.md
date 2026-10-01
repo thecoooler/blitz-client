@@ -1,6 +1,68 @@
 # Tanks Blitz Client Tools
 
-Rust library and CLI for inspecting the installed Tanks Blitz client, exporting tank models for the local viewer, and installing resource mods. The same library can be called from a Tauri Rust backend.
+Rust library and CLI for inspecting the installed Tanks Blitz client, exporting tank models for the local viewer, installing resource mods, and analyzing complete or live replays. The same library can be called from a Tauri Rust backend.
+
+## Library modules and selective builds
+
+The project is one crate with five functional modules. Each module exposes its
+interface from `mod.rs`; implementation files stay private unless they are useful
+resource parsers. CLI argument parsing and output formatting live in `src/cli/`.
+
+| Feature / module | Responsibility | Enables |
+| --- | --- | --- |
+| `resources` | DVPL codecs, XML, SC2/SCG archives | Resource codec dependencies |
+| `client` | Client location, resource lookup, localization, tank and map catalogs | `resources` |
+| `export` | Client data and tank bundles, model/armor conversion, export output | `client` |
+| `mods` | Manifests, validation, installation, removal, Git patches | `client` |
+| `replay` | Archive/standalone analysis, byte framing, file following, telemetry | Replay parser dependencies |
+| `cli` | The existing `blitz-client` executable and all commands | `export`, `mods`, `replay` |
+
+The default feature is `cli`, preserving the complete application. To use just
+replays in another Rust project:
+
+```toml
+[dependencies]
+blitz-client = { path = "../blitz-client", default-features = false, features = ["replay"] }
+```
+
+```rust
+use blitz_client::replay::{ReplayFollower, ReplayOptions, analyze_replay};
+```
+
+For resource parsing or client catalogs, select `resources` or `client` instead.
+Features can be combined, for example `features = ["client", "replay"]`. The binary
+is built only with `cli`; library builds don't need CLI modules. With no features,
+only the shared `Error` / `Result` interface and its Serde support remain. Optional
+unselected dependencies are not compiled; selected libraries can still bring
+transitive dependencies. Cargo merges features requested by different dependents,
+so every dependency that wants a selective build must disable default features.
+
+The preferred imports are `blitz_client::client::*`, `blitz_client::export::*`,
+`blitz_client::mods::*`, `blitz_client::replay::*`, and `blitz_client::resources::*`.
+Original crate-root imports remain available under the corresponding feature.
+`InstallerError` is an alias for `Error`; its serialized fields and error codes are
+unchanged. Replay `Packet`, `Payload`, and `EntityMethod` types are reexported from
+`replay`, so callers need no direct dependency on the underlying parser.
+
+Module dependencies run from high-level operations toward resource readers:
+`export` and `mods` use `client` and `resources`; `client` uses `resources`;
+`replay` is independent. `export/output.rs` owns the shared file-writing logic.
+`resources` never imports the exporter. Tests for resource formats live with
+those parsers; tests for model and armor policies live in `export`. They share
+byte-level fixtures compiled only for tests.
+
+Library-only examples:
+
+```sh
+cargo run --no-default-features --features replay --example replay_follow -- ./data.replay
+cargo run --no-default-features --features client --example client_catalog -- /path/to/Data
+cargo run --no-default-features --features resources --example decode_resource -- /path/to/file.dvpl
+```
+
+Run `bash scripts/check-features.sh` to test the full application and each feature
+in isolation. Add `--offline` when dependencies are already cached. Existing replay
+CLI integration tests run only with `cli`; byte decoders and library tests also run
+in their isolated feature builds.
 
 ## CLI
 
