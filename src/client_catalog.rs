@@ -57,26 +57,35 @@ pub struct ClientPrice {
 /// XML lists and Russian localization are read once and shared by the metadata
 /// and model outputs.
 pub fn discover(data_dir: &Path) -> Result<ClientCatalog> {
-    let (tanks, model_tanks, localized) = discover_tanks(data_dir)?;
-    let maps = read_maps(data_dir, &localized)?;
+    let discovered = discover_tanks(data_dir, TankDiscoveryScope::FullCatalog)?;
+    let maps = read_maps(data_dir, &discovered.localized)?;
     Ok(ClientCatalog {
         maps,
-        tanks,
-        model_tanks,
+        tanks: discovered.metadata,
+        model_tanks: discovered.models,
     })
 }
 
+/// Discover paired showroom files without requiring full catalog metadata.
 pub fn discover_models(data_dir: &Path) -> Result<Vec<ClientTank>> {
-    discover_tanks(data_dir).map(|(_, model_tanks, _)| model_tanks)
+    discover_tanks(data_dir, TankDiscoveryScope::ModelsOnly).map(|discovered| discovered.models)
 }
 
-fn discover_tanks(
-    data_dir: &Path,
-) -> Result<(
-    Vec<ClientTankMetadata>,
-    Vec<ClientTank>,
-    HashMap<String, String>,
-)> {
+#[derive(Clone, Copy)]
+enum TankDiscoveryScope {
+    ModelsOnly,
+    FullCatalog,
+}
+
+struct DiscoveredTanks {
+    metadata: Vec<ClientTankMetadata>,
+    models: Vec<ClientTank>,
+    localized: HashMap<String, String>,
+}
+
+// Both projections share resource loading; only full catalog discovery applies
+// metadata invariants, including to entries without showroom model files.
+fn discover_tanks(data_dir: &Path, scope: TankDiscoveryScope) -> Result<DiscoveredTanks> {
     let vehicles_dir = data_dir.join("XML/item_defs/vehicles");
     if !vehicles_dir.is_dir() {
         return Err(InstallerError::at(
@@ -88,7 +97,7 @@ fn discover_tanks(
 
     let localized = read_localized_names(data_dir)?;
     let available_nations = read_available_nations(data_dir)?;
-    let mut tanks = Vec::new();
+    let mut metadata = Vec::new();
     let mut model_tanks_by_nation = HashMap::<String, Vec<ClientTank>>::new();
 
     for nation in available_nations {
@@ -104,106 +113,131 @@ fn discover_tanks(
         let nation_info = client::nations()
             .iter()
             .find(|(known_nation, _, _)| *known_nation == nation);
-        let model_folder = nation_info.map(|(_, folder, _)| *folder);
-        let nation_label = nation_info
-            .map(|(_, _, label)| (*label).to_owned())
-            .unwrap_or_else(|| nation.clone());
 
         for item in &root.children {
-            let user_string = required_text(item, "userString", &list_path)?;
-            let data_tank = ClientTankMetadata {
-                id: required_text(item, "id", &list_path)?,
-                user_string: localize(&user_string, &localized),
-                short_user_string: child_text(item, "shortUserString")
-                    .map(|value| localize(&value, &localized))
-                    .unwrap_or_default(),
-                description: child_text(item, "description")
-                    .map(|value| localize(&value, &localized))
-                    .unwrap_or_default(),
-                price: parse_price(required_node(item, "price", &list_path)?, &list_path)?,
-                sell_price: item
-                    .children
-                    .iter()
-                    .find(|child| child.name == "sellPrice")
-                    .map(|node| parse_price(node, &list_path))
-                    .transpose()?,
-                not_in_shop: child_text(item, "notInShop")
-                    .is_some_and(|value| value.eq_ignore_ascii_case("true")),
-                enrichment_permanent_cost: required_number(
-                    item,
-                    "enrichmentPermanentCost",
-                    &list_path,
-                )?,
-                tags: required_text(item, "tags", &list_path)?
-                    .split_whitespace()
-                    .map(str::to_owned)
-                    .collect(),
-                level: required_number(item, "level", &list_path)?,
-                nation: nation.clone(),
-                combat_role: item
-                    .children
-                    .iter()
-                    .find(|child| child.name == "combatRole")
-                    .map(|node| {
-                        node.children
-                            .iter()
-                            .map(|role| (role.name.clone(), role.text.trim().to_owned()))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                configuration_modes: required_text(item, "configurationModes", &list_path)?
-                    .split_whitespace()
-                    .map(str::to_owned)
-                    .collect(),
-                leasing: child_text(item, "leasing")
-                    .map(|value| parse_leasing(&value, &list_path))
-                    .transpose()?,
-            };
-
-            if let Some(model_folder) = model_folder {
-                let model_root = PathBuf::from("3d/Tanks").join(model_folder);
-                let scene = resolve_client_asset(
-                    data_dir,
-                    &model_root
-                        .join(format!("{}.sc2.dvpl", item.name))
-                        .to_string_lossy(),
-                );
-                let geometry = resolve_client_asset(
-                    data_dir,
-                    &model_root
-                        .join(format!("{}.scg.dvpl", item.name))
-                        .to_string_lossy(),
-                );
-                if let (Some(scene), Some(geometry)) = (scene, geometry) {
-                    let display_name = localized
-                        .get(&user_string)
-                        .cloned()
-                        .unwrap_or_else(|| item.name.replace('_', " "));
-                    model_tanks_by_nation
-                        .entry(nation.clone())
-                        .or_default()
-                        .push(ClientTank {
-                            id: item.name.clone(),
-                            nation: nation.clone(),
-                            nation_label: nation_label.clone(),
-                            level: child_text(item, "level"),
-                            user_string: Some(user_string.clone()),
-                            name: display_name,
-                            model_files: TankModelFiles { scene, geometry },
-                        });
-                }
+            if matches!(scope, TankDiscoveryScope::FullCatalog) {
+                metadata.push(tank_metadata(item, &nation, &localized, &list_path)?);
             }
-            tanks.push(data_tank);
+            if let Some((_, model_folder, nation_label)) = nation_info
+                && let Some(model) = showroom_model(
+                    data_dir,
+                    item,
+                    &nation,
+                    model_folder,
+                    nation_label,
+                    &localized,
+                )
+            {
+                model_tanks_by_nation
+                    .entry(nation.clone())
+                    .or_default()
+                    .push(model);
+            }
         }
     }
 
-    let mut model_tanks = Vec::new();
+    let mut models = Vec::new();
     for (nation, _, _) in client::nations() {
         if let Some(mut nation_tanks) = model_tanks_by_nation.remove(*nation) {
-            model_tanks.append(&mut nation_tanks);
+            models.append(&mut nation_tanks);
         }
     }
-    Ok((tanks, model_tanks, localized))
+    Ok(DiscoveredTanks {
+        metadata,
+        models,
+        localized,
+    })
+}
+
+fn tank_metadata(
+    item: &client::XmlNode,
+    nation: &str,
+    localized: &HashMap<String, String>,
+    list_path: &Path,
+) -> Result<ClientTankMetadata> {
+    let user_string = required_text(item, "userString", list_path)?;
+    Ok(ClientTankMetadata {
+        id: required_text(item, "id", list_path)?,
+        user_string: localize(&user_string, localized),
+        short_user_string: child_text(item, "shortUserString")
+            .map(|value| localize(&value, localized))
+            .unwrap_or_default(),
+        description: child_text(item, "description")
+            .map(|value| localize(&value, localized))
+            .unwrap_or_default(),
+        price: parse_price(required_node(item, "price", list_path)?, list_path)?,
+        sell_price: item
+            .children
+            .iter()
+            .find(|child| child.name == "sellPrice")
+            .map(|node| parse_price(node, list_path))
+            .transpose()?,
+        not_in_shop: child_text(item, "notInShop")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        enrichment_permanent_cost: required_number(item, "enrichmentPermanentCost", list_path)?,
+        tags: required_text(item, "tags", list_path)?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
+        level: required_number(item, "level", list_path)?,
+        nation: nation.to_owned(),
+        combat_role: item
+            .children
+            .iter()
+            .find(|child| child.name == "combatRole")
+            .map(|node| {
+                node.children
+                    .iter()
+                    .map(|role| (role.name.clone(), role.text.trim().to_owned()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        configuration_modes: required_text(item, "configurationModes", list_path)?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
+        leasing: child_text(item, "leasing")
+            .map(|value| parse_leasing(&value, list_path))
+            .transpose()?,
+    })
+}
+
+fn showroom_model(
+    data_dir: &Path,
+    item: &client::XmlNode,
+    nation: &str,
+    model_folder: &str,
+    nation_label: &str,
+    localized: &HashMap<String, String>,
+) -> Option<ClientTank> {
+    let model_root = PathBuf::from("3d/Tanks").join(model_folder);
+    let scene = resolve_client_asset(
+        data_dir,
+        &model_root
+            .join(format!("{}.sc2.dvpl", item.name))
+            .to_string_lossy(),
+    )?;
+    let geometry = resolve_client_asset(
+        data_dir,
+        &model_root
+            .join(format!("{}.scg.dvpl", item.name))
+            .to_string_lossy(),
+    )?;
+    let user_string = child_text(item, "userString");
+    let name = user_string
+        .as_ref()
+        .and_then(|key| localized.get(key))
+        .cloned()
+        .unwrap_or_else(|| item.name.replace('_', " "));
+    Some(ClientTank {
+        id: item.name.clone(),
+        nation: nation.to_owned(),
+        nation_label: nation_label.to_owned(),
+        level: child_text(item, "level"),
+        user_string,
+        name,
+        model_files: TankModelFiles { scene, geometry },
+    })
 }
 
 fn read_available_nations(data_dir: &Path) -> Result<Vec<String>> {
@@ -492,3 +526,6 @@ fn localize(value: &str, localized: &HashMap<String, String>) -> String {
         .cloned()
         .unwrap_or_else(|| value.to_owned())
 }
+
+#[cfg(test)]
+mod tests;

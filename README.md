@@ -48,6 +48,14 @@ blitz-client client tanks export \
 
 `client tanks list` reports the vehicles with both showroom model files installed. The JSON response contains `count` and a `tanks` array with the ID, localized name, nation, level, `userString`, and source model paths.
 
+Model discovery uses the vehicle XML node name as the tank ID. Localization,
+`userString`, and level are optional; the display name falls back to the node
+name with underscores replaced by spaces. Missing or invalid price, shop, and
+configuration metadata does not prevent model discovery. Full catalog export
+continues to reject incomplete or invalid required tank metadata, including
+records without model files. Unreadable resources and invalid XML or DVPL
+containers remain errors in both commands.
+
 `client export` writes `maps.json` and `tanks.json` into the output directory, then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files always contain the full client catalog. Add `--data-only` to skip model conversion.
 
 The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
