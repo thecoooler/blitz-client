@@ -164,6 +164,52 @@ Following expects append-only writes within a session. It detects replacement by
 
 Packet layouts were verified on `26.8.0_ruby_apple` replays. Other client versions still decode the archive and battle results, keep every raw payload and report `unsupported-client-version` telemetry. Pickle values are read as builtins only: the decoder never imports or runs Python code.
 
+### Simulating a growing replay file
+
+A real replay copy is included at `tests/fixtures/sample.tbreplay`. The Python
+standard-library script extracts its `data.replay` and writes it in chunks,
+flushing after every write:
+
+```sh
+python3 scripts/simulate-replay.py
+```
+
+Each run creates `/tmp` (or the platform temp directory) with a random
+`blitz-live-replay-*` subdirectory containing `data.replay`. The script prints the
+full destination and a `cargo run -- replay follow ...` command, waits three
+seconds, then writes 1,024 bytes every 25 ms. Start the printed follower command
+in another terminal; it also reads any bytes written before it starts. The
+completed or interrupted file is kept for inspection.
+
+For a known destination, start the follower first in one terminal:
+
+```sh
+cargo run -- replay follow /tmp/live-test/data.replay
+```
+
+Then start the writer in another terminal:
+
+```sh
+python3 scripts/simulate-replay.py --output /tmp/live-test/data.replay
+```
+
+The destination must be a new file; existing files are never overwritten. Remove
+the old test output or choose another path before repeating. You can supply a
+different archive or standalone stream and change the write cadence:
+
+```sh
+python3 scripts/simulate-replay.py /path/to/battle.tbreplay \
+  --output /tmp/another-test/data.replay \
+  --chunk-size 127 --interval-ms 10 --start-delay 0
+```
+
+Chunks may split both headers and packet bodies, exercising the follower's
+incomplete-frame buffering. Cadence simulates filesystem appends; packet clocks
+inside the original recording are preserved and do not determine write timing.
+Use `--interval-ms 0 --start-delay 0` for a fast copy. Stop the follower with
+Ctrl+C after the writer finishes, or configure its `--idle-timeout-ms` longer
+than the initial wait and chunk interval.
+
 ## Mod commands
 
 The logical target in a manifest omits the final `.dvpl` suffix. The installer resolves `UI/.../Minimap.yaml` to either `Minimap.yaml.dvpl` or a plain `Minimap.yaml`, rejecting the case where both exist.
