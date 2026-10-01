@@ -26,6 +26,36 @@ impl Drop for TempDir {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn locate_returns_replay_path_even_before_folder_creation() {
+    let temp = TempDir::new();
+    let home = temp.0.join("home");
+    let game = temp.0.join("game");
+    std::fs::create_dir(&game).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_blitz-client"))
+        .args(["client", "locate", "--game-dir"])
+        .arg(&game)
+        .arg("--json")
+        .env("HOME", &home)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let replay_dir =
+        home.join("Library/Containers/com.tanksblitz/Data/Documents/tb-project/replays");
+    assert!(!replay_dir.exists());
+    assert_eq!(
+        json["replay_dir"],
+        serde_json::to_value(replay_dir).unwrap()
+    );
+    assert_eq!(json["source"], "explicit");
+    assert_eq!(
+        json["game_dir"],
+        serde_json::to_value(game.canonicalize().unwrap()).unwrap()
+    );
+}
+
 #[test]
 fn follow_flushes_before_exit_and_waits_for_partial_packets() {
     let temp = TempDir::new();

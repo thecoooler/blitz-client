@@ -4,7 +4,6 @@ use super::telemetry::recover_telemetry;
 use crate::{Error, Result, io_error};
 use serde::Serialize;
 use serde_json::Value as Json;
-use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{Cursor, Read};
@@ -174,29 +173,11 @@ fn analyze_data_replay(path: &Path, file: File) -> Result<ReplayAnalysis> {
     })
 }
 
-/// Newest `.tbreplay` file in an explicit directory, or in the first existing
-/// platform default replay folder.
+/// Newest `.tbreplay` file in an explicit directory, or in the standard OS folder.
 pub fn find_latest_replay(directory: Option<PathBuf>) -> Result<PathBuf> {
     let directory = match directory {
         Some(directory) => directory,
-        None => {
-            let candidates = default_replay_dirs();
-            candidates
-                .iter()
-                .find(|candidate| candidate.is_dir())
-                .cloned()
-                .ok_or_else(|| {
-                    let checked = candidates
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    Error::new(
-                        "REPLAY_FOLDER_NOT_FOUND",
-                        format!("no default replay folder exists; checked: {checked}; pass --dir"),
-                    )
-                })?
-        }
+        None => super::default_replay_dir()?,
     };
 
     let entries = fs::read_dir(&directory)
@@ -245,22 +226,4 @@ fn read_entry(archive: &mut ZipArchive<File>, path: &Path, name: &str) -> Result
 fn serialize(value: &impl Serialize) -> Result<Json> {
     serde_json::to_value(value)
         .map_err(|error| Error::new("JSON_SERIALIZE_FAILED", error.to_string()))
-}
-
-fn default_replay_dirs() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    #[cfg(target_os = "macos")]
-    if let Some(home) = env::var_os("HOME") {
-        out.push(
-            PathBuf::from(home)
-                .join("Library")
-                .join("Containers")
-                .join("com.tanksblitz")
-                .join("Data")
-                .join("Documents")
-                .join("tb-project")
-                .join("replays"),
-        );
-    }
-    out
 }

@@ -1,4 +1,5 @@
 //! Complete replay analysis and incremental live packet decoding.
+pub use crate::paths::default_replay_dir;
 mod analysis;
 mod follower;
 mod stream;

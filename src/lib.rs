@@ -1,7 +1,11 @@
 //! Client resources, catalogs, exports, mods, and replay analysis.
 //! Enable only the modules you need with Cargo features; see the README.
 mod error;
+#[cfg(any(feature = "client", feature = "replay"))]
+mod paths;
 pub use error::{Error, Result};
+#[cfg(any(feature = "client", feature = "replay"))]
+pub use paths::default_replay_dir;
 /// Compatibility name for the shared error type.
 pub type InstallerError = Error;
 #[cfg(any(

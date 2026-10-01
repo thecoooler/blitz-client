@@ -162,7 +162,22 @@ Errors go to stderr, including with `--json`; follow always writes compact NDJSO
 
 Following expects append-only writes within a session. It detects replacement by file identity (device/inode on Unix, creation time elsewhere), observed truncation, and changes to the last 64 read bytes. A rewrite that restores those same bytes can escape detection. Consumer callbacks run synchronously, providing backpressure without accumulating the whole live history. The library exposes `ReplayStreamDecoder::feed/finish`, `TelemetryDecoder::on_packet`, and `ReplayFollower::poll`; callers control scheduling and cancellation. Payload size is limited to 16 MiB. Actual latency also depends on how frequently the game flushes its recording buffer.
 
-`replay latest` picks the newest `.tbreplay` of the platform replay folder (macOS: `~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/replays`); `--dir <path>` selects another folder.
+`client locate` also returns `replay_dir` in JSON and prints the replay directory
+in text output. This is the fixed OS path, independent of `--game-dir`, and is
+returned even when the folder does not exist yet:
+
+- macOS: `~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/replays`
+- Windows: `%USERPROFILE%\Documents\TanksBlitz\replays`, as documented by
+  [Tanks Blitz support](https://lesta.ru/support/ru/products/tb/article/16159/).
+
+`client::default_replay_dir()` and `replay::default_replay_dir()` expose the same
+path calculation to library callers. On other operating systems, or when the
+required home-directory environment variable is missing, this function returns
+`REPLAY_FOLDER_NOT_FOUND` and `client locate` reports `replay_dir: null`.
+
+`replay latest` picks the newest `.tbreplay` in this folder; `--dir <path>`
+selects another folder, including on operating systems without a configured
+default path.
 
 Packet layouts were verified on `26.8.0_ruby_apple` replays. Other client versions still decode the archive and battle results, keep every raw payload and report `unsupported-client-version` telemetry. Pickle values are read as builtins only: the decoder never imports or runs Python code.
 

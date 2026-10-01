@@ -10,6 +10,8 @@ pub struct ResolvedGameDir {
     /// Resource root used to resolve paths from mod.toml.
     pub resource_dir: PathBuf,
     pub source: String,
+    /// Standard replay folder for this OS; it need not exist yet.
+    pub replay_dir: Option<PathBuf>,
 }
 
 /// Use an explicitly supplied directory, or search the ordered platform defaults.
@@ -31,6 +33,7 @@ pub fn resolve_game_dir(explicit: Option<PathBuf>) -> Result<ResolvedGameDir> {
             game_dir,
             resource_dir,
             source: "explicit".to_owned(),
+            replay_dir: crate::paths::default_replay_dir().ok(),
         });
     }
 
@@ -50,6 +53,7 @@ pub fn discover_game_dir() -> Result<ResolvedGameDir> {
                 game_dir,
                 resource_dir,
                 source: "default".to_owned(),
+                replay_dir: crate::paths::default_replay_dir().ok(),
             });
         }
     }
