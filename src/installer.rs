@@ -11,8 +11,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const BACKUP_SUFFIX: &str = ".tanks-blitz-mod-installer-original";
-const STATE_DIR: &str = ".tanks-blitz-mod-installer";
+const BACKUP_SUFFIX: &str = ".tanks-blitz-client-original";
+const STATE_DIR: &str = ".tanks-blitz-client";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileValidation {
@@ -852,7 +852,7 @@ fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let temp = parent.join(format!(".{filename}.bmi-{}-{tick}.tmp", std::process::id()));
+    let temp = parent.join(format!(".{filename}.bc-{}-{tick}.tmp", std::process::id()));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

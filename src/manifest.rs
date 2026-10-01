@@ -257,7 +257,7 @@ pub fn update_from_git_diff(
 }
 
 fn write_replacing(path: &Path, bytes: &[u8]) -> Result<()> {
-    let temp = path.with_extension("toml.bmi-tmp");
+    let temp = path.with_extension("toml.bc-tmp");
     fs::write(&temp, bytes)
         .map_err(|e| crate::io_error("could not write temporary manifest", &temp, e))?;
     #[cfg(windows)]

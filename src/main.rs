@@ -1,4 +1,4 @@
-use blitz_mod_installer::{
+use blitz_client::{
     ClientExportOptions, InstallerError, ReplayAnalysis, ReplayOptions, TankExportOptions,
     analyze_replay, export_client, export_tank_catalog, find_latest_replay, install_mod,
     is_known_nation, list_client_tanks, remove_mod, resolve_game_dir, update_from_git_diff,
@@ -42,7 +42,7 @@ fn run() -> i32 {
     }
 }
 
-fn run_client(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_client(args: &[String], json: bool) -> blitz_client::Result<bool> {
     if args.first().map(String::as_str) == Some("locate") {
         let (positional, game_dir) = take_game_dir(&args[1..])?;
         if !positional.is_empty() {
@@ -72,7 +72,7 @@ fn run_client(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> 
     }
 }
 
-fn run_mod(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_mod(args: &[String], json: bool) -> blitz_client::Result<bool> {
     match args.first().map(String::as_str) {
         Some("validate") => run_validate(&args[1..], json),
         Some("install") => run_install(&args[1..], json),
@@ -84,7 +84,7 @@ fn run_mod(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
     }
 }
 
-fn run_tank_list(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_tank_list(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let mut positional = Vec::new();
     let mut game_dir = None;
     let mut nation = None;
@@ -148,7 +148,7 @@ fn run_tank_list(args: &[String], json: bool) -> blitz_mod_installer::Result<boo
     Ok(true)
 }
 
-fn run_tank_export(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_tank_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (mut options, viewer_dir, _) = parse_model_export_options(args, false)?;
     options.viewer_dir = viewer_dir
         .ok_or_else(|| usage_error("client tanks export requires --viewer-dir <path>"))?;
@@ -169,7 +169,7 @@ fn run_tank_export(args: &[String], json: bool) -> blitz_mod_installer::Result<b
     Ok(true)
 }
 
-fn run_client_export(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_client_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (model_options, output_dir, data_only) = parse_model_export_options(args, true)?;
     let mut options = ClientExportOptions::new(
         output_dir.ok_or_else(|| usage_error("client export requires --output-dir <path>"))?,
@@ -205,7 +205,7 @@ fn run_client_export(args: &[String], json: bool) -> blitz_mod_installer::Result
 fn parse_model_export_options(
     args: &[String],
     unified: bool,
-) -> blitz_mod_installer::Result<(TankExportOptions, Option<PathBuf>, bool)> {
+) -> blitz_client::Result<(TankExportOptions, Option<PathBuf>, bool)> {
     let mut options = TankExportOptions::new(".");
     let mut output_dir = None;
     let mut data_only = false;
@@ -296,7 +296,7 @@ fn parse_model_export_options(
     Ok((options, output_dir, data_only))
 }
 
-fn parse_texture_size(value: &str) -> blitz_mod_installer::Result<Option<(u32, u32)>> {
+fn parse_texture_size(value: &str) -> blitz_client::Result<Option<(u32, u32)>> {
     let normalized = value.trim().to_ascii_lowercase().replace('×', "x");
     if normalized == "original" {
         return Ok(None);
@@ -323,7 +323,7 @@ fn parse_texture_size(value: &str) -> blitz_mod_installer::Result<Option<(u32, u
     }
 }
 
-fn run_validate(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_validate(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (positional, game_dir) = take_game_dir(args)?;
     if positional.len() != 1 {
         return Err(usage_error(
@@ -366,7 +366,7 @@ fn run_validate(args: &[String], json: bool) -> blitz_mod_installer::Result<bool
     Ok(report.valid)
 }
 
-fn run_install(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_install(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (positional, game_dir) = take_game_dir(args)?;
     if positional.len() != 1 {
         return Err(usage_error(
@@ -387,7 +387,7 @@ fn run_install(args: &[String], json: bool) -> blitz_mod_installer::Result<bool>
     Ok(true)
 }
 
-fn run_uninstall(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_uninstall(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (positional, game_dir) = take_game_dir(args)?;
     if positional.len() != 1 {
         return Err(usage_error("uninstall requires an installed mod id"));
@@ -404,7 +404,7 @@ fn run_uninstall(args: &[String], json: bool) -> blitz_mod_installer::Result<boo
     Ok(true)
 }
 
-fn run_update(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_update(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let mut positional = Vec::new();
     let mut repo = None;
     let mut base = None;
@@ -455,7 +455,7 @@ fn run_update(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> 
     Ok(true)
 }
 
-fn run_replay(args: &[String], json: bool) -> blitz_mod_installer::Result<bool> {
+fn run_replay(args: &[String], json: bool) -> blitz_client::Result<bool> {
     match args.first().map(String::as_str) {
         Some("inspect") => run_replay_analysis(&args[1..], json, false),
         Some("latest") => run_replay_analysis(&args[1..], json, true),
@@ -467,7 +467,7 @@ fn run_replay_analysis(
     args: &[String],
     json: bool,
     use_latest: bool,
-) -> blitz_mod_installer::Result<bool> {
+) -> blitz_client::Result<bool> {
     let mut path = None;
     let mut directory = None;
     let mut out = None;
@@ -526,7 +526,7 @@ fn run_replay_analysis(
     Ok(true)
 }
 
-fn write_replay_json(path: &PathBuf, analysis: &ReplayAnalysis) -> blitz_mod_installer::Result<()> {
+fn write_replay_json(path: &PathBuf, analysis: &ReplayAnalysis) -> blitz_client::Result<()> {
     let json = serde_json::to_vec_pretty(analysis)
         .map_err(|error| InstallerError::new("JSON_SERIALIZE_FAILED", error.to_string()))?;
     std::fs::write(path, json).map_err(|error| {
@@ -606,7 +606,7 @@ fn json_field(value: &serde_json::Value, key: &str) -> String {
     }
 }
 
-fn take_game_dir(args: &[String]) -> blitz_mod_installer::Result<(Vec<String>, Option<PathBuf>)> {
+fn take_game_dir(args: &[String]) -> blitz_client::Result<(Vec<String>, Option<PathBuf>)> {
     let mut positional = Vec::new();
     let mut game_dir = None;
     let mut i = 0;

@@ -130,7 +130,7 @@ The ordered platform candidates are implemented in `src/game_dir.rs`.
 
 ```rust,no_run
 use std::path::PathBuf;
-use blitz_mod_installer::{
+use blitz_client::{
     ClientExportOptions, TankExportOptions, export_client, export_tank_catalog, install_mod,
     list_client_tanks,
     remove_mod, update_from_git_diff, validate_mod,
@@ -155,5 +155,5 @@ if report.valid {
 remove_mod("NoMapName", None)?;
 update_from_git_diff("mods/NoMapName", "mods/NoMapName", Some("HEAD"))?;
 # let _ = (tanks, catalog, exported);
-# Ok::<(), blitz_mod_installer::InstallerError>(())
+# Ok::<(), blitz_client::InstallerError>(())
 ```

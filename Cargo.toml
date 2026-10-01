@@ -1,12 +1,12 @@
 [package]
-name = "blitz-mod-installer"
+name = "blitz-client"
 version = "0.1.0"
 edition = "2024"
 description = "Tanks Blitz client analysis and resource mod tools"
 license = "MIT"
 
 [lib]
-name = "blitz_mod_installer"
+name = "blitz_client"
 path = "src/lib.rs"
 
 [[bin]]
