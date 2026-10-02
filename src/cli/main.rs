@@ -83,10 +83,10 @@ fn print_usage() {
          blitz-client client tanks list [--game-dir <path>] [--json]\n\
          blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]\n\
          blitz-client client tanks export [--game-dir <path>] --viewer-dir <path> [--tank <nation/ID>] [--limit <N>] [--pbr] [--no-compress] [--json]\n\
-         blitz-client mod validate <mods-dir|mod-dir|mod.toml> [--game-dir <path>] [--json]\n\
-         blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]\n\
+         blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]\n\
+         blitz-client mod install <mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]\n\
          blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]\n\
-         blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]\n\
+         blitz-client mod update-from-git <mod-dir|mod.yaml|mod.yml> --repo <path> [--base <rev>] [--json]\n\
          blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]\n\
          blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]\n\
          blitz-client replay follow <data.replay> [--poll-ms <N>] [--idle-timeout-ms <N>] [--out <new-path>]\n\

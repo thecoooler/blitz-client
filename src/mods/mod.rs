@@ -3,6 +3,7 @@ mod git_diff;
 mod installer;
 mod manifest;
 mod patch;
+mod text_match;
 pub use installer::{
     FileValidation, InstallReport, RemovalReport, ValidationReport, install_mod, remove_mod,
     validate_mod,

@@ -19,7 +19,7 @@ fn run_validate(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (positional, game_dir) = take_game_dir(args)?;
     if positional.len() != 1 {
         return Err(usage_error(
-            "validate requires a mods directory, mod directory or mod.toml path",
+            "validate requires a mods directory, mod directory or mod.yaml/mod.yml path",
         ));
     }
     let path = Path::new(&positional[0]);
@@ -39,12 +39,12 @@ fn run_validate(args: &[String], json: bool) -> blitz_client::Result<bool> {
     if manifests.is_empty() {
         return Err(blitz_client::Error::at(
             "MANIFEST_NOT_FOUND",
-            "no mod.toml found in the directory or its subdirectories",
+            "no mod.yaml/mod.yml found in the directory or its subdirectories",
             path,
         ));
     }
     // Keep the existing report shape for a single mod directory.
-    if manifests.len() == 1 && manifests[0] == path.join("mod.toml") {
+    if manifests.len() == 1 && manifests[0].parent() == Some(path) {
         let report = validate_mod(&manifests[0], game_dir)?;
         if json {
             print_json(&report);
@@ -99,14 +99,22 @@ fn collect_manifests(dir: &Path, manifests: &mut Vec<PathBuf>) -> blitz_client::
             dir,
         )
     };
+    let mut local = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(io_error)? {
         let entry = entry.map_err(io_error)?;
         let kind = entry.file_type().map_err(io_error)?;
         if kind.is_dir() {
             collect_manifests(&entry.path(), manifests)?;
-        } else if entry.file_name() == "mod.toml" && entry.path().is_file() {
-            manifests.push(entry.path());
+        } else if matches!(entry.file_name().to_str(), Some("mod.yaml" | "mod.yml"))
+            && entry.path().is_file()
+        {
+            local.push(entry.path());
         }
+    }
+    // One validation result per directory; loading reports conflicting formats.
+    local.sort();
+    if let Some(manifest) = local.into_iter().next() {
+        manifests.push(manifest);
     }
     Ok(())
 }
@@ -146,7 +154,7 @@ fn run_install(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (positional, game_dir) = take_game_dir(args)?;
     if positional.len() != 1 {
         return Err(usage_error(
-            "install requires a mod directory or mod.toml path",
+            "install requires a mod directory or mod.yaml/mod.yml path",
         ));
     }
     let report = install_mod(&positional[0], game_dir)?;
@@ -210,7 +218,7 @@ fn run_update(args: &[String], json: bool) -> blitz_client::Result<bool> {
     }
     if positional.len() != 1 {
         return Err(usage_error(
-            "update-from-git requires a mod directory or mod.toml path",
+            "update-from-git requires a mod directory or mod.yaml/mod.yml path",
         ));
     }
     let repo = repo.ok_or_else(|| usage_error("update-from-git requires --repo <path>"))?;
@@ -224,7 +232,7 @@ fn run_update(args: &[String], json: bool) -> blitz_client::Result<bool> {
             .filter(|file| file.generated_by.as_deref() == Some("git"))
             .count();
         println!(
-            "Updated {}: {generated} Git patch file(s) in mod.toml",
+            "Updated {}: {generated} Git patch file(s) in the manifest",
             manifest.id
         );
     }

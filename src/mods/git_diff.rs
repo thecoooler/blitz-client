@@ -40,7 +40,7 @@ pub(super) fn collect_changes(repo: &Path, base: &str) -> Result<Vec<GitChange>>
                 "repository contains a modified path that is not UTF-8",
             )
         })?;
-        if path == "mod.toml" || path.starts_with("patches/") {
+        if matches!(path, "mod.yaml" | "mod.yml") || path.starts_with("patches/") {
             index += 2;
             continue;
         } else if state == "M" {

@@ -27,7 +27,7 @@ pub(super) fn apply_unified_diff(source: &str, diff: &str) -> Result<String> {
     if diff.matches("diff --git ").count() > 1 {
         return Err(Error::new(
             "PATCH_MULTIPLE_FILES",
-            "one [[files]] entry must reference a patch for exactly one resource",
+            "each patch operation must reference a diff for exactly one resource",
         ));
     }
     let hunks = parse_hunks(diff)?;

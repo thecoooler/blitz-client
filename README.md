@@ -77,10 +77,10 @@ blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
 blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
 blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
 
-blitz-client mod validate <mods-dir|mod-dir|mod.toml> [--game-dir <path>] [--json]
-blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]
+blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
+blitz-client mod install <mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
 blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
-blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]
+blitz-client mod update-from-git <mod-dir|mod.yaml|mod.yml> --repo <path> [--base <rev>] [--json]
 
 blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]
 blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]
@@ -471,8 +471,8 @@ python3 -B -m unittest discover -s tests -p test_simulate_replay.py
 
 ## Mod commands
 
-`mod validate <directory>` recursively finds every `mod.toml` in the directory
-and its subdirectories (without following directory symlinks). Each mod is
+`mod validate <directory>` recursively finds `mod.yaml` and `mod.yml`
+in the directory and its subdirectories (without following directory symlinks). Each mod is
 validated independently against the game and already installed mods; this does
 not check whether all discovered mods can be installed together. No files are
 changed. A failed mod does not stop validation of the others.
@@ -489,42 +489,91 @@ error or when no manifests are found.
 
 The logical target in a manifest omits the final `.dvpl` suffix. The installer resolves `UI/.../Minimap.yaml` to either `Minimap.yaml.dvpl` or a plain `Minimap.yaml`, rejecting the case where both exist.
 
-Supported actions in `[[files]]`:
+Supported actions under `files`:
 
-- `replace`: replace the single exact match of `find` with `replace`.
-- `before` / `after`: insert `replace` before / after the single exact match of
+- `replace`: replace the single exact match of `search` with `replace`.
+- `before` / `after`: insert `insert` before / after the single exact match of
   `find`, preserving the matched text. No whitespace or newlines are added
   automatically.
-- `clear`: empty the resource payload, including binary resources; no `find` or
+- `clear`: empty the resource payload, including binary resources; no `search` or
   `replace` is required. DVPL resources remain valid DVPL containers with an empty
   payload. This does not generate a transparent image.
 - `patch`: apply a unified diff from the file specified by `patch`.
 
-Text actions require UTF-8 resources. `find` is a string, and multiple entries
-for the same target in one mod remain unsupported.
+Text actions require UTF-8 resources. `search` is a string. Multiple operations for
+one file run in manifest order. Different logical paths resolving to the same
+physical resource are rejected.
+
+YAML manifests group ordered operations under each resource path:
+
+```yaml
+version: 1
+id: CameraPosition
+name: Camera position
+files:
+  optionsDesktop.yaml:
+    - replace:
+        ignore-trailing-whitespace: true
+        search: |2
+              Camera fixed positions:
+                  keyedArchive:
+                      1) Arcade:
+                          keyedArchive:
+                              max:
+                                  float: 40.0000
+        replace: |2
+              Camera fixed positions:
+                  keyedArchive:
+                      1) Arcade:
+                          keyedArchive:
+                              max:
+                                  float: 24.0000
+```
+
+For `before` and `after`, use `insert`
+(or `replace`) for the inserted text. Other actions use `clear: {}` or
+`patch: { patch: "patches/resource.patch" }`. YAML rejects unknown fields and
+unsupported versions; `version` defaults to `1`. A directory must contain only
+one manifest format, including when validating a collection.
+
+`ignore-trailing-whitespace: true` applies only to its own `replace`, `before`
+or `after` operation. It ignores spaces/tabs at line ends and LF/CRLF differences
+while searching. Leading indentation, internal whitespace, case and blank lines
+are preserved. Exactly one match is required. Only the matched range is changed;
+replacement text is written as supplied, and insertions preserve the original
+matched text. Without the flag (or with `false`), matching remains exact.
+
+The option is saved with installed operations, so subsequent composition and
+uninstallation use the same matching behavior. Older installer state defaults
+to exact matching.
 
 Exact replacement:
 
-```toml
-id = "NoMapName"
-name = "Remove map name above the minimap"
-
-[[files]]
-name = "UI/Screens/Battle/Minimap.yaml"
-action = "replace"
-find = '''exact text to find'''
-replace = ''
+```yaml
+id: NoMapName
+name: Remove map name above the minimap
+files:
+  UI/Screens/Battle/Minimap.yaml:
+    - replace:
+        search: exact text to find
+        replace: ""
 ```
 
 Unified diff patches are stored as sidecar files:
 
-```toml
-[[files]]
-name = "UI/Screens/Battle/Minimap.yaml"
-action = "patch"
-patch = "patches/UI/Screens/Battle/Minimap.yaml.<diff-crc>.patch"
-generated_by = "git"
+```yaml
+files:
+  UI/Screens/Battle/Minimap.yaml:
+    - patch:
+        patch: patches/UI/Screens/Battle/Minimap.yaml.<diff-crc>.patch
+        generated-by: git
 ```
+
+Only YAML mod manifests are supported (`mod.yaml` or `mod.yml`). Resource paths
+are emitted without quotes where YAML permits it; quoting is added only when
+needed to preserve a string value.
+`update-from-git` reserializes YAML, retaining operation values but not comments
+or formatting.
 
 `update-from-git` compares the selected base revision (default `HEAD`) with the working tree, including staged and unstaged changes. Repository paths must mirror the game's unpacked resource paths. It handles modifications to existing tracked text resources; additions, deletions, renames, and binary changes are rejected. `.dvpl` files must be unpacked before generating a diff.
 

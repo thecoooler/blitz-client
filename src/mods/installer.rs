@@ -1,12 +1,11 @@
-use super::manifest::{
-    Action, Manifest, ModFile, locate_mod_dir, manifest_file, safe_relative_path,
-};
+use super::manifest::{Action, Manifest, ModFile, locate_mod_dir, safe_relative_path};
 use super::patch::apply_unified_diff;
+use super::text_match::find_matches;
 use crate::client::{ResolvedGameDir, resolve_game_dir};
 use crate::resources::{ContainerKind, decode_dvpl, encode_dvpl};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -81,6 +80,8 @@ struct StoredOperation {
     find: Option<String>,
     replace: Option<String>,
     patch_diff: Option<String>,
+    #[serde(default)]
+    ignore_trailing_whitespace: bool,
 }
 
 struct PreparedFile {
@@ -90,7 +91,7 @@ struct PreparedFile {
     base_bytes: Vec<u8>,
     create_base_snapshot: bool,
     create_adjacent_original: bool,
-    operation: StoredOperation,
+    operations: Vec<StoredOperation>,
     output: Vec<u8>,
     old_current: Vec<u8>,
 }
@@ -103,13 +104,16 @@ pub fn validate_mod(
     let game = resolve_game_dir(game_dir)?;
     let state = load_state(&game.game_dir)?;
     let mut files = Vec::with_capacity(manifest.files.len());
-    let mut occupied = BTreeSet::new();
+    let mut occupied = BTreeMap::new();
 
     for entry in &manifest.files {
         let item = match resolve_target(&game, entry) {
             Ok(target) => {
                 let key = target.to_string_lossy().to_ascii_lowercase();
-                if !occupied.insert(key) {
+                if occupied
+                    .insert(key, entry.name.clone())
+                    .is_some_and(|name| name != entry.name)
+                {
                     Err(Error::new(
                         "MANIFEST_DUPLICATE_TARGET",
                         "multiple entries resolve to the same game file",
@@ -132,7 +136,12 @@ pub fn validate_mod(
                         } else {
                             current
                         };
-                        let operation = operation_from_entry(entry, &mod_dir)?;
+                        let new_operations = manifest
+                            .files
+                            .iter()
+                            .filter(|file| file.name == entry.name)
+                            .map(|file| operation_from_entry(file, &mod_dir))
+                            .collect::<Result<Vec<_>>>()?;
                         let mut operations = state
                             .mods
                             .iter()
@@ -144,7 +153,11 @@ pub fn validate_mod(
                                     .map(|file| (item.id.clone(), file.operation.clone()))
                             })
                             .collect::<Vec<_>>();
-                        operations.push((manifest.id.clone(), operation));
+                        operations.extend(
+                            new_operations
+                                .into_iter()
+                                .map(|operation| (manifest.id.clone(), operation)),
+                        );
                         operations.sort_by(|left, right| left.0.cmp(&right.0));
                         compose_resource(&target, &base, &operations)
                             .map(|output| (target, output.len()))
@@ -219,11 +232,15 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
     }
 
     let mut prepared = Vec::with_capacity(manifest.files.len());
-    let mut occupied = BTreeSet::new();
+    let mut logical_paths = BTreeSet::new();
+    let mut targets = BTreeSet::new();
     for entry in &manifest.files {
+        if !logical_paths.insert(entry.name.clone()) {
+            continue;
+        }
         let target = resolve_target(&game, entry)?;
         let key = target.to_string_lossy().to_ascii_lowercase();
-        if !occupied.insert(key) {
+        if !targets.insert(key) {
             return Err(Error::at(
                 "MANIFEST_DUPLICATE_TARGET",
                 "multiple entries resolve to the same game file",
@@ -253,7 +270,12 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
             };
         let adjacent_original = append_suffix(&target, BACKUP_SUFFIX);
         let create_adjacent_original = inspect_adjacent_original(&adjacent_original)?;
-        let operation = operation_from_entry(entry, &mod_dir)?;
+        let new_operations = manifest
+            .files
+            .iter()
+            .filter(|file| file.name == entry.name)
+            .map(|file| operation_from_entry(file, &mod_dir))
+            .collect::<Result<Vec<_>>>()?;
         let mut operations = state
             .mods
             .iter()
@@ -264,7 +286,12 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
                     .map(|file| (item.id.clone(), file.operation.clone()))
             })
             .collect::<Vec<_>>();
-        operations.push((manifest.id.clone(), operation.clone()));
+        operations.extend(
+            new_operations
+                .iter()
+                .cloned()
+                .map(|operation| (manifest.id.clone(), operation)),
+        );
         operations.sort_by(|left, right| left.0.cmp(&right.0));
         let output = compose_resource(&target, &base_bytes, &operations)?;
         prepared.push(PreparedFile {
@@ -274,7 +301,7 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
             base_bytes,
             create_base_snapshot,
             create_adjacent_original,
-            operation,
+            operations: new_operations,
             output,
             old_current,
         });
@@ -328,12 +355,14 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
     }
     let installed_files = prepared
         .iter()
-        .map(|file| InstalledFile {
-            logical_path: file.logical_path.clone(),
-            target: file.target.clone(),
-            base_snapshot: file.base_snapshot.clone(),
-            operation: file.operation.clone(),
-            installed_crc32: crate::resources::crc32(&file.output),
+        .flat_map(|file| {
+            file.operations.iter().map(|operation| InstalledFile {
+                logical_path: file.logical_path.clone(),
+                target: file.target.clone(),
+                base_snapshot: file.base_snapshot.clone(),
+                operation: operation.clone(),
+                installed_crc32: crate::resources::crc32(&file.output),
+            })
         })
         .collect::<Vec<_>>();
     state.version = 2;
@@ -400,7 +429,11 @@ pub fn remove_mod(mod_id: &str, game_dir: Option<PathBuf>) -> Result<RemovalRepo
 
     state.mods.remove(index);
     let mut restore = Vec::new();
+    let mut restored_targets = BTreeSet::new();
     for file in &installed.files {
+        if !restored_targets.insert(file.target.clone()) {
+            continue;
+        }
         let base = read_base_snapshot(&game, &file.target, &file.base_snapshot)?;
         let operations = operations_for_target(&state, &file.target);
         let output = if operations.is_empty() {
@@ -472,14 +505,6 @@ pub fn remove_mod(mod_id: &str, game_dir: Option<PathBuf>) -> Result<RemovalRepo
 fn read_mod(path: &Path) -> Result<(Manifest, PathBuf)> {
     let manifest = super::manifest::load_manifest(path)?;
     let mod_dir = locate_mod_dir(path);
-    let manifest_path = manifest_file(path);
-    if !manifest_path.is_file() {
-        return Err(Error::at(
-            "MANIFEST_NOT_FOUND",
-            "mod.toml does not exist",
-            manifest_path,
-        ));
-    }
     Ok((manifest, mod_dir.canonicalize().unwrap_or(mod_dir)))
 }
 
@@ -581,6 +606,7 @@ fn operation_from_entry(entry: &ModFile, mod_dir: &Path) -> Result<StoredOperati
         find: entry.find.clone(),
         replace: entry.replace.clone(),
         patch_diff,
+        ignore_trailing_whitespace: entry.ignore_trailing_whitespace,
     })
 }
 
@@ -644,21 +670,34 @@ fn apply_operation(source: &str, operation: &StoredOperation, target: &Path) -> 
                     target,
                 ));
             }
-            let occurrences = source.match_indices(find).count();
-            if occurrences != 1 {
+            let matches = find_matches(source, find, operation.ignore_trailing_whitespace);
+            if matches.len() != 1 {
                 return Err(Error::at(
                     "REPLACE_MATCH_COUNT",
-                    format!("expected one exact match, found {occurrences}"),
+                    format!(
+                        "expected one {}match, found {}",
+                        if operation.ignore_trailing_whitespace {
+                            "normalized "
+                        } else {
+                            "exact "
+                        },
+                        matches.len()
+                    ),
                     target,
                 ));
             }
+            let range = &matches[0];
+            let matched = &source[range.clone()];
             let replacement = match operation.action {
-                Action::Before => format!("{replacement}{find}"),
-                Action::After => format!("{find}{replacement}"),
+                Action::Before => format!("{replacement}{matched}"),
+                Action::After => format!("{matched}{replacement}"),
                 _ => replacement.to_owned(),
             };
-            Ok(source.replacen(find, &replacement, 1))
+            let mut output = source.to_owned();
+            output.replace_range(range.clone(), &replacement);
+            Ok(output)
         }
+
         Action::Clear => Ok(String::new()),
         Action::Patch => {
             let diff = operation.patch_diff.as_deref().ok_or_else(|| {
