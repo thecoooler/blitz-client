@@ -98,3 +98,60 @@ fn invalid_cli_options_fail_before_creating_output() {
         assert!(!output.exists());
     }
 }
+
+#[test]
+fn dry_run_counts_stored_effective_files_without_decoding_or_writing() {
+    let fixture = Fixture::new();
+    let game = fixture.0.join("game");
+    let cache = fixture.0.join("packs");
+    let output = fixture.0.join("new/output");
+    fs::write(game.join("Data/config.yaml"), b"shadowed").unwrap();
+    // Intentionally invalid DVPL: dry-run must inspect metadata only.
+    fs::write(cache.join("config.yaml.dvpl"), b"packed").unwrap();
+    fs::write(game.join("Data/note.txt"), b"text").unwrap();
+    fs::write(game.join("Data/image.webp"), b"excluded").unwrap();
+    fs::write(game.join("Data/note.txt.dvpl"), b"shadowed sibling").unwrap();
+    let run = |json: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_blitz-client"));
+        command
+            .args(["client", "files", "export", "--game-dir"])
+            .arg(&game)
+            .arg("--cache-dir")
+            .arg(&cache)
+            .arg("--output-dir")
+            .arg(&output)
+            .args(["--types", "configs", "--dry-run"]);
+        if json {
+            command.arg("--json");
+        }
+        command.output().unwrap()
+    };
+    let result = run(true);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(result.stderr.is_empty());
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["file_count"], 2);
+    assert_eq!(report["source_bytes"], 10);
+    assert_eq!(report["dvpl_count"], 1);
+    assert_eq!(report["cache_file_count"], 1);
+    for field in ["written_count", "unchanged_count", "output_bytes"] {
+        assert_eq!(report[field], 0);
+    }
+    assert!(!fixture.0.join("new").exists());
+    fs::create_dir_all(&output).unwrap();
+    fs::write(output.join("config.yaml"), b"keep existing").unwrap();
+    let result = run(false);
+    assert!(result.status.success());
+    assert!(result.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&result.stdout).contains("2 file(s), 10 bytes"));
+    assert_eq!(
+        fs::read(output.join("config.yaml")).unwrap(),
+        b"keep existing"
+    );
+    assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
+}

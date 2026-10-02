@@ -72,7 +72,7 @@ The executable is `blitz-client`.
 
 ```text
 blitz-client client locate [--game-dir <path>] [--json]
-blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--json]
+blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--dry-run] [--json]
 blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
 blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
 blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
@@ -152,6 +152,19 @@ Export the effective client resource tree to a directory:
 ```sh
 blitz-client client files export --output-dir ./Data
 ```
+
+Count the selected files and their stored size without creating or changing the
+output directory, reading file contents, or unpacking DVPL:
+
+```sh
+blitz-client client files export --output-dir ./Data --types configs,images --dry-run
+```
+
+Dry runs apply the same filters and source precedence as exports. Only the
+winning source for each output path is counted. Sizes include the DVPL container
+as stored on disk. `--json` reports `dry_run`, `file_count`, `source_bytes`,
+`dvpl_count`, and `cache_file_count`; written/unchanged counts and `output_bytes`
+remain zero. Source and output path validation still applies.
 
 All files are selected by default. The exporter merges the installation's
 resource directory with the standard `packs` cache. Cache files override the

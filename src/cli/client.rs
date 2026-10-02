@@ -82,6 +82,7 @@ fn run_files_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
                 }
             }
             "--no-cache" => options.no_cache = true,
+            "--dry-run" => options.dry_run = true,
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("unknown option: {flag}")));
             }
@@ -99,7 +100,10 @@ fn run_files_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
     }
     let report = export_client_files_with_progress(&options, |report| {
         let processed = report.written_count + report.unchanged_count;
-        if !json && (processed == 0 || processed % 1000 == 0 || processed == report.file_count) {
+        if !json
+            && !report.dry_run
+            && (processed == 0 || processed % 1000 == 0 || processed == report.file_count)
+        {
             eprintln!(
                 "Files: {processed}/{}; written: {}, unchanged: {}",
                 report.file_count, report.written_count, report.unchanged_count
@@ -109,6 +113,17 @@ fn run_files_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
     })?;
     if json {
         print_json(&report);
+    } else if report.dry_run {
+        println!(
+            "Dry run: {} file(s), {} bytes ({:.2} MiB) on disk",
+            report.file_count,
+            report.source_bytes,
+            report.source_bytes as f64 / 1_048_576.0
+        );
+        println!(
+            "Selected {} DVPL file(s); {} file(s) from cache",
+            report.dvpl_count, report.cache_file_count
+        );
     } else {
         println!(
             "Exported {} file(s): {} written, {} unchanged",

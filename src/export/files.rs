@@ -75,6 +75,8 @@ pub struct ClientFilesExportOptions {
     pub cache_dir: Option<PathBuf>,
     /// Disable the cache overlay entirely.
     pub no_cache: bool,
+    /// Count selected stored files without reading, decoding, or writing them.
+    pub dry_run: bool,
     pub output_dir: PathBuf,
     /// Empty or containing All selects every file.
     pub types: Vec<ClientFileType>,
@@ -86,6 +88,7 @@ impl ClientFilesExportOptions {
             game_dir: None,
             cache_dir: None,
             no_cache: false,
+            dry_run: false,
             output_dir: output_dir.into(),
             types: vec![ClientFileType::All],
         }
@@ -94,6 +97,7 @@ impl ClientFilesExportOptions {
 
 #[derive(Debug, Serialize)]
 pub struct ClientFilesExportReport {
+    pub dry_run: bool,
     pub output_dir: PathBuf,
     pub resource_dir: PathBuf,
     pub cache_dir: Option<PathBuf>,
@@ -104,6 +108,9 @@ pub struct ClientFilesExportReport {
     pub cache_file_count: usize,
     pub dvpl_count: usize,
     pub skipped_symlink_count: usize,
+    /// Size of selected source files on disk, including DVPL containers.
+    pub source_bytes: u64,
+    /// Decoded size; zero in dry-run mode.
     pub output_bytes: u64,
     pub elapsed_seconds: f64,
 }
@@ -169,9 +176,8 @@ pub fn export_client_files_with_progress(
     if let Some(cache) = &cache_dir {
         collect_files(cache, options, true, &mut files, &mut skipped_symlink_count)?;
     }
-    fs::create_dir_all(&output_dir)
-        .map_err(|error| io_error("could not create export directory", &output_dir, error))?;
     let mut report = ClientFilesExportReport {
+        dry_run: options.dry_run,
         output_dir,
         resource_dir,
         cache_dir,
@@ -186,15 +192,36 @@ pub fn export_client_files_with_progress(
         cache_file_count: 0,
         dvpl_count: 0,
         skipped_symlink_count,
+        source_bytes: 0,
         output_bytes: 0,
         elapsed_seconds: 0.0,
     };
+    if options.dry_run {
+        for source in files.values() {
+            let metadata = fs::metadata(&source.path)
+                .map_err(|error| io_error("could not inspect client file", &source.path, error))?;
+            report.source_bytes += metadata.len();
+            report.dvpl_count += usize::from(source.packed);
+            report.cache_file_count += usize::from(source.from_cache);
+        }
+        report.elapsed_seconds = started.elapsed().as_secs_f64();
+        progress(&report)?;
+        return Ok(report);
+    }
+    fs::create_dir_all(&report.output_dir).map_err(|error| {
+        io_error(
+            "could not create export directory",
+            &report.output_dir,
+            error,
+        )
+    })?;
     progress(&report)?;
     for (relative, source) in files {
         let destination = report.output_dir.join(relative);
         reject_output_symlinks(&destination, &report.output_dir)?;
         let bytes = fs::read(&source.path)
             .map_err(|error| io_error("could not read client file", &source.path, error))?;
+        report.source_bytes += bytes.len() as u64;
         let bytes = if source.packed {
             let (decoded, kind) = decode_dvpl(&bytes).map_err(|mut error| {
                 error.path = Some(source.path.clone());

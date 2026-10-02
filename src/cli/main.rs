@@ -79,7 +79,7 @@ fn print_usage() {
         "blitz-client commands:\n\
          \n\
          blitz-client client locate [--game-dir <path>] [--json]\n\
-         blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <all|configs,images,models,sounds,fonts,shaders,other>] [--json]\n\
+         blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <all|configs,images,models,sounds,fonts,shaders,other>] [--dry-run] [--json]\n\
          blitz-client client tanks list [--game-dir <path>] [--json]\n\
          blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]\n\
          blitz-client client tanks export [--game-dir <path>] --viewer-dir <path> [--tank <nation/ID>] [--limit <N>] [--pbr] [--no-compress] [--json]\n\
