@@ -67,6 +67,14 @@ fn run_files_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
                     _ => output_dir = Some(path),
                 }
             }
+            "--exclude" => {
+                i += 1;
+                options.exclude.push(
+                    args.get(i)
+                        .ok_or_else(|| usage_error("--exclude requires a path pattern"))?
+                        .clone(),
+                );
+            }
             "--types" => {
                 i += 1;
                 let value = args
@@ -134,6 +142,12 @@ fn run_files_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
             report.dvpl_count, report.cache_file_count
         );
         println!("Output: {}", report.output_dir.display());
+    }
+    if !json && !report.exclude.is_empty() {
+        println!(
+            "Excluded {} file(s) by path pattern",
+            report.excluded_file_count
+        );
     }
     Ok(true)
 }

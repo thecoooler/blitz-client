@@ -82,6 +82,7 @@ fn invalid_cli_options_fail_before_creating_output() {
         vec!["--types", "configs,unknown"],
         vec!["--types", "configs,"],
         vec!["--types"],
+        vec!["--exclude"],
         vec!["--cache-dir", ".", "--no-cache"],
         vec!["--unknown"],
     ] {
@@ -153,5 +154,51 @@ fn dry_run_counts_stored_effective_files_without_decoding_or_writing() {
         fs::read(output.join("config.yaml")).unwrap(),
         b"keep existing"
     );
+    assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
+}
+
+#[test]
+fn cli_accepts_repeated_exclusions_for_export_and_dry_run() {
+    let fixture = Fixture::new();
+    let game = fixture.0.join("game");
+    let output = fixture.0.join("output");
+    fs::create_dir_all(game.join("Data/Gfx")).unwrap();
+    fs::write(game.join("Data/Gfx/image.webp.dvpl"), b"invalid DVPL").unwrap();
+    fs::write(game.join("Data/skip.txt"), b"skip").unwrap();
+    fs::write(game.join("Data/keep.yaml"), b"keep").unwrap();
+    for dry_run in [true, false] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_blitz-client"));
+        command
+            .args(["client", "files", "export", "--game-dir"])
+            .arg(&game)
+            .arg("--output-dir")
+            .arg(&output)
+            .args([
+                "--no-cache",
+                "--exclude",
+                "Gfx/**",
+                "--exclude",
+                "skip.txt",
+                "--json",
+            ]);
+        if dry_run {
+            command.arg("--dry-run");
+        }
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(report["excluded_file_count"], 2);
+        assert_eq!(report["exclude"], serde_json::json!(["Gfx/**", "skip.txt"]));
+        assert_eq!(report["file_count"], 1);
+        assert_eq!(report["source_bytes"], 4);
+        if dry_run {
+            assert!(!output.exists());
+        }
+    }
+    assert_eq!(fs::read(output.join("keep.yaml")).unwrap(), b"keep");
     assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
 }

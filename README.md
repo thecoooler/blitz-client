@@ -72,7 +72,7 @@ The executable is `blitz-client`.
 
 ```text
 blitz-client client locate [--game-dir <path>] [--json]
-blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--dry-run] [--json]
+blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--exclude <pattern>] [--dry-run] [--json]
 blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
 blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
 blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
@@ -197,6 +197,24 @@ of the directory name:
 Models remain in their native game formats; the existing `client tanks export`
 command produces viewer bundles. Selecting `models` does not automatically
 include textures; use `models,images` to include both.
+
+Exclude files using repeatable glob patterns:
+
+```sh
+blitz-client client files export --output-dir ./Data \
+  --exclude '3d/**' --exclude '**/*.dds' --dry-run
+```
+
+Patterns match the entire unpacked path relative to `Data` or `packs`, with
+case-sensitive matching. Use `/` as the separator: `*` matches within one path
+component, `?` matches one character, `**` matches across directories, and
+`[abc]`/`[!abc]` match character sets. For example, `**/*.dds` excludes
+`Gfx/tank.dds.dvpl` as well as plain `.dds` files. Quote patterns to prevent
+shell expansion. Multiple patterns are combined with OR. Invalid patterns
+fail before writing anything. Exclusions apply after source precedence and
+category selection, so an excluded cache file does not fall back to an
+installation copy. Existing destination files are retained. JSON reports
+`exclude` and `excluded_file_count` (the number of effective paths excluded).
 
 Override the sources or disable the cache overlay:
 

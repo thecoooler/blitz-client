@@ -237,3 +237,49 @@ fn progress_failure_stops_before_writing_next_file() {
     assert!(options.output_dir.join("first.txt").exists());
     assert!(!options.output_dir.join("second.txt").exists());
 }
+
+#[test]
+fn exclusions_match_unpacked_paths_and_preserve_export_dry_run_selection() {
+    let fixture = Fixture::new();
+    fixture.resources();
+    // Neither source may be decoded or used as fallback when this path is excluded.
+    fixture.write("game/Data/skip.yaml", b"installation");
+    fixture.write("packs/skip.yaml.dvpl", b"invalid DVPL");
+    fixture.write("game/Data/Gfx/.hidden.webp", b"hidden image");
+    let mut options = fixture.options();
+    options.exclude = vec!["**/*.yaml".into(), "Gfx/*.[w]eb?".into()];
+    options.dry_run = true;
+    let preview = export_client_files(&options).unwrap();
+    assert_eq!(preview.excluded_file_count, 5);
+    assert_eq!(preview.file_count, 3);
+    assert!(!options.output_dir.exists());
+    options.dry_run = false;
+    let report = export_client_files(&options).unwrap();
+    assert_eq!(report.file_count, preview.file_count);
+    assert_eq!(report.source_bytes, preview.source_bytes);
+    assert_eq!(report.excluded_file_count, preview.excluded_file_count);
+    assert_eq!(report.cache_file_count, 0);
+    assert!(!report.output_dir.join("skip.yaml").exists());
+    assert!(!report.output_dir.join("Gfx").exists());
+    assert!(report.output_dir.join("3d/tank.sc2").exists());
+    // A single star does not cross directory boundaries.
+    options.dry_run = true;
+    options.exclude = vec!["*.yaml".into(), "3d/**".into()];
+    let report = export_client_files(&options).unwrap();
+    assert_eq!(report.excluded_file_count, 3);
+    assert_eq!(report.file_count, 5);
+}
+
+#[test]
+fn invalid_exclusion_patterns_fail_before_creating_output() {
+    let fixture = Fixture::new();
+    let mut options = fixture.options();
+    for pattern in ["[", "a**b", ""] {
+        options.exclude = vec![pattern.into()];
+        assert_eq!(
+            export_client_files(&options).unwrap_err().code,
+            "FILE_EXPORT_PATTERN_INVALID"
+        );
+        assert!(!options.output_dir.exists());
+    }
+}

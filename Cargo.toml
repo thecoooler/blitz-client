@@ -30,12 +30,13 @@ required-features = ["resources"]
 default = ["cli"]
 resources = ["dep:crc32fast", "dep:lz4_flex", "dep:miniz_oxide"]
 client = ["resources", "dep:serde_json"]
-export = ["client"]
+export = ["client", "dep:glob"]
 mods = ["client", "dep:serde_json", "dep:toml", "dep:toml_edit"]
 replay = ["dep:flate2", "dep:serde_json", "dep:serde-pickle", "dep:prost", "dep:serde_bytes", "dep:zip"]
 cli = ["export", "mods", "replay"]
 
 [dependencies]
+glob = { version = "0.3", optional = true }
 crc32fast = { version = "1.5", optional = true }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
 lz4_flex = { version = "0.11", optional = true }

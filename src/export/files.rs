@@ -2,6 +2,7 @@
 use crate::client::resolve_game_dir;
 use crate::resources::{ContainerKind, decode_dvpl};
 use crate::{Error, Result, io_error};
+use glob::{MatchOptions, Pattern};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
@@ -80,6 +81,8 @@ pub struct ClientFilesExportOptions {
     pub output_dir: PathBuf,
     /// Empty or containing All selects every file.
     pub types: Vec<ClientFileType>,
+    /// Glob patterns matched against unpacked paths relative to Data/packs.
+    pub exclude: Vec<String>,
 }
 
 impl ClientFilesExportOptions {
@@ -91,6 +94,7 @@ impl ClientFilesExportOptions {
             dry_run: false,
             output_dir: output_dir.into(),
             types: vec![ClientFileType::All],
+            exclude: Vec::new(),
         }
     }
 }
@@ -102,6 +106,8 @@ pub struct ClientFilesExportReport {
     pub resource_dir: PathBuf,
     pub cache_dir: Option<PathBuf>,
     pub types: Vec<ClientFileType>,
+    pub exclude: Vec<String>,
+    pub excluded_file_count: usize,
     pub file_count: usize,
     pub written_count: usize,
     pub unchanged_count: usize,
@@ -142,6 +148,24 @@ pub fn export_client_files_with_progress(
             "cache_dir and no_cache cannot be combined",
         ));
     }
+    let exclusions = options
+        .exclude
+        .iter()
+        .map(|value| {
+            if value.is_empty() {
+                return Err(Error::new(
+                    "FILE_EXPORT_PATTERN_INVALID",
+                    "exclude pattern must not be empty",
+                ));
+            }
+            Pattern::new(value).map_err(|error| {
+                Error::new(
+                    "FILE_EXPORT_PATTERN_INVALID",
+                    format!("invalid exclude pattern {value:?}: {error}"),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
     let game = resolve_game_dir(options.game_dir.clone())?;
     let resource_dir = canonical_directory(&game.resource_dir)?;
     let cache_dir = if options.no_cache {
@@ -176,6 +200,17 @@ pub fn export_client_files_with_progress(
     if let Some(cache) = &cache_dir {
         collect_files(cache, options, true, &mut files, &mut skipped_symlink_count)?;
     }
+    let before_exclusions = files.len();
+    let match_options = MatchOptions {
+        case_sensitive: true,
+        require_literal_separator: true,
+        require_literal_leading_dot: false,
+    };
+    files.retain(|relative, _| {
+        !exclusions
+            .iter()
+            .any(|pattern| pattern.matches_path_with(relative, match_options))
+    });
     let mut report = ClientFilesExportReport {
         dry_run: options.dry_run,
         output_dir,
@@ -186,6 +221,8 @@ pub fn export_client_files_with_progress(
         } else {
             options.types.clone()
         },
+        exclude: options.exclude.clone(),
+        excluded_file_count: before_exclusions - files.len(),
         file_count: files.len(),
         written_count: 0,
         unchanged_count: 0,
