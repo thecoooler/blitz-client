@@ -82,7 +82,7 @@ fn brotli_compress(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temporary = path.with_file_name(format!(
         ".{}.{}.{}.tmp",

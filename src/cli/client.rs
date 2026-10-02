@@ -1,7 +1,10 @@
 use super::{print_json, take_game_dir, usage_error};
 use blitz_client::{
     client::{is_known_nation, list_client_tanks, resolve_game_dir},
-    export::{ClientExportOptions, TankExportOptions, export_client, export_tank_catalog},
+    export::{
+        ClientExportOptions, ClientFilesExportOptions, TankExportOptions, export_client,
+        export_client_files_with_progress, export_tank_catalog,
+    },
 };
 use std::path::PathBuf;
 
@@ -28,6 +31,9 @@ pub(super) fn run(args: &[String], json: bool) -> blitz_client::Result<bool> {
         });
     }
     match args {
+        [group, action, rest @ ..] if group == "files" && action == "export" => {
+            run_files_export(rest, json)
+        }
         [action, rest @ ..] if action == "export" => run_client_export(rest, json),
         [group, action, rest @ ..] if group == "tanks" && action == "list" => {
             run_tank_list(rest, json)
@@ -36,9 +42,85 @@ pub(super) fn run(args: &[String], json: bool) -> blitz_client::Result<bool> {
             run_tank_export(rest, json)
         }
         _ => Err(usage_error(
-            "expected client locate, client export, or client tanks list/export",
+            "expected client locate, client export, client files export, or client tanks list/export",
         )),
     }
+}
+
+fn run_files_export(args: &[String], json: bool) -> blitz_client::Result<bool> {
+    let mut options = ClientFilesExportOptions::new(".");
+    let mut output_dir = None;
+    let mut types = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--game-dir" | "--cache-dir" | "--output-dir" => {
+                let flag = &args[i];
+                i += 1;
+                let path = PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| usage_error(&format!("{flag} requires a path")))?,
+                );
+                match flag.as_str() {
+                    "--game-dir" => options.game_dir = Some(path),
+                    "--cache-dir" => options.cache_dir = Some(path),
+                    _ => output_dir = Some(path),
+                }
+            }
+            "--types" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| usage_error("--types requires comma-separated file types"))?;
+                for name in value.split(',') {
+                    let kind = name
+                        .parse()
+                        .map_err(|error: blitz_client::Error| usage_error(&error.message))?;
+                    if !types.contains(&kind) {
+                        types.push(kind);
+                    }
+                }
+            }
+            "--no-cache" => options.no_cache = true,
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("unknown option: {flag}")));
+            }
+            value => return Err(usage_error(&format!("unexpected argument: {value}"))),
+        }
+        i += 1;
+    }
+    if options.no_cache && options.cache_dir.is_some() {
+        return Err(usage_error("--cache-dir and --no-cache cannot be combined"));
+    }
+    options.output_dir = output_dir
+        .ok_or_else(|| usage_error("client files export requires --output-dir <path>"))?;
+    if !types.is_empty() {
+        options.types = types;
+    }
+    let report = export_client_files_with_progress(&options, |report| {
+        let processed = report.written_count + report.unchanged_count;
+        if !json && (processed == 0 || processed % 1000 == 0 || processed == report.file_count) {
+            eprintln!(
+                "Files: {processed}/{}; written: {}, unchanged: {}",
+                report.file_count, report.written_count, report.unchanged_count
+            );
+        }
+        Ok(())
+    })?;
+    if json {
+        print_json(&report);
+    } else {
+        println!(
+            "Exported {} file(s): {} written, {} unchanged",
+            report.file_count, report.written_count, report.unchanged_count
+        );
+        println!(
+            "Unpacked {} DVPL file(s); {} file(s) from cache",
+            report.dvpl_count, report.cache_file_count
+        );
+        println!("Output: {}", report.output_dir.display());
+    }
+    Ok(true)
 }
 
 fn run_tank_list(args: &[String], json: bool) -> blitz_client::Result<bool> {

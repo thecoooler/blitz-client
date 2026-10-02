@@ -12,7 +12,7 @@ resource parsers. CLI argument parsing and output formatting live in `src/cli/`.
 | --- | --- | --- |
 | `resources` | DVPL codecs, XML, SC2/SCG archives | Resource codec dependencies |
 | `client` | Client location, resource lookup, localization, tank and map catalogs | `resources` |
-| `export` | Client data and tank bundles, model/armor conversion, export output | `client` |
+| `export` | Unpacked client files, client data and tank bundles, model/armor conversion | `client` |
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
 | `replay` | Archive/standalone analysis, byte framing, file following, telemetry | Replay parser dependencies |
 | `cli` | The existing `blitz-client` executable and all commands | `export`, `mods`, `replay` |
@@ -72,6 +72,7 @@ The executable is `blitz-client`.
 
 ```text
 blitz-client client locate [--game-dir <path>] [--json]
+blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--json]
 blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
 blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
 blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
@@ -143,6 +144,74 @@ Geometry is decoded only for groups referenced by the selected scene nodes;
 unused groups still require valid, unique IDs. Used groups with unknown vertex
 layout bits or overflowing counts produce an explicit error. Showroom UV/normal
 repairs and collision armor-zone checks remain specific to their export paths.
+
+## Unpacked client files
+
+Export the effective client resource tree to a directory:
+
+```sh
+blitz-client client files export --output-dir ./Data
+```
+
+All files are selected by default. The exporter merges the installation's
+resource directory with the standard `packs` cache. Cache files override the
+same relative path from the installation, regardless of modification times.
+DVPL containers are decoded and their final `.dvpl` suffix is removed:
+`UI/example.yaml.dvpl` becomes `UI/example.yaml`. Other files are copied as-is,
+preserving the directory structure and original resource formats.
+
+Use `--types` to select comma-separated categories (the option can be repeated):
+
+```sh
+blitz-client client files export --output-dir ./Data --types configs,images
+blitz-client client files export --output-dir ./Models --types models
+```
+
+Categories are selected by the extension after removing `.dvpl`, independently
+of the directory name:
+
+| Type | Extensions |
+| --- | --- |
+| `all` | Every file, including unknown extensions |
+| `configs` | `yaml`, `yml`, `xml`, `xsd`, `txt`, `json`, `ini`, `cfg`, `toml`, `csv`, `tab`, `actions`, `style`, `material`, `html`, `htm` |
+| `images` | `webp`, `png`, `jpg`, `jpeg`, `dds`, `pvr`, `tex`, `tga`, `bmp`, `gif`, `svg`, `ktx`, `ktx2` |
+| `models` | `sc2`, `scg`, `anim`, `animation`, `model`, `mesh`, `heightmap`, `mkm`, `lka` |
+| `sounds` | `bnk`, `pck`, `wem`, `wav`, `ogg`, `mp3`, `flac`, `fsb` |
+| `fonts` | `ttf`, `otf`, `fnt`, `woff`, `woff2` |
+| `shaders` | `sl`, `slh`, `glsl`, `hlsl`, `vert`, `frag`, `metal` |
+| `other` | All extensions not assigned to the categories above, and extensionless files |
+
+Models remain in their native game formats; the existing `client tanks export`
+command produces viewer bundles. Selecting `models` does not automatically
+include textures; use `models,images` to include both.
+
+Override the sources or disable the cache overlay:
+
+```sh
+blitz-client client files export --game-dir /path/to/game \
+  --cache-dir /path/to/packs --output-dir ./Data --types configs
+blitz-client client files export --output-dir ./Data --no-cache
+```
+
+A missing default cache is skipped. An explicitly supplied `--cache-dir` must
+exist. `--cache-dir` and `--no-cache` cannot be combined. Within each source tree,
+an unpacked file takes precedence over its `.dvpl` sibling; the cache still has
+priority over the installation when their stored filenames differ.
+
+Repeated exports keep byte-identical destination files and replace changed
+ones. Unrelated destination files are retained. Source symlinks are skipped and
+counted in the report; symlinks within the destination tree and overlapping
+source/output directories are rejected. An invalid DVPL stops the export with its source path
+in the error; files already exported are kept.
+
+Text mode reports progress to stderr and a final summary to stdout. `--json`
+outputs one report with source paths, selected categories, written/unchanged
+file counts, cache/DVPL counts, decoded byte totals, and elapsed time.
+
+The `export` Cargo feature exposes `export::export_client_files`,
+`ClientFilesExportOptions`, `ClientFilesExportReport`, and `ClientFileType`.
+`export_client_files_with_progress` also accepts a synchronous callback for
+progress reporting or cancellation. This export requires no catalog metadata.
 
 ## Replay analysis
 

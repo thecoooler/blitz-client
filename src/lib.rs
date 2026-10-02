@@ -36,8 +36,10 @@ pub use client::{
 };
 #[cfg(feature = "export")]
 pub use export::{
-    ClientExportOptions, ClientExportReport, TankExportFailure, TankExportOptions,
-    TankExportReport, export_client, export_tank_catalog,
+    ClientExportOptions, ClientExportReport, ClientFileType, ClientFilesExportOptions,
+    ClientFilesExportReport, TankExportFailure, TankExportOptions, TankExportReport,
+    client_file_type, export_client, export_client_files, export_client_files_with_progress,
+    export_tank_catalog,
 };
 #[cfg(feature = "mods")]
 pub use mods::{
