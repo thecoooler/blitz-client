@@ -1,3 +1,4 @@
+use super::counters::{BATTLE_COUNTER_CLIENT_VERSIONS, BattleCounterDecoder};
 use super::models::{BattleResults, EntityMethod, Packet, Payload};
 use flate2::read::ZlibDecoder;
 use serde_json::{Value as Json, json};
@@ -8,6 +9,62 @@ const RECOVERED_LAYOUT_VERSION: &str = "26.8.0_ruby_apple";
 /// Decode the packet layouts verified against local replays while keeping every
 /// original payload available.
 pub(super) fn recover_telemetry(
+    packets: &[Packet],
+    client_version: &str,
+    results: Option<&BattleResults>,
+    results_blob: &[u8],
+) -> Json {
+    let mut report = recover_layout_telemetry(packets, client_version, results, results_blob);
+    let supported = BattleCounterDecoder::supports_version(client_version);
+    report["summary"]["battle_counter_decoding_supported"] = json!(supported);
+    if !supported {
+        return report;
+    }
+    let mut decoder = BattleCounterDecoder::default();
+    let mut updates = Vec::new();
+    for (index, packet) in packets.iter().enumerate() {
+        if let Some(update) = decoder.on_packet(packet, index, client_version) {
+            report["packet_annotations"][index] = json!({
+                "kind": "battle_counter_update", "update": update,
+            });
+            updates.push(update);
+        }
+    }
+    let counters = decoder.counters();
+    report["battle_counters"] = json!(counters);
+    report["battle_counter_updates"] = json!(updates);
+    report["battle_counter_supported_client_versions"] = json!(BATTLE_COUNTER_CLIENT_VERSIONS);
+    if client_version != RECOVERED_LAYOUT_VERSION {
+        report["decoder"] = json!("battle-counters-only");
+        report
+            .as_object_mut()
+            .unwrap()
+            .remove("supported_client_version");
+    }
+    let author_results = results.and_then(|results| {
+        results
+            .player_results
+            .iter()
+            .find(|row| row.info.account_id == results.author.account_id)
+    });
+    let expected_blocked = author_results.map(|row| u64::from(row.info.damage_blocked));
+    let expected_assisted = author_results
+        .map(|row| u64::from(row.info.damage_assisted_1) + u64::from(row.info.damage_assisted_2));
+    report["battle_counter_result_comparison"] = json!({
+        "damage_blocked_in_results": expected_blocked,
+        "damage_assisted_in_results": expected_assisted,
+        "damage_blocked_matches_results": counters.damage_blocked.zip(expected_blocked)
+            .map(|(actual, expected)| u64::from(actual) == expected),
+        "damage_assisted_matches_results": counters.damage_assisted.zip(expected_assisted)
+            .map(|(actual, expected)| u64::from(actual) == expected),
+    });
+    report["schema_notes"].as_array_mut().unwrap().push(json!(
+        "Метод 14 автора боя: ribbon 5 — накопленный заблокированный урон; ribbon 17 — накопленная помощь по засвету или обездвиживанию. Значения u16 читаются прямо из пакета; отдельного разделения видов помощи нет."
+    ));
+    report
+}
+
+fn recover_layout_telemetry(
     packets: &[Packet],
     client_version: &str,
     results: Option<&BattleResults>,
@@ -567,6 +624,7 @@ fn decode_telemetry_packet(
 #[derive(Default)]
 pub struct TelemetryDecoder {
     state: TelemetryState,
+    counters: BattleCounterDecoder,
 }
 
 impl TelemetryDecoder {
@@ -576,12 +634,26 @@ impl TelemetryDecoder {
         packet_index: usize,
         client_version: &str,
     ) -> Json {
-        if client_version != RECOVERED_LAYOUT_VERSION {
+        let layout_supported = client_version == RECOVERED_LAYOUT_VERSION;
+        let counter_supported = BattleCounterDecoder::supports_version(client_version);
+        if !layout_supported && !counter_supported {
             return Json::Null;
         }
-        let annotation =
-            decode_telemetry_packet(packet, packet_index, &HashMap::new(), &[], &mut self.state);
+        let update = self
+            .counters
+            .on_packet(packet, packet_index, client_version);
+        let annotation = if let Some(update) = &update {
+            json!({ "kind": "battle_counter_update", "update": update })
+        } else if layout_supported {
+            decode_telemetry_packet(packet, packet_index, &HashMap::new(), &[], &mut self.state)
+        } else {
+            Json::Null
+        };
         let details = json!({
+            "packet_layout_decoding_supported": layout_supported,
+            "battle_counter_decoding_supported": counter_supported,
+            "battle_counters": self.counters.counters(),
+            "battle_counter_updates": update.into_iter().collect::<Vec<_>>(),
             "annotation": annotation,
             "shots": self.state.shots,
             "hits": self.state.hits,

@@ -2,7 +2,7 @@ use super::stream::MAX_PAYLOAD_BYTES;
 use super::*;
 use crate::Error;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -344,6 +344,94 @@ fn unsupported_versions_keep_packets_without_live_telemetry() {
     assert!(
         matches!(&events[1].event, ReplayStreamEvent::Packet { packet, .. } if packet.raw_payload == [1, 2, 3])
     );
+}
+
+#[test]
+fn follower_keeps_battle_counters_between_polls_and_resets_on_truncation() {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(include_bytes!(
+        "../../tests/fixtures/sample.tbreplay"
+    )))
+    .unwrap();
+    let mut data = Vec::new();
+    archive
+        .by_name("data.replay")
+        .unwrap()
+        .read_to_end(&mut data)
+        .unwrap();
+    let mut base = Vec::new();
+    let mut assist = Vec::new();
+    let mut blocked = Vec::new();
+    let mut offset = 65; // The real fixture's header, verified by its stream decoder.
+    while offset + 12 <= data.len() {
+        let length = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
+        let kind = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap());
+        let end = offset + 12 + length;
+        let raw = &data[offset + 12..end];
+        if kind == 0 {
+            base = data[offset..end].to_vec();
+        }
+        if kind == 8 && raw.len() == 18 && raw[4..8] == 14_u32.to_le_bytes() {
+            if raw[12] == 17 && assist.is_empty() {
+                assist = data[offset..end].to_vec();
+            }
+            if raw[12] == 5 {
+                blocked = data[offset..end].to_vec();
+            }
+        }
+        offset = end;
+    }
+    assert!(!base.is_empty() && !assist.is_empty() && !blocked.is_empty());
+    let temp = TempDir::new();
+    let path = temp.0.join("data.replay");
+    let initial = [data[..65].to_vec(), base, assist].concat();
+    std::fs::write(&path, &initial).unwrap();
+    let mut follower = ReplayFollower::new(&path);
+    let mut events = Vec::new();
+    follower
+        .poll(|event| {
+            events.push(event);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        events.last().unwrap().telemetry.as_ref().unwrap()["battle_counters"]["damage_assisted"],
+        706
+    );
+    assert!(
+        events.last().unwrap().telemetry.as_ref().unwrap()["battle_counters"]["damage_blocked"]
+            .is_null()
+    );
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(&blocked)
+        .unwrap();
+    events.clear();
+    follower
+        .poll(|event| {
+            events.push(event);
+            Ok(())
+        })
+        .unwrap();
+    let counters = &events[0].telemetry.as_ref().unwrap()["battle_counters"];
+    assert_eq!(counters["damage_assisted"], 706);
+    assert_eq!(counters["damage_blocked"], 540);
+    std::fs::write(&path, &initial).unwrap();
+    events.clear();
+    follower
+        .poll(|event| {
+            events.push(event);
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        matches!(&events[0].event, ReplayStreamEvent::Reset { reason } if reason == "file_truncated")
+    );
+    assert_eq!(events.last().unwrap().session_id, 2);
+    let counters = &events.last().unwrap().telemetry.as_ref().unwrap()["battle_counters"];
+    assert_eq!(counters["damage_assisted"], 706);
+    assert!(counters["damage_blocked"].is_null());
 }
 
 #[test]

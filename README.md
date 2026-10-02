@@ -225,7 +225,7 @@ progress reporting or cancellation. This export requires no catalog metadata.
 - `packet`: `session_id`, `seq`, absolute byte `offset`, `packet_type`, `clock`, decoded `payload`, hex `raw_payload`, and `telemetry`.
 - `reset`: new `session_id` and a reason (`file_removed`, `file_replaced`, `file_truncated`, or `file_rewritten`). Sequence numbers and HP state restart for the new session.
 
-Live telemetry uses the same packet layouts as inspect and keeps previous HP per entity. Its records describe the current packet; linking shots to launches and hits to HP updates is performed by the complete inspect report. For unsupported client versions, packet `telemetry` is `null` and raw payloads remain available.
+Live telemetry uses the same packet layouts as inspect and keeps previous HP per entity. Its records describe the current packet; linking shots to launches and hits to HP updates is performed by the complete inspect report. For versions with neither supported packet layouts nor battle counters, packet `telemetry` is `null` and raw payloads remain available.
 
 Errors go to stderr, including with `--json`; follow always writes compact NDJSON. `--out <new-path>` writes to a new file instead of stdout and refuses to overwrite existing files. Ctrl+C stops following. `--idle-timeout-ms <N>` optionally stops after no new bytes or session resets for the specified duration (also applies while waiting for creation). An idle timeout does not certify a complete replay and may leave an incomplete frame unreported.
 
@@ -248,7 +248,73 @@ required home-directory environment variable is missing, this function returns
 selects another folder, including on operating systems without a configured
 default path.
 
-Packet layouts were verified on `26.8.0_ruby_apple` replays. Other client versions still decode the archive and battle results, keep every raw payload and report `unsupported-client-version` telemetry. Pickle values are read as builtins only: the decoder never imports or runs Python code.
+Full packet telemetry is verified on `26.8.0_ruby_apple`. Battle counters are
+also verified on `26.10.0_ruby_apple`; inspect reports `battle-counters-only`
+for that version and follow emits counters while leaving other telemetry lists
+empty. Other versions retain raw packets and report unsupported telemetry.
+Pickle values are read as builtins only: the decoder never imports or runs
+Python code.
+
+### Live assisted and blocked damage
+
+`replay follow` emits the author's cumulative server-reported values during
+the battle, without reading `battle_results.dat` or estimating damage from HP:
+
+- `telemetry.battle_counters.damage_blocked`: damage blocked by armor.
+- `telemetry.battle_counters.damage_assisted`: combined damage assisted by
+  spotting or immobilizing opponents. The packet does not separate these kinds.
+- `telemetry.battle_counter_updates`: updates from the current packet, with
+  `counter`, `value`, `previous_value`, `delta`, `clock`, `packet_index`,
+  `entity_id`, and `ribbon_id`.
+
+Use `value` as the new absolute total. `delta` is the difference from the
+previous report; it is `null` on the first update, zero for a duplicate, and
+may be negative for a correction. Each counter is `null` until its first
+update, so an unavailable value is not presented as zero. Totals are retained
+across polls and cleared when the follower starts a new recording session.
+
+For example, a packet from the real test recording includes:
+
+```json
+{
+  "battle_counters": {
+    "author_nickname": "iCooLER",
+    "player_entity_id": 11025794,
+    "damage_blocked": 540,
+    "damage_assisted": 706
+  },
+  "battle_counter_updates": [{
+    "packet_index": 48418,
+    "clock": 163.58837890625,
+    "entity_id": 11025794,
+    "ribbon_id": 5,
+    "counter": "damage_blocked",
+    "value": 540,
+    "previous_value": null,
+    "delta": null
+  }]
+}
+```
+
+The verified layout is packet type 8, EntityMethod 14: a 6-byte body with
+ribbon ID at offset 12 of the payload and cumulative `u16` value at offset 16.
+The receiver must match the author entity ID from the BasePlayerCreate prefix.
+Ribbon IDs are confirmed by the client's `XML/item_defs/ribbons.xml`: 5 is
+`ribbonArmorBlock`, 17 is `ribbonDamageAssist`. Localized descriptions confirm
+that the latter includes both spotting and immobilization assistance.
+
+The test replay reports assistance 706 → 1083 → 1499 → 1920 during the battle,
+and blocked damage 540 at 163.588 seconds. These match the final results.
+A checked 26.8 replay reported assistance 420 → 732, matching the sum of its
+two assisted-damage result fields (312 + 420).
+
+`replay inspect --data` includes the same `battle_counters` and update history,
+plus `battle_counter_result_comparison` for completed archives. An absent
+counter or absent final results produces a `null` comparison, not a mismatch.
+Standalone streams use the same decoder. The public `replay::BattleCounterDecoder`
+API can also consume complete packets directly; `counters()` returns its typed
+state and `reset()` starts a new session. Support for these two versions does
+not enable unverified layouts for other packet methods.
 
 ### Live game recording
 
@@ -277,8 +343,8 @@ clock in seconds (`f32`), and payload bytes. In this recording the header was
 65 bytes and identified client `26.10.0_ruby_apple`. The follower successfully
 decoded 2,959 packets from the 131,072-byte snapshot, through clock 32.387
 seconds, with no incomplete packet remaining at that snapshot's end. Packet
-framing works for this version; recovered telemetry is still version-gated as
-described above.
+framing and the battle counters described above work for this version; other
+telemetry layouts remain version-gated.
 
 Follow the live file directly, replacing `iCooLER` with the player's nickname:
 
