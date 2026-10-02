@@ -17,6 +17,9 @@ pub struct Manifest {
 #[serde(rename_all = "lowercase")]
 pub enum Action {
     Replace,
+    Before,
+    After,
+    Clear,
     Patch,
 }
 
@@ -103,14 +106,14 @@ pub(super) fn validate_manifest(manifest: &Manifest, path: &Path) -> Result<()> 
             ));
         }
         match file.action {
-            Action::Replace
+            Action::Replace | Action::Before | Action::After
                 if file.find.as_deref().is_none_or(str::is_empty) || file.replace.is_none() =>
             {
                 return Err(Error::at(
                     "MANIFEST_INVALID_ACTION",
                     format!(
-                        "replace action for {} requires non-empty find and present replace",
-                        file.name
+                        "{:?} action for {} requires non-empty find and present replace",
+                        file.action, file.name
                     ),
                     path.to_path_buf(),
                 ));

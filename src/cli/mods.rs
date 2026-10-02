@@ -1,6 +1,7 @@
 use super::{print_json, take_game_dir, usage_error};
+use blitz_client::mods::ValidationReport;
 use blitz_client::mods::{install_mod, remove_mod, update_from_git_diff, validate_mod};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(super) fn run(args: &[String], json: bool) -> blitz_client::Result<bool> {
     match args.first().map(String::as_str) {
@@ -18,43 +19,127 @@ fn run_validate(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let (positional, game_dir) = take_game_dir(args)?;
     if positional.len() != 1 {
         return Err(usage_error(
-            "validate requires a mod directory or mod.toml path",
+            "validate requires a mods directory, mod directory or mod.toml path",
         ));
     }
-    let report = validate_mod(&positional[0], game_dir)?;
-    if json {
-        print_json(&report);
-    } else {
-        println!("{} — {}", report.mod_id, report.mod_name);
-        for file in &report.files {
-            if file.valid {
-                println!(
-                    "OK   {} -> {}",
-                    file.path,
-                    file.target
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default()
-                );
-            } else {
-                println!(
-                    "FAIL {} [{}] {}",
-                    file.path,
-                    file.error_code.as_deref().unwrap_or("ERROR"),
-                    file.message.as_deref().unwrap_or("")
-                );
+    let path = Path::new(&positional[0]);
+    if !path.is_dir() {
+        let report = validate_mod(path, game_dir)?;
+        if json {
+            print_json(&report);
+        } else {
+            print_validation(&report);
+        }
+        return Ok(report.valid);
+    }
+
+    let mut manifests = Vec::new();
+    collect_manifests(path, &mut manifests)?;
+    manifests.sort();
+    if manifests.is_empty() {
+        return Err(blitz_client::Error::at(
+            "MANIFEST_NOT_FOUND",
+            "no mod.toml found in the directory or its subdirectories",
+            path,
+        ));
+    }
+    // Keep the existing report shape for a single mod directory.
+    if manifests.len() == 1 && manifests[0] == path.join("mod.toml") {
+        let report = validate_mod(&manifests[0], game_dir)?;
+        if json {
+            print_json(&report);
+        } else {
+            print_validation(&report);
+        }
+        return Ok(report.valid);
+    }
+
+    let mut results = Vec::new();
+    let mut passed = 0;
+    for manifest in &manifests {
+        if !json {
+            println!("{}", manifest.display());
+        }
+        match validate_mod(manifest, game_dir.clone()) {
+            Ok(report) => {
+                if report.valid {
+                    passed += 1;
+                }
+                if !json {
+                    print_validation(&report);
+                }
+                results.push(serde_json::json!({"manifest": manifest, "report": report}));
+            }
+            Err(error) => {
+                if !json {
+                    println!("FAIL {error}");
+                }
+                results.push(serde_json::json!({"manifest": manifest, "error": error}));
             }
         }
+    }
+    let valid = passed == manifests.len();
+    if json {
+        print_json(&serde_json::json!({"valid": valid, "mods": results}));
+    } else {
         println!(
-            "{}",
-            if report.valid {
-                "Validation passed"
-            } else {
-                "Validation failed"
-            }
+            "Validated {} mod(s): {passed} passed, {} failed",
+            manifests.len(),
+            manifests.len() - passed
         );
     }
-    Ok(report.valid)
+    Ok(valid)
+}
+
+fn collect_manifests(dir: &Path, manifests: &mut Vec<PathBuf>) -> blitz_client::Result<()> {
+    let io_error = |error: std::io::Error| {
+        blitz_client::Error::at(
+            "IO_ERROR",
+            format!("could not scan mod directory: {error}"),
+            dir,
+        )
+    };
+    for entry in std::fs::read_dir(dir).map_err(io_error)? {
+        let entry = entry.map_err(io_error)?;
+        let kind = entry.file_type().map_err(io_error)?;
+        if kind.is_dir() {
+            collect_manifests(&entry.path(), manifests)?;
+        } else if entry.file_name() == "mod.toml" && entry.path().is_file() {
+            manifests.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+fn print_validation(report: &ValidationReport) {
+    println!("{} — {}", report.mod_id, report.mod_name);
+    for file in &report.files {
+        if file.valid {
+            println!(
+                "OK   {} -> {}",
+                file.path,
+                file.target
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            );
+        } else {
+            println!(
+                "FAIL {} [{}] {}",
+                file.path,
+                file.error_code.as_deref().unwrap_or("ERROR"),
+                file.message.as_deref().unwrap_or("")
+            );
+        }
+    }
+    println!(
+        "{}",
+        if report.valid {
+            "Validation passed"
+        } else {
+            "Validation failed"
+        }
+    );
 }
 
 fn run_install(args: &[String], json: bool) -> blitz_client::Result<bool> {

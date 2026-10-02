@@ -601,15 +601,23 @@ fn compose_resource(
             target,
         ));
     }
-    let mut source = String::from_utf8(plain).map_err(|e| {
-        Error::at(
-            "RESOURCE_NOT_UTF8",
-            format!("resource is not UTF-8 text: {e}"),
-            target,
-        )
-    })?;
+    let mut output = plain;
     for (mod_id, operation) in operations {
-        source = apply_operation(&source, operation, target).map_err(|error| {
+        let result = if operation.action == Action::Clear {
+            Ok(Vec::new())
+        } else {
+            std::str::from_utf8(&output)
+                .map_err(|e| {
+                    Error::at(
+                        "RESOURCE_NOT_UTF8",
+                        format!("resource is not UTF-8 text: {e}"),
+                        target,
+                    )
+                })
+                .and_then(|source| apply_operation(source, operation, target))
+                .map(String::into_bytes)
+        };
+        output = result.map_err(|error| {
             if operations.len() > 1 {
                 Error::at(
                     "MOD_CONFLICT",
@@ -621,12 +629,12 @@ fn compose_resource(
             }
         })?;
     }
-    encode_dvpl(source.as_bytes(), kind)
+    encode_dvpl(&output, kind)
 }
 
 fn apply_operation(source: &str, operation: &StoredOperation, target: &Path) -> Result<String> {
     match operation.action {
-        Action::Replace => {
+        Action::Replace | Action::Before | Action::After => {
             let find = operation.find.as_deref().unwrap_or_default();
             let replacement = operation.replace.as_deref().unwrap_or_default();
             if find.is_empty() {
@@ -644,8 +652,14 @@ fn apply_operation(source: &str, operation: &StoredOperation, target: &Path) -> 
                     target,
                 ));
             }
-            Ok(source.replacen(find, replacement, 1))
+            let replacement = match operation.action {
+                Action::Before => format!("{replacement}{find}"),
+                Action::After => format!("{find}{replacement}"),
+                _ => replacement.to_owned(),
+            };
+            Ok(source.replacen(find, &replacement, 1))
         }
+        Action::Clear => Ok(String::new()),
         Action::Patch => {
             let diff = operation.patch_diff.as_deref().ok_or_else(|| {
                 Error::at(

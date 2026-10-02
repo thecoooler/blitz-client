@@ -77,7 +77,7 @@ blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
 blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
 blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
 
-blitz-client mod validate <mod-dir|mod.toml> [--game-dir <path>] [--json]
+blitz-client mod validate <mods-dir|mod-dir|mod.toml> [--game-dir <path>] [--json]
 blitz-client mod install <mod-dir|mod.toml> [--game-dir <path>] [--json]
 blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
 blitz-client mod update-from-git <mod-dir|mod.toml> --repo <path> [--base <rev>] [--json]
@@ -471,7 +471,37 @@ python3 -B -m unittest discover -s tests -p test_simulate_replay.py
 
 ## Mod commands
 
+`mod validate <directory>` recursively finds every `mod.toml` in the directory
+and its subdirectories (without following directory symlinks). Each mod is
+validated independently against the game and already installed mods; this does
+not check whether all discovered mods can be installed together. No files are
+changed. A failed mod does not stop validation of the others.
+
+```sh
+blitz-client mod validate ./mods --game-dir /path/to/game
+```
+
+For a collection, `--json` returns `{ "valid": bool, "mods": [...] }`, with each
+entry containing `manifest` and either `report` or `error`. A single mod directory
+or explicit manifest keeps the existing single-report format. Exit status is
+`0` when all mods pass, `4` when any collection member fails, and `2` for a scan
+error or when no manifests are found.
+
 The logical target in a manifest omits the final `.dvpl` suffix. The installer resolves `UI/.../Minimap.yaml` to either `Minimap.yaml.dvpl` or a plain `Minimap.yaml`, rejecting the case where both exist.
+
+Supported actions in `[[files]]`:
+
+- `replace`: replace the single exact match of `find` with `replace`.
+- `before` / `after`: insert `replace` before / after the single exact match of
+  `find`, preserving the matched text. No whitespace or newlines are added
+  automatically.
+- `clear`: empty the resource payload, including binary resources; no `find` or
+  `replace` is required. DVPL resources remain valid DVPL containers with an empty
+  payload. This does not generate a transparent image.
+- `patch`: apply a unified diff from the file specified by `patch`.
+
+Text actions require UTF-8 resources. `find` is a string, and multiple entries
+for the same target in one mod remain unsupported.
 
 Exact replacement:
 
