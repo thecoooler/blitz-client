@@ -1,18 +1,21 @@
 use super::{print_json, take_game_dir, usage_error};
 use blitz_client::mods::ValidationReport;
-use blitz_client::mods::{install_mod, remove_mod, update_from_git_diff, validate_mod};
+use blitz_client::mods::{
+    discover_mods, install_mod, list_installed_mods, remove_mod, update_from_git_diff, validate_mod,
+};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub(super) fn run(args: &[String], json: bool) -> blitz_client::Result<bool> {
     match args.first().map(String::as_str) {
+        Some("list") => run_list(&args[1..], json),
         Some("validate") => run_validate(&args[1..], json),
         Some("install") => run_install(&args[1..], json),
         Some("uninstall") => run_uninstall(&args[1..], json),
         Some("update-from-git") => run_update(&args[1..], json),
         _ => Err(usage_error(
-            "expected mod validate/install/uninstall/update-from-git",
+            "expected mod list/validate/install/uninstall/update-from-git",
         )),
     }
 }
@@ -36,9 +39,7 @@ fn run_validate(args: &[String], json: bool) -> blitz_client::Result<bool> {
         return Ok(report.valid);
     }
 
-    let mut manifests = Vec::new();
-    collect_manifests(path, &mut manifests)?;
-    manifests.sort();
+    let manifests = discover_mods(path)?;
     if manifests.is_empty() {
         return Err(blitz_client::Error::at(
             "MANIFEST_NOT_FOUND",
@@ -115,32 +116,32 @@ fn run_validate(args: &[String], json: bool) -> blitz_client::Result<bool> {
     Ok(valid)
 }
 
-fn collect_manifests(dir: &Path, manifests: &mut Vec<PathBuf>) -> blitz_client::Result<()> {
-    let io_error = |error: std::io::Error| {
-        blitz_client::Error::at(
-            "IO_ERROR",
-            format!("could not scan mod directory: {error}"),
-            dir,
-        )
-    };
-    let mut local = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(io_error)? {
-        let entry = entry.map_err(io_error)?;
-        let kind = entry.file_type().map_err(io_error)?;
-        if kind.is_dir() {
-            collect_manifests(&entry.path(), manifests)?;
-        } else if matches!(entry.file_name().to_str(), Some("mod.yaml" | "mod.yml"))
-            && entry.path().is_file()
-        {
-            local.push(entry.path());
+fn run_list(args: &[String], json: bool) -> blitz_client::Result<bool> {
+    let (positional, game_dir) = take_game_dir(args)?;
+    if !positional.is_empty() {
+        return Err(usage_error("list accepts only --game-dir and --json"));
+    }
+    let report = list_installed_mods(game_dir)?;
+    if json {
+        print_json(&report);
+    } else if report.mods.is_empty() {
+        println!("No mods installed");
+    } else {
+        for item in &report.mods {
+            println!(
+                "{} — {} ({} {})",
+                item.id,
+                item.name,
+                item.files.len(),
+                if item.files.len() == 1 {
+                    "file"
+                } else {
+                    "files"
+                }
+            );
         }
     }
-    // One validation result per directory; loading reports conflicting formats.
-    local.sort();
-    if let Some(manifest) = local.into_iter().next() {
-        manifests.push(manifest);
-    }
-    Ok(())
+    Ok(true)
 }
 
 struct ValidationStyle {
@@ -269,10 +270,17 @@ fn run_install(args: &[String], json: bool) -> blitz_client::Result<bool> {
     let report = install_mod(&positional[0], game_dir)?;
     if json {
         print_json(&report);
-    } else if report.already_installed {
-        println!("{} is already installed", report.mod_id);
     } else {
-        println!("Installed {} — {}", report.mod_id, report.mod_name);
+        println!(
+            "{} {} — {}",
+            if report.reinstalled {
+                "Reinstalled"
+            } else {
+                "Installed"
+            },
+            report.mod_id,
+            report.mod_name
+        );
         for target in report.targets {
             println!("  {}", target.display());
         }

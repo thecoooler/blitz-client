@@ -43,8 +43,9 @@ pub use export::{
 };
 #[cfg(feature = "mods")]
 pub use mods::{
-    Action, FileValidation, InstallReport, Manifest, ModFile, RemovalReport, ValidationReport,
-    install_mod, load_manifest, remove_mod, update_from_git_diff, validate_mod,
+    Action, FileValidation, InstallReport, InstalledModInfo, InstalledModsReport, Manifest,
+    ModFile, RemovalReport, ValidationReport, discover_mods, install_mod, list_installed_mods,
+    load_manifest, remove_mod, update_from_git_diff, validate_mod,
 };
 #[cfg(feature = "replay")]
 pub use replay::{

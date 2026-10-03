@@ -77,6 +77,7 @@ blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
 blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
 blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
 
+blitz-client mod list [--game-dir <path>] [--json]
 blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
 blitz-client mod install <mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
 blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
@@ -471,6 +472,34 @@ python3 -B -m unittest discover -s tests -p test_simulate_replay.py
 
 ## Mod commands
 
+`mod list` lists installed mods for the selected game, sorted by id:
+
+```sh
+blitz-client mod list --game-dir /path/to/game --json
+```
+
+JSON contains `game_dir`, `resource_dir` and `mods`. Each mod has `id`, `name`
+and `files` (unique logical resource paths in sorted order). A game without saved
+installation state returns an empty `mods` array. Listing reads saved state;
+it does not require mod source files or verify resource integrity. Invalid or
+unsupported installer state returns an error instead of an empty list.
+
+`mod install` also reinstalls an existing id, whether or not its source changed.
+It replaces the saved operations and recomposes every resource touched by the
+old or new version from saved originals, retaining other mods. Removed edits
+are undone, new edits are added, and repeated installation does not accumulate
+changes. All affected resources are prepared before writing; conflicts leave
+the old installation intact. Write errors trigger rollback. External changes
+to managed game files are rejected. The installation JSON reports `installed`
+and `reinstalled`; `reinstalled` replaces the former `already_installed` field.
+
+For Rust managers, `list_installed_mods(game_dir)` returns the same installed
+metadata. `discover_mods(directory)` returns sorted manifest paths recursively,
+without following directory symlinks or parsing manifests. Empty folders return
+an empty list; each discovered path can be passed to `load_manifest` to retrieve
+metadata and operations or report a broken mod independently. Both APIs are
+available with the `mods` feature, without the CLI.
+
 `mod validate <directory>` recursively finds `mod.yaml` and `mod.yml`
 in the directory and its subdirectories (without following directory symlinks). Each mod is
 validated independently against the game and already installed mods; this does
@@ -657,7 +686,7 @@ current defaults assume `%USERPROFILE%\Documents`.
 use std::path::PathBuf;
 use blitz_client::{
     ClientExportOptions, TankExportOptions, export_client, export_tank_catalog, install_mod,
-    list_client_tanks,
+    discover_mods, list_client_tanks, list_installed_mods, load_manifest,
     remove_mod, update_from_git_diff, validate_mod,
 };
 
@@ -672,6 +701,12 @@ let mut client_export = ClientExportOptions::new("/path/to/export");
 client_export.game_dir = game_dir.clone();
 client_export.data_only = true;
 let exported = export_client(&client_export)?;
+
+let installed = list_installed_mods(game_dir.clone())?;
+for manifest_path in discover_mods("mods")? {
+    let manifest = load_manifest(manifest_path)?;
+    let is_installed = installed.mods.iter().any(|item| item.id == manifest.id);
+}
 
 let report = validate_mod("mods/NoMapName", game_dir.clone())?;
 if report.valid {

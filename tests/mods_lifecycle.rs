@@ -1,6 +1,6 @@
 #![cfg(feature = "mods")]
 
-use blitz_client::mods::{install_mod, remove_mod};
+use blitz_client::mods::{install_mod, list_installed_mods, remove_mod, validate_mod};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
@@ -260,5 +260,248 @@ fn invalid_new_version_does_not_partially_install_or_change_other_mods() {
     scenario.remove("Beta");
     scenario.assert_files(Some(1), false);
     scenario.remove("Alpha");
+    scenario.assert_files(None, false);
+}
+
+#[test]
+fn reinstall_replaces_versions_and_preserves_other_mods() {
+    let scenario = Scenario::new();
+    assert!(
+        list_installed_mods(Some(scenario.root.join("game")))
+            .unwrap()
+            .mods
+            .is_empty()
+    );
+    scenario.install("beta");
+    scenario.install("alpha-v1");
+    scenario.assert_files(Some(1), true);
+    assert!(
+        validate_mod(
+            scenario.root.join("mods/alpha-v2"),
+            Some(scenario.root.join("game"))
+        )
+        .unwrap()
+        .valid
+    );
+    for (dir, version) in [
+        ("alpha-v2", 2),
+        ("alpha-v2", 2),
+        ("alpha-v1", 1),
+        ("alpha-v2", 2),
+    ] {
+        let report = install_mod(
+            scenario.root.join("mods").join(dir),
+            Some(scenario.root.join("game")),
+        )
+        .unwrap();
+        assert!(report.installed && report.reinstalled);
+        scenario.assert_files(Some(version), true);
+        let listed = list_installed_mods(Some(scenario.root.join("game"))).unwrap();
+        assert_eq!(
+            listed
+                .mods
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["Alpha", "Beta"]
+        );
+        assert_eq!(
+            listed.mods[0].files,
+            if version == 1 {
+                vec!["old-only.yaml", "shared.yaml"]
+            } else {
+                vec!["new-only.yaml", "shared.yaml"]
+            }
+        );
+    }
+    fs::remove_dir_all(scenario.root.join("mods")).unwrap();
+    let listed = list_installed_mods(Some(scenario.root.join("game"))).unwrap();
+    assert_eq!(listed.mods.len(), 2);
+    assert_eq!(listed.mods[1].name, "Beta");
+    assert_eq!(listed.mods[1].files, ["packed.yaml", "shared.yaml"]);
+    scenario.remove("Beta");
+    scenario.assert_files(Some(2), false);
+    scenario.remove("Alpha");
+    scenario.assert_files(None, false);
+    assert!(
+        list_installed_mods(Some(scenario.root.join("game")))
+            .unwrap()
+            .mods
+            .is_empty()
+    );
+}
+
+#[test]
+fn failed_reinstall_preserves_old_version_and_saved_state() {
+    let scenario = Scenario::new();
+    scenario.install("alpha-v1");
+    scenario.install("beta");
+    let state_path = scenario.root.join("game/.tanks-blitz-client/state.json");
+    let before = fs::read(&state_path).unwrap();
+    scenario.write_mod(
+        "alpha-v2",
+        "Alpha",
+        patch("shared.yaml", 1, "alpha: original", "alpha: v2")
+            + &patch("new-only.yaml", 1, "missing", "new: v2"),
+    );
+    let error = install_mod(
+        scenario.root.join("mods/alpha-v2"),
+        Some(scenario.root.join("game")),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "PATCH_CONTEXT_MISMATCH");
+    scenario.assert_files(Some(1), true);
+    assert_eq!(fs::read(state_path).unwrap(), before);
+    scenario.remove("Alpha");
+    scenario.assert_files(None, true);
+    scenario.remove("Beta");
+    scenario.assert_files(None, false);
+}
+
+#[test]
+fn reinstall_rejects_external_changes_to_old_only_files() {
+    let scenario = Scenario::new();
+    scenario.install("alpha-v1");
+    scenario.install("beta");
+    let target = scenario.root.join("game/Data/old-only.yaml");
+    let original = fs::read(&target).unwrap();
+    let state_path = scenario.root.join("game/.tanks-blitz-client/state.json");
+    let before = fs::read(&state_path).unwrap();
+    fs::write(&target, b"changed outside installer\n").unwrap();
+    let error = install_mod(
+        scenario.root.join("mods/alpha-v2"),
+        Some(scenario.root.join("game")),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "INSTALLED_FILE_CHANGED");
+    assert!(
+        !validate_mod(
+            scenario.root.join("mods/alpha-v2"),
+            Some(scenario.root.join("game"))
+        )
+        .unwrap()
+        .valid
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"changed outside installer\n");
+    assert_eq!(fs::read(state_path).unwrap(), before);
+    fs::write(&target, original).unwrap();
+    scenario.assert_files(Some(1), true);
+}
+
+#[test]
+fn dropping_a_patch_required_by_another_mod_keeps_old_installation() {
+    let scenario = Scenario::new();
+    scenario.install("alpha-v1");
+    scenario.write_mod(
+        "beta",
+        "Beta",
+        patch("old-only.yaml", 1, "old: v1", "old: v1 with beta"),
+    );
+    scenario.install("beta");
+    let before = scenario
+        .originals
+        .keys()
+        .map(|name| {
+            (
+                name.clone(),
+                fs::read(scenario.root.join("game/Data").join(name)).unwrap(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let state_path = scenario.root.join("game/.tanks-blitz-client/state.json");
+    let state_before = fs::read(&state_path).unwrap();
+    let validation = validate_mod(
+        scenario.root.join("mods/alpha-v2"),
+        Some(scenario.root.join("game")),
+    )
+    .unwrap();
+    assert!(!validation.valid);
+    assert!(
+        validation
+            .files
+            .iter()
+            .any(|file| file.path == "old-only.yaml" && !file.valid)
+    );
+    let error = install_mod(
+        scenario.root.join("mods/alpha-v2"),
+        Some(scenario.root.join("game")),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "PATCH_CONTEXT_MISMATCH");
+    for (name, bytes) in before {
+        assert_eq!(
+            fs::read(scenario.root.join("game/Data").join(name)).unwrap(),
+            bytes
+        );
+    }
+    assert_eq!(fs::read(state_path).unwrap(), state_before);
+    scenario.remove("Beta");
+    scenario.assert_files(Some(1), false);
+    scenario.remove("Alpha");
+    scenario.assert_files(None, false);
+}
+
+#[test]
+fn discovery_returns_paths_even_for_broken_mods_and_conflicting_manifests() {
+    use blitz_client::mods::{discover_mods, load_manifest};
+    let scenario = Scenario::new();
+    let root = scenario.root.join("mods");
+    let empty = scenario.root.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    assert!(discover_mods(&empty).unwrap().is_empty());
+    let bad = root.join("nested/broken");
+    fs::create_dir_all(&bad).unwrap();
+    fs::write(bad.join("mod.yaml"), "files: [broken").unwrap();
+    fs::write(bad.join("mod.yml"), "id: Other\nname: Other\n").unwrap();
+    let paths = discover_mods(&root).unwrap();
+    assert_eq!(
+        paths,
+        [
+            root.join("alpha-v1/mod.yaml"),
+            root.join("alpha-v2/mod.yaml"),
+            root.join("beta/mod.yaml"),
+            bad.join("mod.yaml")
+        ]
+    );
+    assert!(load_manifest(paths.last().unwrap()).is_err());
+    fs::remove_file(bad.join("mod.yml")).unwrap();
+    assert_eq!(
+        load_manifest(bad.join("mod.yaml")).unwrap_err().code,
+        "MANIFEST_INVALID"
+    );
+    assert_eq!(load_manifest(&paths[0]).unwrap().id, "Alpha");
+    assert!(discover_mods(scenario.root.join("missing")).is_err());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&root, bad.join("cycle")).unwrap();
+        assert_eq!(discover_mods(&root).unwrap(), paths);
+    }
+}
+
+#[test]
+fn reinstall_restores_dropped_binary_clear_from_original_bytes() {
+    let scenario = Scenario::new();
+    scenario.install("beta");
+    let dir = scenario.root.join("mods/alpha-v1");
+    fs::write(
+        dir.join("mod.yaml"),
+        "id: Alpha\nname: Alpha\nfiles:\n  untouched.bin:\n    - clear: {}\n",
+    )
+    .unwrap();
+    scenario.install("alpha-v1");
+    assert_eq!(
+        fs::read(scenario.root.join("game/Data/untouched.bin")).unwrap(),
+        b""
+    );
+    let report = install_mod(
+        scenario.root.join("mods/alpha-v2"),
+        Some(scenario.root.join("game")),
+    )
+    .unwrap();
+    assert!(report.reinstalled);
+    scenario.assert_files(Some(2), true);
+    scenario.remove("Alpha");
+    scenario.assert_files(None, true);
+    scenario.remove("Beta");
     scenario.assert_files(None, false);
 }

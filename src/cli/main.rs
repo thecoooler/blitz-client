@@ -85,6 +85,7 @@ fn print_usage() {
          blitz-client client tanks list [--game-dir <path>] [--json]\n\
          blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]\n\
          blitz-client client tanks export [--game-dir <path>] --viewer-dir <path> [--tank <nation/ID>] [--limit <N>] [--pbr] [--no-compress] [--json]\n\
+         blitz-client mod list [--game-dir <path>] [--json]\n\
          blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]\n\
          blitz-client mod install <mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]\n\
          blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]\n\

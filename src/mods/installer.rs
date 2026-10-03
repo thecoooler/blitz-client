@@ -1,4 +1,4 @@
-use super::manifest::{Action, ModFile, safe_relative_path};
+use super::manifest::{Action, Manifest, ModFile, safe_relative_path};
 use super::patch::apply_unified_diff;
 use super::text_match::find_matches;
 use crate::client::{ResolvedGameDir, resolve_game_dir};
@@ -39,8 +39,52 @@ pub struct InstallReport {
     pub mod_id: String,
     pub mod_name: String,
     pub installed: bool,
-    pub already_installed: bool,
+    /// True when an installed mod with this id was replaced.
+    pub reinstalled: bool,
     pub targets: Vec<PathBuf>,
+}
+
+/// Installed metadata from saved state; listing never reads mod source files.
+#[derive(Debug, Clone, Serialize)]
+pub struct InstalledModInfo {
+    pub id: String,
+    pub name: String,
+    /// Unique logical resource paths, sorted by path.
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InstalledModsReport {
+    pub game_dir: PathBuf,
+    pub resource_dir: PathBuf,
+    pub mods: Vec<InstalledModInfo>,
+}
+
+/// List installed mods in id order. No installer state means an empty list.
+pub fn list_installed_mods(game_dir: Option<PathBuf>) -> Result<InstalledModsReport> {
+    let game = resolve_game_dir(game_dir)?;
+    let state = load_state(&game.game_dir)?;
+    let mut mods = state
+        .mods
+        .into_iter()
+        .map(|item| InstalledModInfo {
+            id: item.id,
+            name: item.name,
+            files: item
+                .files
+                .into_iter()
+                .map(|file| file.logical_path)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    mods.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(InstalledModsReport {
+        game_dir: game.game_dir,
+        resource_dir: game.resource_dir,
+        mods,
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,13 +150,28 @@ pub fn validate_mod(
     let mut files = Vec::with_capacity(manifest.files.len());
     let mut occupied = BTreeMap::new();
 
-    for entry in &manifest.files {
-        let item = match resolve_target(&game, entry) {
+    let mut paths = manifest
+        .files
+        .iter()
+        .map(|file| file.name.clone())
+        .collect::<Vec<_>>();
+    let mut seen = paths.iter().cloned().collect::<BTreeSet<_>>();
+    if let Some(previous) = state.mods.iter().find(|item| item.id == manifest.id) {
+        paths.extend(
+            previous
+                .files
+                .iter()
+                .map(|file| file.logical_path.clone())
+                .filter(|path| seen.insert(path.clone())),
+        );
+    }
+    for path in paths {
+        let item = match resolve_logical_target(&game, &path) {
             Ok(target) => {
                 let key = target.to_string_lossy().to_ascii_lowercase();
                 if occupied
-                    .insert(key, entry.name.clone())
-                    .is_some_and(|name| name != entry.name)
+                    .insert(key, path.clone())
+                    .is_some_and(|name| name != path)
                 {
                     Err(Error::new(
                         "MANIFEST_DUPLICATE_TARGET",
@@ -139,7 +198,7 @@ pub fn validate_mod(
                         let new_operations = manifest
                             .files
                             .iter()
-                            .filter(|file| file.name == entry.name)
+                            .filter(|file| file.name == path)
                             .map(operation_from_entry)
                             .collect::<Result<Vec<_>>>()?;
                         let mut operations = state
@@ -159,8 +218,12 @@ pub fn validate_mod(
                                 .map(|operation| (manifest.id.clone(), operation)),
                         );
                         operations.sort_by(|left, right| left.0.cmp(&right.0));
-                        compose_resource(&target, &base, &operations)
-                            .map(|output| (target, output.len()))
+                        if operations.is_empty() {
+                            Ok((target, base.len()))
+                        } else {
+                            compose_resource(&target, &base, &operations)
+                                .map(|output| (target, output.len()))
+                        }
                     })()
                 }
             }
@@ -168,7 +231,7 @@ pub fn validate_mod(
         };
         match item {
             Ok((target, size)) => files.push(FileValidation {
-                path: entry.name.clone(),
+                path: path.clone(),
                 target: Some(target),
                 valid: true,
                 output_size: Some(size),
@@ -176,7 +239,7 @@ pub fn validate_mod(
                 message: None,
             }),
             Err(error) => files.push(FileValidation {
-                path: entry.name.clone(),
+                path: path.clone(),
                 target: error.path.clone(),
                 valid: false,
                 output_size: None,
@@ -197,12 +260,19 @@ pub fn validate_mod(
     })
 }
 
+/// Install or unconditionally reinstall a mod, preparing all affected files before writing.
 pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Result<InstallReport> {
     let manifest = super::manifest::load_manifest(mod_path)?;
     let game = resolve_game_dir(game_dir)?;
     let state_path = state_path(&game.game_dir);
     let mut state = load_state(&game.game_dir)?;
-    if let Some(installed) = state.mods.iter().find(|item| item.id == manifest.id) {
+    let previous = state
+        .mods
+        .iter()
+        .find(|item| item.id == manifest.id)
+        .cloned();
+    if let Some(installed) = &previous {
+        // Old-only targets also need validation before their edits can be removed.
         for file in &installed.files {
             let expected = resolve_logical_target(&game, &file.logical_path)?;
             if !same_path(&file.target, &expected) {
@@ -222,23 +292,13 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
                 ));
             }
         }
-        return Ok(InstallReport {
-            mod_id: manifest.id,
-            mod_name: manifest.name,
-            installed: false,
-            already_installed: true,
-            targets: Vec::new(),
-        });
     }
+    let affected = affected_paths(&manifest, previous.as_ref());
 
-    let mut prepared = Vec::with_capacity(manifest.files.len());
-    let mut logical_paths = BTreeSet::new();
+    let mut prepared = Vec::with_capacity(affected.len());
     let mut targets = BTreeSet::new();
-    for entry in &manifest.files {
-        if !logical_paths.insert(entry.name.clone()) {
-            continue;
-        }
-        let target = resolve_target(&game, entry)?;
+    for logical_path in affected {
+        let target = resolve_logical_target(&game, &logical_path)?;
         let key = target.to_string_lossy().to_ascii_lowercase();
         if !targets.insert(key) {
             return Err(Error::at(
@@ -273,12 +333,13 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
         let new_operations = manifest
             .files
             .iter()
-            .filter(|file| file.name == entry.name)
+            .filter(|file| file.name == logical_path)
             .map(operation_from_entry)
             .collect::<Result<Vec<_>>>()?;
         let mut operations = state
             .mods
             .iter()
+            .filter(|item| item.id != manifest.id)
             .flat_map(|item| {
                 item.files
                     .iter()
@@ -293,9 +354,13 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
                 .map(|operation| (manifest.id.clone(), operation)),
         );
         operations.sort_by(|left, right| left.0.cmp(&right.0));
-        let output = compose_resource(&target, &base_bytes, &operations)?;
+        let output = if operations.is_empty() {
+            base_bytes.clone()
+        } else {
+            compose_resource(&target, &base_bytes, &operations)?
+        };
         prepared.push(PreparedFile {
-            logical_path: entry.name.clone(),
+            logical_path,
             target,
             base_snapshot,
             base_bytes,
@@ -342,6 +407,7 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
         committed.push((file.target.clone(), file.old_current.clone()));
     }
 
+    state.mods.retain(|item| item.id != manifest.id);
     for existing in &mut state.mods {
         for file in &mut existing.files {
             if let Some(output) = prepared
@@ -379,11 +445,22 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
         return Err(error);
     }
 
+    // Release snapshots for targets dropped by this version and no longer managed.
+    for file in &prepared {
+        if !state.mods.iter().any(|item| {
+            item.files
+                .iter()
+                .any(|stored| same_path(&stored.base_snapshot, &file.base_snapshot))
+        }) {
+            let _ = fs::remove_file(&file.base_snapshot);
+        }
+    }
+
     Ok(InstallReport {
         mod_id: manifest.id,
         mod_name: manifest.name,
         installed: true,
-        already_installed: false,
+        reinstalled: previous.is_some(),
         targets: prepared.into_iter().map(|file| file.target).collect(),
     })
 }
@@ -502,8 +579,19 @@ pub fn remove_mod(mod_id: &str, game_dir: Option<PathBuf>) -> Result<RemovalRepo
     })
 }
 
-fn resolve_target(game: &ResolvedGameDir, entry: &ModFile) -> Result<PathBuf> {
-    resolve_logical_target(game, &entry.name)
+fn affected_paths(manifest: &Manifest, previous: Option<&InstalledMod>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    manifest
+        .files
+        .iter()
+        .map(|file| file.name.clone())
+        .chain(
+            previous
+                .into_iter()
+                .flat_map(|item| item.files.iter().map(|file| file.logical_path.clone())),
+        )
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
 }
 
 fn resolve_logical_target(game: &ResolvedGameDir, name: &str) -> Result<PathBuf> {
@@ -818,14 +906,26 @@ fn load_state(game_dir: &Path) -> Result<InstallerState> {
         fs::read(&path).map_err(|e| crate::io_error("could not read installer state", &path, e))?;
     let value: serde_json::Value = serde_json::from_slice(&bytes)
         .map_err(|e| Error::at("STATE_INVALID", e.to_string(), &path))?;
-    let version = value
-        .get("version")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or_default();
-    let has_mods = value
-        .get("mods")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|mods| !mods.is_empty());
+    let object = value
+        .as_object()
+        .ok_or_else(|| Error::at("STATE_INVALID", "installer state must be an object", &path))?;
+    let version = match object.get("version") {
+        Some(value) => value.as_u64().ok_or_else(|| {
+            Error::at(
+                "STATE_INVALID",
+                "state version must be a non-negative integer",
+                &path,
+            )
+        })?,
+        None => 0,
+    };
+    let has_mods = match object.get("mods") {
+        Some(value) => !value
+            .as_array()
+            .ok_or_else(|| Error::at("STATE_INVALID", "state mods must be an array", &path))?
+            .is_empty(),
+        None => false,
+    };
     if version != 2 {
         if !has_mods && version <= 1 {
             return Ok(InstallerState::default());

@@ -832,3 +832,100 @@ fn git_generation_supports_patch_only_mods_and_preserves_manual_sources() {
     assert_eq!(fs::read(&manifest).unwrap(), manifest_before);
     assert_eq!(fs::read(dir.join("mod.patch")).unwrap(), patch_before);
 }
+
+#[test]
+fn mod_list_reports_saved_metadata_and_reinstall_status() {
+    use blitz_client::mods::install_mod;
+    let fixture = Fixture::new();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_blitz-client"))
+            .args(["mod"])
+            .args(args)
+            .arg("--game-dir")
+            .arg(fixture.0.join("game"))
+            .output()
+            .unwrap()
+    };
+    let empty = run(&["list", "--json"]);
+    assert!(empty.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&empty.stdout).unwrap();
+    assert_eq!(report["mods"], serde_json::json!([]));
+    assert!(!fixture.0.join("game/.tanks-blitz-client").exists());
+    assert_eq!(run(&["list"]).stdout, b"No mods installed\n");
+    fixture.manifest("a", "A", "original");
+    fs::write(fixture.0.join("mods/a/mod.yaml"), "id: A\nname: First\nfiles:\n  config.yaml:\n    - replace:\n        search: original\n        replace: intermediate\n    - replace:\n        search: intermediate\n        replace: changed\n").unwrap();
+    let b = fixture.0.join("mods/b");
+    fs::create_dir_all(&b).unwrap();
+    fs::write(fixture.0.join("game/Data/second.yaml"), "second\n").unwrap();
+    fs::write(
+        b.join("mod.yaml"),
+        "id: B\nname: Second\nfiles:\n  second.yaml:\n    - clear: {}\n",
+    )
+    .unwrap();
+    install_mod(&b, Some(fixture.0.join("game"))).unwrap();
+    install_mod(fixture.0.join("mods/a"), Some(fixture.0.join("game"))).unwrap();
+    let reinstall = run(&[
+        "install",
+        fixture.0.join("mods/a").to_str().unwrap(),
+        "--json",
+    ]);
+    assert!(reinstall.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&reinstall.stdout).unwrap();
+    assert_eq!(report["installed"], true);
+    assert_eq!(report["reinstalled"], true);
+    assert_eq!(
+        fs::read(fixture.0.join("game/Data/config.yaml")).unwrap(),
+        b"changed\n"
+    );
+    let text = run(&["install", fixture.0.join("mods/a").to_str().unwrap()]);
+    assert!(text.status.success());
+    assert!(
+        String::from_utf8(text.stdout)
+            .unwrap()
+            .starts_with("Reinstalled A — First\n")
+    );
+    fs::remove_dir_all(fixture.0.join("mods")).unwrap();
+    let listed = run(&["list", "--json"]);
+    assert!(listed.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(
+        report["mods"],
+        serde_json::json!([
+            {"id": "A", "name": "First", "files": ["config.yaml"]},
+            {"id": "B", "name": "Second", "files": ["second.yaml"]}
+        ])
+    );
+    assert_eq!(
+        run(&["list"]).stdout,
+        "A — First (1 file)\nB — Second (1 file)\n".as_bytes()
+    );
+    assert_eq!(run(&["list", "unexpected"]).status.code(), Some(2));
+}
+
+#[test]
+fn mod_list_reports_invalid_state_instead_of_hiding_installed_mods() {
+    let fixture = Fixture::new();
+    let dir = fixture.0.join("game/.tanks-blitz-client");
+    fs::create_dir_all(&dir).unwrap();
+    for (text, code) in [
+        ("{broken", "STATE_INVALID"),
+        ("null", "STATE_INVALID"),
+        (r#"{"version":"2","mods":[]}"#, "STATE_INVALID"),
+        (r#"{"version":2,"mods":{}}"#, "STATE_INVALID"),
+        (
+            r#"{"version":999,"mods":[{"id":"A"}]}"#,
+            "STATE_VERSION_UNSUPPORTED",
+        ),
+    ] {
+        fs::write(dir.join("state.json"), text).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_blitz-client"))
+            .args(["mod", "list", "--json", "--game-dir"])
+            .arg(fixture.0.join("game"))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["error"]["code"], code);
+        assert_eq!(fs::read_to_string(dir.join("state.json")).unwrap(), text);
+    }
+}
