@@ -32,6 +32,8 @@ fn run() -> i32 {
         Err(error) => {
             if json && !(args[0] == "replay" && args.get(1).is_some_and(|arg| arg == "follow")) {
                 print_json(&serde_json::json!({"ok": false, "error": error}));
+            } else if args[0] == "mod" && args.get(1).is_some_and(|arg| arg == "validate") {
+                mods::print_validation_error(&error);
             } else {
                 eprintln!("{error}");
             }

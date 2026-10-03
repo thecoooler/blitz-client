@@ -1,4 +1,5 @@
 use super::git_diff;
+use super::patch_sources::load_patches;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -9,6 +10,9 @@ use std::path::{Component, Path, PathBuf};
 pub struct Manifest {
     pub id: String,
     pub name: String,
+    /// Patch files/directories in their declared order.
+    #[serde(default)]
+    pub patch: Vec<String>,
     #[serde(default)]
     pub files: Vec<ModFile>,
 }
@@ -34,8 +38,9 @@ pub struct ModFile {
     pub replace: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generated_by: Option<String>,
+    /// Resolved single-resource diff; never serialized into a manifest.
+    #[serde(skip)]
+    pub patch_diff: Option<String>,
     #[serde(
         default,
         rename = "ignore-trailing-whitespace",
@@ -52,7 +57,16 @@ struct YamlManifest {
     id: String,
     name: String,
     #[serde(default)]
+    patch: Option<PatchSources>,
+    #[serde(default)]
     files: serde_yaml_ng::Mapping,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PatchSources {
+    One(String),
+    Many(Vec<String>),
 }
 
 fn manifest_version() -> u32 {
@@ -66,10 +80,6 @@ struct YamlOperation {
     search: Option<String>,
     #[serde(default, alias = "insert")]
     replace: Option<String>,
-    #[serde(default)]
-    patch: Option<String>,
-    #[serde(default, rename = "generated-by")]
-    generated_by: Option<String>,
     #[serde(default, rename = "ignore-trailing-whitespace")]
     ignore_trailing_whitespace: bool,
 }
@@ -156,7 +166,11 @@ fn parse_manifest(text: &str, path: &Path) -> Result<Manifest> {
                 "before" => Action::Before,
                 "after" => Action::After,
                 "clear" => Action::Clear,
-                "patch" => Action::Patch,
+                "patch" => {
+                    return Err(invalid(
+                        "patch must be declared at the top level of the manifest".to_owned(),
+                    ));
+                }
                 _ => return Err(invalid(format!("unknown action: {action_name}"))),
             };
             files.push(ModFile {
@@ -164,8 +178,8 @@ fn parse_manifest(text: &str, path: &Path) -> Result<Manifest> {
                 action,
                 find: operation.search,
                 replace: operation.replace,
-                patch: operation.patch,
-                generated_by: operation.generated_by,
+                patch: None,
+                patch_diff: None,
                 ignore_trailing_whitespace: operation.ignore_trailing_whitespace,
             });
         }
@@ -173,6 +187,11 @@ fn parse_manifest(text: &str, path: &Path) -> Result<Manifest> {
     Ok(Manifest {
         id: yaml.id,
         name: yaml.name,
+        patch: match yaml.patch {
+            Some(PatchSources::One(path)) => vec![path],
+            Some(PatchSources::Many(paths)) => paths,
+            None => Vec::new(),
+        },
         files,
     })
 }
@@ -181,8 +200,9 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<Manifest> {
     let manifest_path = manifest_file(path.as_ref())?;
     let text = fs::read_to_string(&manifest_path)
         .map_err(|e| crate::io_error("could not read mod manifest", &manifest_path, e))?;
-    let manifest = parse_manifest(&text, &manifest_path)?;
+    let mut manifest = parse_manifest(&text, &manifest_path)?;
     validate_manifest(&manifest, &manifest_path)?;
+    expand_patches(&mut manifest, &locate_mod_dir(&manifest_path), None)?;
     Ok(manifest)
 }
 
@@ -206,12 +226,18 @@ pub(super) fn validate_manifest(manifest: &Manifest, path: &Path) -> Result<()> 
             path.to_path_buf(),
         ));
     }
-    if manifest.files.is_empty() {
+    if manifest.files.is_empty() && manifest.patch.is_empty() {
         return Err(Error::at(
             "MANIFEST_EMPTY",
             "mod has no file operations",
             path.to_path_buf(),
         ));
+    }
+    for source in &manifest.patch {
+        if source != "." {
+            safe_relative_path(source)
+                .map_err(|e| Error::at("MANIFEST_INVALID_PATCH_PATH", e, path))?;
+        }
     }
     for file in &manifest.files {
         safe_relative_path(&file.name)
@@ -294,128 +320,64 @@ pub(super) fn safe_relative_path(path: &str) -> std::result::Result<PathBuf, Str
     Ok(result)
 }
 
+fn expand_patches(manifest: &mut Manifest, mod_dir: &Path, generated: Option<&str>) -> Result<()> {
+    let mut operations = load_patches(mod_dir, &manifest.patch, generated)?;
+    operations.append(&mut manifest.files);
+    manifest.files = operations;
+    Ok(())
+}
+
+/// Generate one multi-resource mod.patch, preserving manual operations and sources.
 pub fn update_from_git_diff(
     mod_path: impl AsRef<Path>,
     repo: impl AsRef<Path>,
     base_revision: Option<&str>,
 ) -> Result<Manifest> {
-    let mod_dir = locate_mod_dir(mod_path.as_ref());
     let manifest_path = manifest_file(mod_path.as_ref())?;
+    let mod_dir = locate_mod_dir(&manifest_path);
     let raw_text = fs::read_to_string(&manifest_path)
         .map_err(|e| crate::io_error("could not read mod manifest", &manifest_path, e))?;
     let mut manifest = parse_manifest(&raw_text, &manifest_path)?;
+    manifest.patch.retain(|source| {
+        source == "." || safe_relative_path(source).ok().as_deref() != Some(Path::new("mod.patch"))
+    });
+    manifest.patch.insert(0, "mod.patch".to_owned());
     validate_manifest(&manifest, &manifest_path)?;
     let changes = git_diff::collect_changes(repo.as_ref(), base_revision.unwrap_or("HEAD"))?;
-
-    let old_generated = manifest
-        .files
-        .iter()
-        .filter(|file| file.generated_by.as_deref() == Some("git"))
-        .filter_map(|file| file.patch.clone())
-        .collect::<Vec<_>>();
-    manifest
-        .files
-        .retain(|file| file.generated_by.as_deref() != Some("git"));
-
-    let mut patch_writes = Vec::new();
-    for change in changes {
-        let logical = change.path.replace('\\', "/");
-        let digest = crate::resources::crc32(change.diff.as_bytes());
-        let patch_path_string = format!("patches/{logical}.{digest:08x}.patch");
-        let patch_path = mod_dir.join(
-            safe_relative_path(&patch_path_string)
-                .map_err(|e| Error::new("MANIFEST_INVALID_PATCH_PATH", e))?,
-        );
-        patch_writes.push((patch_path, change.diff));
-        manifest.files.push(ModFile {
-            name: logical,
-            action: Action::Patch,
-            find: None,
-            replace: None,
-            patch: Some(patch_path_string),
-            generated_by: Some("git".to_owned()),
-            ignore_trailing_whitespace: false,
-        });
+    if changes.is_empty() {
+        return Err(Error::new(
+            "GIT_DIFF_EMPTY",
+            "no modified text resources to generate mod.patch",
+        ));
     }
-
-    validate_manifest(&manifest, &manifest_path)?;
-    for (path, diff) in patch_writes {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| crate::io_error("could not create patch directory", parent, e))?;
+    let generated = changes
+        .into_iter()
+        .map(|change| change.diff)
+        .collect::<String>();
+    // Resolve every source before writing, substituting the proposed generated diff.
+    expand_patches(&mut manifest, &mod_dir, Some(&generated))?;
+    let mut document: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw_text)
+        .map_err(|e| Error::at("MANIFEST_INVALID", e.to_string(), &manifest_path))?;
+    document["patch"] = if manifest.patch.len() == 1 {
+        serde_yaml_ng::Value::String(manifest.patch[0].clone())
+    } else {
+        serde_yaml_ng::to_value(&manifest.patch)
+            .map_err(|e| Error::new("MANIFEST_INVALID", e.to_string()))?
+    };
+    let serialized = serde_yaml_ng::to_string(&document)
+        .map_err(|e| Error::at("MANIFEST_INVALID", e.to_string(), &manifest_path))?;
+    let patch_path = mod_dir.join("mod.patch");
+    let previous = fs::read(&patch_path).ok();
+    write_replacing(&patch_path, generated.as_bytes())?;
+    if let Err(error) = write_replacing(&manifest_path, serialized.as_bytes()) {
+        if let Some(previous) = previous {
+            let _ = write_replacing(&patch_path, &previous);
+        } else {
+            let _ = fs::remove_file(&patch_path);
         }
-        fs::write(&path, diff)
-            .map_err(|e| crate::io_error("could not write generated patch", &path, e))?;
-    }
-
-    let serialized = update_yaml_manifest(&raw_text, &manifest, &manifest_path)?;
-    write_replacing(&manifest_path, serialized.as_bytes())?;
-
-    for relative in old_generated {
-        if let Ok(safe) = safe_relative_path(&relative) {
-            let stale = mod_dir.join(safe);
-            if !manifest
-                .files
-                .iter()
-                .any(|file| file.patch.as_deref() == Some(&relative))
-            {
-                let _ = fs::remove_file(stale);
-            }
-        }
+        return Err(error);
     }
     Ok(manifest)
-}
-
-fn update_yaml_manifest(raw: &str, manifest: &Manifest, path: &Path) -> Result<String> {
-    use serde_yaml_ng::Value;
-    let invalid = |message: String| Error::at("MANIFEST_INVALID", message, path);
-    let mut document: Value = serde_yaml_ng::from_str(raw).map_err(|e| invalid(e.to_string()))?;
-    let files = document
-        .get_mut("files")
-        .and_then(Value::as_mapping_mut)
-        .ok_or_else(|| invalid("expected files mapping".to_owned()))?;
-    for (_, actions) in files.iter_mut() {
-        let actions = actions
-            .as_sequence_mut()
-            .ok_or_else(|| invalid("expected operations list".to_owned()))?;
-        actions.retain(|action| {
-            !action.as_mapping().is_some_and(|map| {
-                map.values().any(|operation| {
-                    operation.get("generated-by").and_then(Value::as_str) == Some("git")
-                })
-            })
-        });
-    }
-    files.retain(|_, actions| {
-        actions
-            .as_sequence()
-            .is_some_and(|actions| !actions.is_empty())
-    });
-    for file in manifest
-        .files
-        .iter()
-        .filter(|file| file.generated_by.as_deref() == Some("git"))
-    {
-        let actions = files
-            .entry(Value::String(file.name.clone()))
-            .or_insert_with(|| Value::Sequence(Vec::new()));
-        let mut fields = serde_yaml_ng::Mapping::new();
-        fields.insert(
-            Value::String("patch".into()),
-            Value::String(file.patch.clone().unwrap()),
-        );
-        fields.insert(
-            Value::String("generated-by".into()),
-            Value::String("git".into()),
-        );
-        let mut operation = serde_yaml_ng::Mapping::new();
-        operation.insert(Value::String("patch".into()), Value::Mapping(fields));
-        actions
-            .as_sequence_mut()
-            .unwrap()
-            .push(Value::Mapping(operation));
-    }
-    serde_yaml_ng::to_string(&document).map_err(|e| invalid(e.to_string()))
 }
 
 fn write_replacing(path: &Path, bytes: &[u8]) -> Result<()> {

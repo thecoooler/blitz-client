@@ -481,6 +481,14 @@ changed. A failed mod does not stop validation of the others.
 blitz-client mod validate ./mods --game-dir /path/to/game
 ```
 
+The text output uses one status line per mod, unique file counts for successful
+mods, and paths/codes/reasons only for failures. Successful mods appear first;
+a separate `Failures` block collects all failed mods immediately before the
+final passed/failed counts. Each group retains manifest-path order. Duplicate diagnostics for the same file are shown once.
+Terminal output uses green success markers, red failures and dim counts. Colors
+are disabled when output is redirected or `NO_COLOR` is nonempty;
+`CLICOLOR_FORCE=1` enables them explicitly. JSON never contains color escapes.
+
 For a collection, `--json` returns `{ "valid": bool, "mods": [...] }`, with each
 entry containing `manifest` and either `report` or `error`. A single mod directory
 or explicit manifest keeps the existing single-report format. Exit status is
@@ -498,7 +506,6 @@ Supported actions under `files`:
 - `clear`: empty the resource payload, including binary resources; no `search` or
   `replace` is required. DVPL resources remain valid DVPL containers with an empty
   payload. This does not generate a transparent image.
-- `patch`: apply a unified diff from the file specified by `patch`.
 
 Text actions require UTF-8 resources. `search` is a string. Multiple operations for
 one file run in manifest order. Different logical paths resolving to the same
@@ -531,8 +538,7 @@ files:
 ```
 
 For `before` and `after`, use `insert`
-(or `replace`) for the inserted text. Other actions use `clear: {}` or
-`patch: { patch: "patches/resource.patch" }`. YAML rejects unknown fields and
+(or `replace`) for the inserted text. Use `clear: {}` to empty a resource. YAML rejects unknown fields and
 unsupported versions; `version` defaults to `1`. A directory must contain only
 one manifest format, including when validating a collection.
 
@@ -559,15 +565,43 @@ files:
         replace: ""
 ```
 
-Unified diff patches are stored as sidecar files:
+Declare unified diffs at the top level. One patch can modify multiple resources:
 
 ```yaml
-files:
-  UI/Screens/Battle/Minimap.yaml:
-    - patch:
-        patch: patches/UI/Screens/Battle/Minimap.yaml.<diff-crc>.patch
-        generated-by: git
+id: HideRatingValue
+name: Hide rating value
+patch: mod.patch
 ```
+
+`patch` accepts a file, a directory, or an ordered list of either:
+
+```yaml
+patch: patches
+```
+
+```yaml
+patch:
+  - mod.patch
+  - patches/extra.diff
+  - patches/optional
+```
+
+Paths are relative to the mod directory. Directories are scanned recursively for
+`.patch` and `.diff` files, sorted by path; directory symlinks are not followed.
+Lists run in the specified order. Each source file is loaded only once, even if
+selected through both a file and a directory. Empty directories are rejected.
+Patches run before operations under `files`, preserving section order within each
+patch. Target paths inside diffs are relative to the game's resource directory.
+Only changes to existing UTF-8 resources are supported; additions, deletions,
+renames, mode changes and binary patches are rejected. Per-resource `patch`
+actions under `files` are not supported.
+
+Installed operations retain their patch content, so removal and recomposition do
+not require the original patch files.
+
+`update-from-git` writes all generated resource changes to one `mod.patch` and
+sets the top-level `patch` reference. It refreshes this file on subsequent runs,
+preserving manual patch sources and operations under `files`.
 
 Only YAML mod manifests are supported (`mod.yaml` or `mod.yml`). Resource paths
 are emitted without quotes where YAML permits it; quoting is added only when

@@ -3,7 +3,6 @@ use std::path::Path;
 use std::process::Command;
 
 pub(super) struct GitChange {
-    pub path: String,
     pub diff: String,
 }
 
@@ -40,7 +39,7 @@ pub(super) fn collect_changes(repo: &Path, base: &str) -> Result<Vec<GitChange>>
                 "repository contains a modified path that is not UTF-8",
             )
         })?;
-        if matches!(path, "mod.yaml" | "mod.yml") || path.starts_with("patches/") {
+        if matches!(path, "mod.yaml" | "mod.yml" | "mod.patch") || path.starts_with("patches/") {
             index += 2;
             continue;
         } else if state == "M" {
@@ -78,6 +77,8 @@ pub(super) fn collect_changes(repo: &Path, base: &str) -> Result<Vec<GitChange>>
                 "--no-color",
                 "--no-renames",
                 "--unified=3",
+                "--src-prefix=a/",
+                "--dst-prefix=b/",
                 base,
                 "--",
                 &path,
@@ -90,23 +91,37 @@ pub(super) fn collect_changes(repo: &Path, base: &str) -> Result<Vec<GitChange>>
                 &path,
             )
         })?;
-        if diff.contains("Binary files ") || diff.contains("GIT binary patch") {
+        if diff
+            .lines()
+            .any(|line| line.starts_with("Binary files ") || line.starts_with("GIT binary patch"))
+        {
             return Err(Error::at(
                 "GIT_DIFF_BINARY_FILE",
-                "binary changes cannot be converted to a YAML text patch",
+                "binary changes cannot be converted to a text patch",
+                &path,
+            ));
+        }
+        if diff
+            .lines()
+            .any(|line| line.starts_with("old mode ") || line.starts_with("new mode "))
+        {
+            return Err(Error::at(
+                "GIT_DIFF_UNSUPPORTED_CHANGE",
+                "file mode changes are unsupported",
                 &path,
             ));
         }
         if !diff.contains("@@ ") {
             continue;
         }
-        changes.push(GitChange { path, diff });
+        changes.push(GitChange { diff });
     }
     Ok(changes)
 }
 
 fn run_git<const N: usize>(repo: &Path, args: [&str; N]) -> Result<Vec<u8>> {
     let output = Command::new("git")
+        .args(["-c", "core.quotePath=false"])
         .arg("-C")
         .arg(repo)
         .args(args)

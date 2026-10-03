@@ -1,4 +1,4 @@
-use super::manifest::{Action, Manifest, ModFile, locate_mod_dir, safe_relative_path};
+use super::manifest::{Action, ModFile, safe_relative_path};
 use super::patch::apply_unified_diff;
 use super::text_match::find_matches;
 use crate::client::{ResolvedGameDir, resolve_game_dir};
@@ -100,7 +100,7 @@ pub fn validate_mod(
     mod_path: impl AsRef<Path>,
     game_dir: Option<PathBuf>,
 ) -> Result<ValidationReport> {
-    let (manifest, mod_dir) = read_mod(mod_path.as_ref())?;
+    let manifest = super::manifest::load_manifest(mod_path)?;
     let game = resolve_game_dir(game_dir)?;
     let state = load_state(&game.game_dir)?;
     let mut files = Vec::with_capacity(manifest.files.len());
@@ -140,7 +140,7 @@ pub fn validate_mod(
                             .files
                             .iter()
                             .filter(|file| file.name == entry.name)
-                            .map(|file| operation_from_entry(file, &mod_dir))
+                            .map(operation_from_entry)
                             .collect::<Result<Vec<_>>>()?;
                         let mut operations = state
                             .mods
@@ -198,7 +198,7 @@ pub fn validate_mod(
 }
 
 pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Result<InstallReport> {
-    let (manifest, mod_dir) = read_mod(mod_path.as_ref())?;
+    let manifest = super::manifest::load_manifest(mod_path)?;
     let game = resolve_game_dir(game_dir)?;
     let state_path = state_path(&game.game_dir);
     let mut state = load_state(&game.game_dir)?;
@@ -274,7 +274,7 @@ pub fn install_mod(mod_path: impl AsRef<Path>, game_dir: Option<PathBuf>) -> Res
             .files
             .iter()
             .filter(|file| file.name == entry.name)
-            .map(|file| operation_from_entry(file, &mod_dir))
+            .map(operation_from_entry)
             .collect::<Result<Vec<_>>>()?;
         let mut operations = state
             .mods
@@ -502,12 +502,6 @@ pub fn remove_mod(mod_id: &str, game_dir: Option<PathBuf>) -> Result<RemovalRepo
     })
 }
 
-fn read_mod(path: &Path) -> Result<(Manifest, PathBuf)> {
-    let manifest = super::manifest::load_manifest(path)?;
-    let mod_dir = locate_mod_dir(path);
-    Ok((manifest, mod_dir.canonicalize().unwrap_or(mod_dir)))
-}
-
 fn resolve_target(game: &ResolvedGameDir, entry: &ModFile) -> Result<PathBuf> {
     resolve_logical_target(game, &entry.name)
 }
@@ -572,35 +566,17 @@ fn resolve_logical_target(game: &ResolvedGameDir, name: &str) -> Result<PathBuf>
     Ok(resolved)
 }
 
-fn operation_from_entry(entry: &ModFile, mod_dir: &Path) -> Result<StoredOperation> {
-    let patch_diff =
-        if entry.action == Action::Patch {
-            let patch_relative = entry.patch.as_deref().ok_or_else(|| {
-                Error::new("MANIFEST_INVALID_ACTION", "patch action has no patch path")
-            })?;
-            let patch_path = mod_dir.join(
-                safe_relative_path(patch_relative)
-                    .map_err(|e| Error::new("MANIFEST_INVALID_PATCH_PATH", e))?,
-            );
-            let canonical_root = mod_dir
-                .canonicalize()
-                .unwrap_or_else(|_| mod_dir.to_path_buf());
-            let canonical_patch = patch_path
-                .canonicalize()
-                .map_err(|e| crate::io_error("could not read patch file", &patch_path, e))?;
-            if !canonical_patch.starts_with(&canonical_root) {
-                return Err(Error::at(
-                    "PATCH_OUTSIDE_MOD_DIR",
-                    "patch path escapes the mod directory",
-                    canonical_patch,
-                ));
-            }
-            Some(fs::read_to_string(&canonical_patch).map_err(|e| {
-                crate::io_error("patch file is not UTF-8 text", &canonical_patch, e)
-            })?)
-        } else {
-            None
-        };
+fn operation_from_entry(entry: &ModFile) -> Result<StoredOperation> {
+    let patch_diff = if entry.action == Action::Patch {
+        Some(entry.patch_diff.clone().ok_or_else(|| {
+            Error::new(
+                "MANIFEST_INVALID_ACTION",
+                "patch operation has no resolved diff",
+            )
+        })?)
+    } else {
+        None
+    };
     Ok(StoredOperation {
         action: entry.action,
         find: entry.find.clone(),

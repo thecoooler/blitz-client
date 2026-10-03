@@ -1,3 +1,4 @@
+use super::manifest::safe_relative_path;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,9 +23,220 @@ struct Hunk {
     lines: Vec<HunkLine>,
 }
 
+pub(super) struct FilePatch {
+    pub path: String,
+    pub diff: String,
+}
+
+/// Split a multi-file Git/unified diff, validating its paths and hunk framing.
+pub(super) fn split_patch(diff: &str) -> Result<Vec<FilePatch>> {
+    let raw_lines = diff.split_inclusive('\n').collect::<Vec<_>>();
+    let lines = raw_lines
+        .iter()
+        .map(|line| strip_lf(line).trim_end_matches('\r'))
+        .collect::<Vec<_>>();
+    let mut offsets = vec![0];
+    for line in &raw_lines {
+        offsets.push(offsets.last().unwrap() + line.len());
+    }
+    let mut sections = Vec::new();
+    let mut start = None;
+    let mut paths = None;
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        if line.starts_with("diff --git ") {
+            if let Some(begin) = start {
+                sections.push(make_file_patch(
+                    &diff[offsets[begin]..offsets[index]],
+                    paths.take(),
+                )?);
+            }
+            start = Some(index);
+        } else if line.starts_with("--- ")
+            && lines
+                .get(index + 1)
+                .is_some_and(|line| line.starts_with("+++ "))
+        {
+            if paths.is_some() {
+                sections.push(make_file_patch(
+                    &diff[offsets[start.unwrap()]..offsets[index]],
+                    paths.take(),
+                )?);
+                start = Some(index);
+            } else if start.is_none() {
+                start = Some(index);
+            }
+            let old = decode_header_path(&line[4..])?;
+            let new = decode_header_path(&lines[index + 1][4..])?;
+            paths = Some((old, new));
+            index += 1;
+        } else if line.starts_with("@@ ") {
+            if paths.is_none() {
+                return Err(Error::new(
+                    "PATCH_INVALID",
+                    "hunk has no ---/+++ file headers",
+                ));
+            }
+            let (_, mut old, mut new) = parse_hunk_header(line)?;
+            index += 1;
+            while old != 0 || new != 0 {
+                let row = lines
+                    .get(index)
+                    .ok_or_else(|| Error::new("PATCH_INVALID", "truncated hunk"))?;
+                let (consume_old, consume_new) = match row.as_bytes().first() {
+                    Some(b' ') => (1, 1),
+                    Some(b'-') => (1, 0),
+                    Some(b'+') => (0, 1),
+                    Some(b'\\') if row.starts_with("\\ No newline at end of file") => (0, 0),
+                    _ => return Err(Error::new("PATCH_INVALID", "unexpected line in hunk")),
+                };
+                old = old
+                    .checked_sub(consume_old)
+                    .ok_or_else(|| Error::new("PATCH_INVALID", "too many old lines in hunk"))?;
+                new = new
+                    .checked_sub(consume_new)
+                    .ok_or_else(|| Error::new("PATCH_INVALID", "too many new lines in hunk"))?;
+                index += 1;
+            }
+            continue;
+        } else if [
+            "new file mode ",
+            "deleted file mode ",
+            "rename from ",
+            "rename to ",
+            "copy from ",
+            "copy to ",
+            "old mode ",
+            "new mode ",
+            "Binary files ",
+            "GIT binary patch",
+        ]
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+        {
+            return Err(Error::new(
+                "PATCH_UNSUPPORTED_CHANGE",
+                "only modifications to existing text resources are supported",
+            ));
+        }
+        index += 1;
+    }
+    if let Some(begin) = start {
+        sections.push(make_file_patch(&diff[offsets[begin]..], paths)?);
+    }
+    if sections.is_empty() {
+        return Err(Error::new("PATCH_EMPTY", "patch contains no file changes"));
+    }
+    Ok(sections)
+}
+
+fn make_file_patch(diff: &str, paths: Option<(String, String)>) -> Result<FilePatch> {
+    let (mut old, mut new) =
+        paths.ok_or_else(|| Error::new("PATCH_INVALID", "missing ---/+++ file headers"))?;
+    if old == "/dev/null" || new == "/dev/null" {
+        return Err(Error::new(
+            "PATCH_UNSUPPORTED_CHANGE",
+            "file additions and deletions are unsupported",
+        ));
+    }
+    if old.starts_with("a/") && new.starts_with("b/") {
+        old = old[2..].to_owned();
+        new = new[2..].to_owned();
+    }
+    if old != new {
+        return Err(Error::new(
+            "PATCH_UNSUPPORTED_CHANGE",
+            "file renames are unsupported",
+        ));
+    }
+    let path = safe_relative_path(&new).map_err(|e| Error::new("PATCH_INVALID_TARGET", e))?;
+    if new.to_ascii_lowercase().ends_with(".dvpl") {
+        return Err(Error::new(
+            "PATCH_DVPL_INPUT",
+            "patch paths must refer to unpacked resources, without .dvpl",
+        ));
+    }
+    if parse_hunks(diff)?.is_empty() {
+        return Err(Error::new("PATCH_EMPTY", "file section contains no hunks"));
+    }
+    Ok(FilePatch {
+        path: path.to_string_lossy().replace('\\', "/"),
+        diff: diff.to_owned(),
+    })
+}
+
+fn decode_header_path(header: &str) -> Result<String> {
+    if !header.starts_with('"') {
+        return Ok(header.split('\t').next().unwrap().to_owned());
+    }
+    // Git quotes paths containing special characters using C escapes and octal bytes.
+    let mut bytes = Vec::new();
+    let raw = header.as_bytes();
+    let mut index = 1;
+    while index < raw.len() {
+        match raw[index] {
+            b'"' => {
+                return String::from_utf8(bytes)
+                    .map_err(|e| Error::new("PATCH_INVALID_TARGET", e.to_string()));
+            }
+            b'\\' => {
+                index += 1;
+                let escaped = *raw
+                    .get(index)
+                    .ok_or_else(|| Error::new("PATCH_INVALID_TARGET", "incomplete quoted path"))?;
+                let byte = match escaped {
+                    b'0'..=b'7' => {
+                        let end = index + 3;
+                        let digits = raw
+                            .get(index..end)
+                            .filter(|digits| digits.iter().all(|byte| (b'0'..=b'7').contains(byte)))
+                            .ok_or_else(|| {
+                                Error::new("PATCH_INVALID_TARGET", "invalid octal path escape")
+                            })?;
+                        let value = digits
+                            .iter()
+                            .fold(0u16, |value, byte| value * 8 + u16::from(byte - b'0'));
+                        index += 2;
+                        u8::try_from(value).map_err(|_| {
+                            Error::new("PATCH_INVALID_TARGET", "invalid octal path escape")
+                        })?
+                    }
+                    b't' => b'\t',
+                    b'n' => b'\n',
+                    b'r' => b'\r',
+                    b'a' => 7,
+                    b'b' => 8,
+                    b'f' => 12,
+                    b'v' => 11,
+                    b'\\' | b'"' => escaped,
+                    _ => {
+                        return Err(Error::new(
+                            "PATCH_INVALID_TARGET",
+                            "unknown quoted path escape",
+                        ));
+                    }
+                };
+                bytes.push(byte);
+            }
+            byte => bytes.push(byte),
+        }
+        index += 1;
+    }
+    Err(Error::new(
+        "PATCH_INVALID_TARGET",
+        "unterminated quoted path",
+    ))
+}
+
 /// Apply a single-file unified diff. Context is exact; every hunk must apply.
 pub(super) fn apply_unified_diff(source: &str, diff: &str) -> Result<String> {
-    if diff.matches("diff --git ").count() > 1 {
+    if diff
+        .lines()
+        .filter(|line| line.starts_with("diff --git "))
+        .count()
+        > 1
+    {
         return Err(Error::new(
             "PATCH_MULTIPLE_FILES",
             "each patch operation must reference a diff for exactly one resource",
@@ -102,7 +314,7 @@ pub(super) fn apply_unified_diff(source: &str, diff: &str) -> Result<String> {
         } else {
             hunk.old_start.saturating_sub(1) as i64
         };
-        offset = start as i64 - original_start;
+        offset = start as i64 - original_start + hunk.new_len as i64 - hunk.old_len as i64;
 
         let mut consumed = 0usize;
         let mut replacement = Vec::new();
@@ -160,17 +372,13 @@ pub(super) fn apply_unified_diff(source: &str, diff: &str) -> Result<String> {
                 ),
             ));
         }
-        let added_count = hunk
-            .lines
-            .iter()
-            .filter(|line| line.kind == Kind::Add)
-            .count();
-        if added_count != hunk.new_len {
+        if replacement.len() != hunk.new_len {
             return Err(Error::new(
                 "PATCH_INVALID",
                 format!(
-                    "hunk declares {} new lines but contains {added_count}",
-                    hunk.new_len
+                    "hunk declares {} new lines but contains {}",
+                    hunk.new_len,
+                    replacement.len()
                 ),
             ));
         }
@@ -271,7 +479,15 @@ fn parse_range(value: &str) -> Result<(usize, usize)> {
         .next()
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| Error::new("PATCH_INVALID", "invalid hunk line number"))?;
-    let len = parts.next().map(|v| v.parse().ok()).flatten().unwrap_or(1);
+    let len = match parts.next() {
+        Some(value) => value
+            .parse()
+            .map_err(|_| Error::new("PATCH_INVALID", "invalid hunk line count"))?,
+        None => 1,
+    };
+    if parts.next().is_some() {
+        return Err(Error::new("PATCH_INVALID", "invalid hunk range"));
+    }
     Ok((start, len))
 }
 
@@ -299,4 +515,49 @@ fn line_content(line: &str) -> &str {
 
 fn strip_lf(line: &str) -> &str {
     line.strip_suffix('\n').unwrap_or(line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_unified_headers_without_confusing_removed_content() {
+        let diff = "--- a/one.yaml\n+++ b/one.yaml\n@@ -1 +1 @@\n--- old\n+++ new\n--- a/two.yaml\n+++ b/two.yaml\n@@ -1 +1 @@\n-old\n+new\n";
+        let sections = split_patch(diff).unwrap();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].path, "one.yaml");
+        assert_eq!(
+            apply_unified_diff("-- old\n", &sections[0].diff).unwrap(),
+            "++ new\n"
+        );
+        assert_eq!(sections[1].path, "two.yaml");
+    }
+
+    #[test]
+    fn decodes_git_quoted_paths_and_preserves_missing_final_newline() {
+        let diff = r#"diff --git "a/space \303\251.yaml" "b/space \303\251.yaml"
+--- "a/space \303\251.yaml"
++++ "b/space \303\251.yaml"
+@@ -1 +1 @@
+-old
+\ No newline at end of file
++new
+\ No newline at end of file
+"#;
+        let sections = split_patch(diff).unwrap();
+        assert_eq!(sections[0].path, "space é.yaml");
+        assert_eq!(apply_unified_diff("old", &sections[0].diff).unwrap(), "new");
+    }
+
+    #[test]
+    fn later_hunks_follow_insertions_when_context_is_repeated() {
+        let diff =
+            "--- a/file\n+++ b/file\n@@ -1 +1,2 @@\n a\n+inserted\n@@ -3 +4 @@\n-old\n+new\n";
+        let section = split_patch(diff).unwrap().remove(0);
+        assert_eq!(
+            apply_unified_diff("a\nold\nold\n", &section.diff).unwrap(),
+            "a\ninserted\nold\nnew\n"
+        );
+    }
 }

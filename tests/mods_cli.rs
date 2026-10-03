@@ -35,6 +35,8 @@ impl Fixture {
     fn run(&self, path: &Path, json: bool) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_blitz-client"));
         command
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("NO_COLOR")
             .args(["mod", "validate"])
             .arg(path)
             .arg("--game-dir")
@@ -78,9 +80,7 @@ fn recursively_validates_root_and_nested_mods_without_writing_resources() {
     );
     assert!(!fixture.0.join("game/.tanks-blitz-client").exists());
     let text = fixture.run(&fixture.0.join("mods"), false);
-    assert!(
-        String::from_utf8_lossy(&text.stdout).contains("Validated 2 mod(s): 2 passed, 0 failed")
-    );
+    assert!(String::from_utf8_lossy(&text.stdout).contains("2 mods · 2 passed · 0 failed"));
 }
 
 #[test]
@@ -430,7 +430,8 @@ fn yaml_git_update_preserves_manual_operations_and_refreshes_generated_patches()
     git(&["init", "--quiet"]);
     fs::write(repo.join("config.yaml"), "original\n").unwrap();
     fs::write(repo.join("mod.yaml"), "name: Original\n").unwrap();
-    git(&["add", "config.yaml", "mod.yaml"]);
+    fs::write(repo.join("extra resource.yaml"), "extra\n").unwrap();
+    git(&["add", "config.yaml", "mod.yaml", "extra resource.yaml"]);
     git(&[
         "-c",
         "user.name=Test",
@@ -447,10 +448,13 @@ fn yaml_git_update_preserves_manual_operations_and_refreshes_generated_patches()
     fs::write(fixture.0.join("game/Data/manual.yaml"), "manual \n").unwrap();
     fs::write(repo.join("mod.yaml"), "name: Updated\n").unwrap();
     fs::write(repo.join("config.yaml"), "updated\n").unwrap();
+    fs::write(repo.join("extra resource.yaml"), "updated extra\n").unwrap();
+    fs::write(fixture.0.join("game/Data/extra resource.yaml"), "extra\n").unwrap();
     let first = update_from_git_diff(&dir, &repo, None).unwrap();
-    assert_eq!(first.files.len(), 2);
+    assert_eq!(first.files.len(), 3);
     let generated = fs::read_to_string(&manifest).unwrap();
-    assert!(generated.contains("\n  config.yaml:\n"));
+    assert!(generated.contains("\npatch: mod.patch\n"));
+    assert!(!generated.contains("\n  config.yaml:\n"));
     assert!(generated.contains("\n  manual.yaml:\n"));
     let old_patch = dir.join(
         first
@@ -470,11 +474,16 @@ fn yaml_git_update_preserves_manual_operations_and_refreshes_generated_patches()
     assert!(
         fs::read_to_string(&manifest)
             .unwrap()
-            .contains("\n  config.yaml:\n")
+            .contains("\npatch: mod.patch\n")
     );
-    assert!(!old_patch.exists());
+    assert!(old_patch.exists());
+    assert!(
+        fs::read_to_string(&old_patch)
+            .unwrap()
+            .contains("+updated again")
+    );
     let loaded = load_manifest(&dir).unwrap();
-    assert_eq!(loaded.files.len(), 2);
+    assert_eq!(loaded.files.len(), 3);
     assert!(
         loaded
             .files
@@ -506,4 +515,320 @@ fn toml_manifests_are_not_loaded_or_discovered() {
     assert_eq!(result.status.code(), Some(2));
     let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(value["error"]["code"], "MANIFEST_NOT_FOUND");
+}
+
+#[test]
+fn validation_text_is_compact_and_deduplicates_file_errors() {
+    let fixture = Fixture::new();
+    fixture.manifest("single", "Single", "original");
+    let single = fixture.run(&fixture.0.join("mods/single"), false);
+    assert_eq!(
+        String::from_utf8(single.stdout).unwrap(),
+        "✓ Single (1 file)\n"
+    );
+    let dir = fixture.0.join("mods/failed");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("mod.yaml"), "id: Failed\nname: Failed\nfiles:\n  config.yaml:\n    - replace:\n        search: missing\n        replace: first\n    - replace:\n        search: missing\n        replace: second\n").unwrap();
+    let result = fixture.run(&fixture.0.join("mods"), false);
+    assert_eq!(result.status.code(), Some(4));
+    let text = String::from_utf8(result.stdout).unwrap();
+    assert!(text.contains("✗ Failed (1 error)\n  config.yaml\n  MOD_CONFLICT:"));
+    assert_eq!(text.matches("config.yaml").count(), 1);
+    assert!(text.contains("2 mods · 1 passed · 1 failed"));
+    assert!(!text.contains("Validation passed"));
+    assert!(!text.contains(&fixture.0.display().to_string()));
+    assert!(!text.contains('\x1b'));
+}
+
+#[test]
+fn validation_colors_respect_pipes_no_color_and_json() {
+    let fixture = Fixture::new();
+    fixture.manifest("single", "Single", "missing");
+    let run = |force: bool, no_color: bool, json: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_blitz-client"));
+        command
+            .args(["mod", "validate"])
+            .arg(fixture.0.join("mods/single"))
+            .arg("--game-dir")
+            .arg(fixture.0.join("game"))
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("NO_COLOR");
+        if force {
+            command.env("CLICOLOR_FORCE", "1");
+        }
+        if no_color {
+            command.env("NO_COLOR", "1");
+        }
+        if json {
+            command.arg("--json");
+        }
+        command.output().unwrap()
+    };
+    let plain = run(false, false, false);
+    assert!(!plain.stdout.contains(&0x1b));
+    let colored = run(true, false, false);
+    assert!(
+        String::from_utf8(colored.stdout)
+            .unwrap()
+            .contains("\x1b[31m✗\x1b[0m")
+    );
+    assert!(!run(true, true, false).stdout.contains(&0x1b));
+    let json = run(true, false, true);
+    assert!(!json.stdout.contains(&0x1b));
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(report["valid"], false);
+    fs::write(fixture.0.join("mods/single/mod.yaml"), "files: [invalid").unwrap();
+    let error = run(true, false, false);
+    assert_eq!(error.status.code(), Some(2));
+    assert!(
+        String::from_utf8(error.stderr)
+            .unwrap()
+            .contains("\x1b[31mMANIFEST_INVALID\x1b[0m")
+    );
+}
+
+#[test]
+fn validation_groups_parse_and_resource_failures_below_successes() {
+    let fixture = Fixture::new();
+    fixture.manifest("a-invalid", "Invalid", "original");
+    fs::write(fixture.0.join("mods/a-invalid/mod.yaml"), "files: [invalid").unwrap();
+    fixture.manifest("m-failed", "Failed", "missing");
+    fixture.manifest("z-valid", "Valid", "original");
+    let result = fixture.run(&fixture.0.join("mods"), false);
+    assert_eq!(result.status.code(), Some(4));
+    let text = String::from_utf8(result.stdout).unwrap();
+    let success = text.find("✓ Valid").unwrap();
+    let heading = text.find("Failures (2)").unwrap();
+    let invalid = text.find("✗ a-invalid").unwrap();
+    let failed = text.find("✗ Failed").unwrap();
+    let summary = text.find("3 mods · 1 passed · 2 failed").unwrap();
+    assert!(success < heading && heading < invalid && invalid < failed && failed < summary);
+    assert_eq!(text.matches("MANIFEST_INVALID").count(), 1);
+    assert_eq!(text.matches("REPLACE_MATCH_COUNT").count(), 1);
+    let json = fixture.run(&fixture.0.join("mods"), true);
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(report["mods"][0]["error"]["code"], "MANIFEST_INVALID");
+    assert_eq!(report["mods"][2]["report"]["mod_id"], "Valid");
+    fixture.manifest("z-valid", "Valid", "missing");
+    let all_failed = fixture.run(&fixture.0.join("mods"), false);
+    let text = String::from_utf8(all_failed.stdout).unwrap();
+    assert!(text.starts_with("Failures (3)\n"));
+    assert!(text.contains("3 mods · 0 passed · 3 failed"));
+}
+
+#[test]
+fn git_patch_with_context_and_repeated_hunks_round_trips() {
+    use blitz_client::mods::{install_mod, remove_mod, validate_mod};
+    let fixture = Fixture::new();
+    let target = fixture.0.join("game/Data/config.yaml");
+    let original = "header\ncontext\nold\nend\nseparator\ncontext\nold\nend\nfooter\n";
+    fs::write(&target, original).unwrap();
+    let dir = fixture.0.join("mods/Patched");
+    fs::create_dir_all(dir.join("patches")).unwrap();
+    fs::write(dir.join("patches/config.patch"), "diff --git a/config.yaml b/config.yaml\n--- a/config.yaml\n+++ b/config.yaml\n@@ -2,3 +2,3 @@\n context\n-old\n+new\n end\n@@ -6,3 +6,3 @@\n context\n-old\n+new\n end\n").unwrap();
+    fs::write(
+        dir.join("mod.yaml"),
+        "id: Patched\nname: Patched\npatch: patches/config.patch\n",
+    )
+    .unwrap();
+    let game = Some(fixture.0.join("game"));
+    assert!(validate_mod(&dir, game.clone()).unwrap().valid);
+    assert_eq!(fs::read_to_string(&target).unwrap(), original);
+    install_mod(&dir, game.clone()).unwrap();
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        original.replace("old\n", "new\n")
+    );
+    remove_mod("Patched", game).unwrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), original);
+}
+
+fn resource_patch(path: &str, before: &str, after: &str) -> String {
+    format!(
+        "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-{before}\n+{after}\n"
+    )
+}
+
+#[test]
+fn multifile_patch_runs_before_text_operations_and_survives_source_removal() {
+    use blitz_client::mods::{install_mod, remove_mod, validate_mod};
+    let fixture = Fixture::new();
+    let dir = fixture.0.join("mods/Multi");
+    fs::create_dir_all(&dir).unwrap();
+    use blitz_client::resources::{ContainerKind, decode_dvpl, encode_dvpl};
+    let second = fixture.0.join("game/Data/second.yaml.dvpl");
+    let packed = encode_dvpl(b"second\n", ContainerKind::Dvpl(2)).unwrap();
+    fs::write(&second, &packed).unwrap();
+    fs::write(
+        dir.join("mod.patch"),
+        resource_patch("config.yaml", "original", "patched")
+            + &resource_patch("second.yaml", "second", "changed"),
+    )
+    .unwrap();
+    fs::write(dir.join("mod.yaml"), "id: Multi\nname: Multi\npatch: mod.patch\nfiles:\n  config.yaml:\n    - replace:\n        search: patched\n        replace: final\n").unwrap();
+    let game = Some(fixture.0.join("game"));
+    assert!(validate_mod(&dir, game.clone()).unwrap().valid);
+    install_mod(&dir, game.clone()).unwrap();
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("game/Data/config.yaml")).unwrap(),
+        "final\n"
+    );
+    assert_eq!(
+        decode_dvpl(&fs::read(&second).unwrap()).unwrap().0,
+        b"changed\n"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+    remove_mod("Multi", game).unwrap();
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("game/Data/config.yaml")).unwrap(),
+        "original\n"
+    );
+    assert_eq!(fs::read(second).unwrap(), packed);
+}
+
+#[test]
+fn patch_lists_keep_order_and_folders_are_recursive_sorted_and_deduplicated() {
+    use blitz_client::mods::{load_manifest, validate_mod};
+    let fixture = Fixture::new();
+    let dir = fixture.0.join("mods/Ordered");
+    fs::create_dir_all(dir.join("patches/nested")).unwrap();
+    fs::write(
+        dir.join("first.patch"),
+        resource_patch("config.yaml", "original", "first"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("patches/01.patch"),
+        resource_patch("config.yaml", "first", "second"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("patches/nested/02.diff"),
+        resource_patch("config.yaml", "second", "third"),
+    )
+    .unwrap();
+    fs::write(dir.join("patches/ignored.txt"), "not a patch").unwrap();
+    fs::write(
+        dir.join("mod.yaml"),
+        "id: Ordered\nname: Ordered\npatch:\n  - first.patch\n  - patches\n  - patches/01.patch\n",
+    )
+    .unwrap();
+    assert_eq!(load_manifest(&dir).unwrap().files.len(), 3);
+    assert!(
+        validate_mod(&dir, Some(fixture.0.join("game")))
+            .unwrap()
+            .valid
+    );
+    fs::write(
+        dir.join("mod.yaml"),
+        "id: Ordered\nname: Ordered\npatch: [patches, first.patch]\n",
+    )
+    .unwrap();
+    assert!(
+        !validate_mod(&dir, Some(fixture.0.join("game")))
+            .unwrap()
+            .valid
+    );
+}
+
+#[test]
+fn patches_reject_unsupported_changes_and_unsafe_paths() {
+    use blitz_client::mods::load_manifest;
+    let fixture = Fixture::new();
+    let dir = fixture.0.join("mods/Unsafe");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("mod.yaml"),
+        "id: Unsafe\nname: Unsafe\npatch: mod.patch\n",
+    )
+    .unwrap();
+    for diff in [
+        resource_patch("../outside", "original", "changed"),
+        "diff --git a/config.yaml b/config.yaml\nnew file mode 100644\n--- /dev/null\n+++ b/config.yaml\n@@ -0,0 +1 @@\n+new\n".to_owned(),
+        "diff --git a/config.yaml b/other.yaml\nrename from config.yaml\nrename to other.yaml\n".to_owned(),
+        "diff --git a/config.yaml b/config.yaml\nBinary files a/config.yaml and b/config.yaml differ\n".to_owned(),
+    ] {
+        fs::write(dir.join("mod.patch"), diff).unwrap();
+        assert!(load_manifest(&dir).is_err());
+    }
+    fs::write(
+        dir.join("mod.yaml"),
+        "id: Unsafe\nname: Unsafe\npatch: ../outside.patch\n",
+    )
+    .unwrap();
+    assert_eq!(
+        load_manifest(&dir).unwrap_err().code,
+        "MANIFEST_INVALID_PATCH_PATH"
+    );
+}
+
+#[test]
+fn git_generation_supports_patch_only_mods_and_preserves_manual_sources() {
+    use blitz_client::mods::{update_from_git_diff, validate_mod};
+    let fixture = Fixture::new();
+    let repo = fixture.0.join("repo");
+    let dir = fixture.0.join("mods/Generated");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let result = Command::new("git")
+            .current_dir(&repo)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    git(&["init", "--quiet"]);
+    fs::write(repo.join("config.yaml"), "original\n").unwrap();
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "base",
+    ]);
+    // Headers alone are sufficient when creating the first generated patch.
+    let manifest = dir.join("mod.yaml");
+    fs::write(&manifest, "id: Generated\nname: Generated\n").unwrap();
+    fs::write(repo.join("config.yaml"), "generated\n").unwrap();
+    update_from_git_diff(&dir, &repo, None).unwrap();
+    assert!(
+        validate_mod(&dir, Some(fixture.0.join("game")))
+            .unwrap()
+            .valid
+    );
+    fs::write(
+        dir.join("manual.diff"),
+        resource_patch("config.yaml", "generated", "manual"),
+    )
+    .unwrap();
+    fs::write(
+        &manifest,
+        "id: Generated\nname: Generated\npatch: [mod.patch, manual.diff]\n",
+    )
+    .unwrap();
+    let updated = update_from_git_diff(&dir, &repo, None).unwrap();
+    assert_eq!(updated.patch, ["mod.patch", "manual.diff"]);
+    assert!(
+        validate_mod(&dir, Some(fixture.0.join("game")))
+            .unwrap()
+            .valid
+    );
+    let manifest_before = fs::read(&manifest).unwrap();
+    let patch_before = fs::read(dir.join("mod.patch")).unwrap();
+    git(&["restore", "config.yaml"]);
+    assert_eq!(
+        update_from_git_diff(&dir, &repo, None).unwrap_err().code,
+        "GIT_DIFF_EMPTY"
+    );
+    assert_eq!(fs::read(&manifest).unwrap(), manifest_before);
+    assert_eq!(fs::read(dir.join("mod.patch")).unwrap(), patch_before);
 }
