@@ -60,6 +60,8 @@ def main():
                              help="simulate a recording in this replay folder instead")
     parser.add_argument("--nickname", type=nickname, default=None,
                         help="recording nickname for --game-replays/--replay-dir (default: ReplaySimulator)")
+    parser.add_argument("--keep", action="store_true",
+                        help="keep the partially written file when interrupted")
     parser.add_argument("--chunk-size", type=positive_int, default=1024, help="bytes per write (default: 1024)")
     parser.add_argument("--interval-ms", type=nonnegative_float, default=25, help="delay between writes (default: 25 ms)")
     parser.add_argument("--start-delay", type=nonnegative_float, default=3, help="seconds to start a follower before writing (default: 3)")
@@ -110,6 +112,9 @@ def main():
                     time.sleep(args.interval_ms / 1000)
             print(f"Done: {len(data)} bytes in {chunks} chunks. File kept at {output}", flush=True)
     except KeyboardInterrupt:
+        if args.keep:
+            print("\nStopped; partially written file kept for inspection.", flush=True)
+            return 130
         print("\nStopped; deleting the partially written replay.", flush=True)
         output_file = locals().get("output")
         recording_dir = locals().get("recording_dir")
