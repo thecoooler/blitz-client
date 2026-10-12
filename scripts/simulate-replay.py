@@ -78,6 +78,7 @@ def main():
         if data[:4] != struct.pack("<I", 0x12345678):
             parser.error("source does not contain a valid data.replay magic")
 
+        recording_dir = None
         if recording_mode:
             replay_dir = (args.replay_dir if args.replay_dir is not None
                           else default_replay_dir()).expanduser().resolve()
@@ -109,7 +110,19 @@ def main():
                     time.sleep(args.interval_ms / 1000)
             print(f"Done: {len(data)} bytes in {chunks} chunks. File kept at {output}", flush=True)
     except KeyboardInterrupt:
-        print("\nStopped; partially written file kept for inspection.", flush=True)
+        print("\nStopped; deleting the partially written replay.", flush=True)
+        output_file = locals().get("output")
+        recording_dir = locals().get("recording_dir")
+        if output_file is not None:
+            try:
+                output_file.unlink()
+            except OSError:
+                pass
+        if recording_dir is not None:
+            try:
+                recording_dir.rmdir()
+            except OSError:
+                pass
         return 130
     except (OSError, zipfile.BadZipFile, KeyError, ValueError) as error:
         parser.error(str(error))
