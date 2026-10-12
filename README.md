@@ -1,70 +1,59 @@
 # Tanks Blitz Client Tools
 
-Rust library and CLI for inspecting the installed Tanks Blitz client, exporting tank models for the local viewer, installing resource mods, and analyzing complete or live replays. The same library can be called from a Tauri Rust backend.
+Go library and CLI for inspecting the installed Tanks Blitz client, exporting tank models for the local viewer, installing resource mods, and analyzing complete or live replays. This is a Go port of the Rust `blitz-client`; behaviour, CLI, JSON output, and exit codes match the original.
 
-## Library modules and selective builds
+## Installation and packages
 
-The project is one crate with five functional modules. Each module exposes its
-interface from `mod.rs`; implementation files stay private unless they are useful
-resource parsers. CLI argument parsing and output formatting live in `src/cli/`.
+```sh
+go install github.com/thecoooler/blitz-client/cmd/blitz-client@latest
+# or, from a checkout:
+go build ./cmd/blitz-client
+go run ./cmd/blitz-client client locate
+go test ./...
+```
 
-| Feature / module | Responsibility | Enables |
+The module is `github.com/thecoooler/blitz-client`. Go compiles only the packages
+you import, so there are no feature flags: import just `replay` and nothing else
+is built. CLI argument parsing and output formatting live in `internal/cli`; the
+executable is `cmd/blitz-client`.
+
+| Package | Responsibility | Depends on |
 | --- | --- | --- |
-| `resources` | DVPL codecs, XML, SC2/SCG archives | Resource codec dependencies |
+| `blitzclient` (root) | Shared `Error` type (`NewError`, `ErrorAt`, `AsError`), default cache and replay directories | none |
+| `resources` | DVPL codecs | root |
+| `resources/xml`, `resources/archive` | Client XML parser, SC2/SCG archives | `resources` |
 | `client` | Client location, resource lookup, localization, tank and map catalogs | `resources` |
 | `export` | Unpacked client files, client data and tank bundles, model/armor conversion | `client` |
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
-| `replay` | Archive/standalone analysis, byte framing, file following, telemetry | Replay parser dependencies |
-| `cli` | The existing `blitz-client` executable and all commands | `export`, `mods`, `replay` |
-
-The default feature is `cli`, preserving the complete application. To use just
-replays in another Rust project:
-
-```toml
-[dependencies]
-blitz-client = { path = "../blitz-client", default-features = false, features = ["replay"] }
-```
-
-```rust
-use blitz_client::replay::{ReplayFollower, ReplayOptions, analyze_replay};
-```
-
-For resource parsing or client catalogs, select `resources` or `client` instead.
-Features can be combined, for example `features = ["client", "replay"]`. The binary
-is built only with `cli`; library builds don't need CLI modules. With no features,
-only the shared `Error` / `Result` interface and its Serde support remain. Optional
-unselected dependencies are not compiled; selected libraries can still bring
-transitive dependencies. Cargo merges features requested by different dependents,
-so every dependency that wants a selective build must disable default features.
-
-The preferred imports are `blitz_client::client::*`, `blitz_client::export::*`,
-`blitz_client::mods::*`, `blitz_client::replay::*`, and `blitz_client::resources::*`.
-Original crate-root imports remain available under the corresponding feature.
-`InstallerError` is an alias for `Error`; its serialized fields and error codes are
-unchanged. Replay `Packet`, `Payload`, and `EntityMethod` are local types exported
-from `replay`. Packet decoding and replay schemas live in `src/replay/models/`;
-`prost` and `serde-pickle` handle the generic protobuf and pickle formats. The
-adapted schemas retain their MIT attribution and license in that directory.
+| `replay` | Archive/standalone analysis, byte framing, file following, telemetry | none |
+| `internal/cli` | The `blitz-client` command line | all of the above |
 
 Module dependencies run from high-level operations toward resource readers:
 `export` and `mods` use `client` and `resources`; `client` uses `resources`;
-`replay` is independent. `export/output.rs` owns the shared file-writing logic.
-`resources` never imports the exporter. Tests for resource formats live with
-those parsers; tests for model and armor policies live in `export`. They share
-byte-level fixtures compiled only for tests.
+`replay` is independent. `resources` never imports the exporter. Replay packet
+decoding and schemas live in the `replay` package; the adapted schemas retain
+their MIT attribution and license in `replay/LICENSE-schemas`.
 
 Library-only examples:
 
 ```sh
-cargo run --no-default-features --features replay --example replay_follow -- ./data.replay
-cargo run --no-default-features --features client --example client_catalog -- /path/to/Data
-cargo run --no-default-features --features resources --example decode_resource -- /path/to/file.dvpl
+go run ./examples/replay_follow ./data.replay
+go run ./examples/client_catalog /path/to/Data
+go run ./examples/decode_resource /path/to/file.dvpl
 ```
 
-Run `bash scripts/check-features.sh` to test the full application and each feature
-in isolation. Add `--offline` when dependencies are already cached. Existing replay
-CLI integration tests run only with `cli`; byte decoders and library tests also run
-in their isolated feature builds.
+Run `bash scripts/check.sh` for the gofmt check, `go vet`, `go test`, and `go build`.
+
+## Differences from the Rust implementation
+
+- Maps inside `BasePlayerCreate` arguments (`players_battle_categories_ids`, `player_wait_times`) are emitted with sorted keys in `replay follow` NDJSON; Rust emits them in random `HashMap` order.
+- `blitz-client --json` with no command reports a `USAGE` error instead of panicking.
+- DVPL containers recompressed by the mod installer with LZ4/DEFLATE may differ byte-wise from the Rust encoder while decoding to identical content. Installer state stays compatible both ways: mods installed by one implementation can be removed by the other.
+- Operating-system error texts come from Go and may differ slightly.
+- Diagnostics for malformed inputs keep the same error codes, but their message text can differ: YAML syntax errors in manifests have no `at line L column C, while …` suffix, and JSON, pickle, and protobuf decoding errors use Go wording.
+- A manifest path given relative to the current directory (`mod validate mod.yaml` run inside the mod folder) works with patch sources; the Rust tool fails to resolve the empty parent directory.
+- An explicitly empty `--game-dir ""` is rejected while arguments are parsed, so it is reported before other errors.
+- The CLI uses cobra for the command tree, but leaf commands parse arguments themselves to keep the original options and diagnostics.
 
 ## CLI
 
@@ -127,7 +116,7 @@ containers remain errors in both commands.
 
 The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
 
-The model exporter is implemented in Rust and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
+The model exporter is implemented in Go and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
 
 The following model options apply to both model export commands:
 
@@ -136,9 +125,9 @@ The following model options apply to both model export commands:
 - `--max-texture-size original|N|WIDTHxHEIGHT` caps source textures; the default is `1024x1024`.
 - `--texture-format webp|png` selects texture format; WebP is the default. `--webp-quality 0..100` sets lossy base-color quality.
 - `--pbr` exports the PBR maps and tangent basis. `--no-compress` writes plain model JSON and geometry instead of `.br` assets.
-- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Rust exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
+- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Go exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
 
-SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Rust code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
 
 SCG groups share binary-layout, buffer-size, and triangle-index validation.
 Geometry is decoded only for groups referenced by the selected scene nodes;
@@ -240,9 +229,10 @@ Text mode reports progress to stderr and a final summary to stdout. `--json`
 outputs one report with source paths, selected categories, written/unchanged
 file counts, cache/DVPL counts, decoded byte totals, and elapsed time.
 
-The `export` Cargo feature exposes `export::export_client_files`,
-`ClientFilesExportOptions`, `ClientFilesExportReport`, and `ClientFileType`.
-`export_client_files_with_progress` also accepts a synchronous callback for
+The `export` package exposes `export.ExportClientFiles`,
+`ClientFilesExportOptions` (from `export.NewClientFilesExportOptions`),
+`ClientFilesExportReport`, and `ClientFileType`.
+`export.ExportClientFilesWithProgress` also accepts a synchronous callback for
 progress reporting or cancellation. This export requires no catalog metadata.
 
 ## Replay analysis
@@ -261,7 +251,7 @@ Live telemetry uses the same packet layouts as inspect and keeps previous HP per
 
 Errors go to stderr, including with `--json`; follow always writes compact NDJSON. `--out <new-path>` writes to a new file instead of stdout and refuses to overwrite existing files. Ctrl+C stops following. `--idle-timeout-ms <N>` optionally stops after no new bytes or session resets for the specified duration (also applies while waiting for creation). An idle timeout does not certify a complete replay and may leave an incomplete frame unreported.
 
-Following expects append-only writes within a session. It detects replacement by file identity (device/inode on Unix, creation time elsewhere), observed truncation, and changes to the last 64 read bytes. A rewrite that restores those same bytes can escape detection. Consumer callbacks run synchronously, providing backpressure without accumulating the whole live history. The library exposes `ReplayStreamDecoder::feed/finish`, `TelemetryDecoder::on_packet`, and `ReplayFollower::poll`; callers control scheduling and cancellation. Payload size is limited to 16 MiB. Actual latency also depends on how frequently the game flushes its recording buffer.
+Following expects append-only writes within a session. It detects replacement by file identity (device/inode on Unix, creation time elsewhere), observed truncation, and changes to the last 64 read bytes. A rewrite that restores those same bytes can escape detection. Consumer callbacks run synchronously, providing backpressure without accumulating the whole live history. The library exposes `replay.StreamDecoder` (`Feed`, `Finish`), `TelemetryDecoder.OnPacket`, and `Follower.Poll`; callers control scheduling and cancellation. Payload size is limited to 16 MiB. Actual latency also depends on how frequently the game flushes its recording buffer.
 
 `client locate` also returns `replay_dir` in JSON and prints the replay directory
 in text output. This is the fixed OS path, independent of `--game-dir`, and is
@@ -271,7 +261,7 @@ returned even when the folder does not exist yet:
 - Windows: `%USERPROFILE%\Documents\TanksBlitz\replays`, as documented by
   [Tanks Blitz support](https://lesta.ru/support/ru/products/tb/article/16159/).
 
-`client::default_replay_dir()` and `replay::default_replay_dir()` expose the same
+`blitzclient.DefaultReplayDir()` exposes the same
 path calculation to library callers. On other operating systems, or when the
 required home-directory environment variable is missing, this function returns
 `REPLAY_FOLDER_NOT_FOUND` and `client locate` reports `replay_dir: null`.
@@ -343,9 +333,9 @@ two assisted-damage result fields (312 + 420).
 `replay inspect --data` includes the same `battle_counters` and update history,
 plus `battle_counter_result_comparison` for completed archives. An absent
 counter or absent final results produces a `null` comparison, not a mismatch.
-Standalone streams use the same decoder. The public `replay::BattleCounterDecoder`
-API can also consume complete packets directly; `counters()` returns its typed
-state and `reset()` starts a new session. Support for these two versions does
+Standalone streams use the same decoder. The public `replay.BattleCounterDecoder`
+API can also consume complete packets directly; `Counters()` returns its typed
+state and `Reset()` starts a new session. Support for these two versions does
 not enable unverified layouts for other packet methods.
 
 ### Live game recording
@@ -391,7 +381,7 @@ directory; the completed test replay ZIP contains both alongside `data.replay`.
 
 ### Simulating a growing replay file
 
-A real replay copy is included at `tests/fixtures/sample.tbreplay`. The Python
+A real replay copy is included at `testdata/sample.tbreplay`. The Python
 standard-library script extracts its `data.replay` and writes it in chunks,
 flushing after every write:
 
@@ -401,7 +391,7 @@ python3 scripts/simulate-replay.py
 
 Each run creates `/tmp` (or the platform temp directory) with a random
 `blitz-live-replay-*` subdirectory containing `data.replay`. The script prints the
-full destination and a `cargo run -- replay follow ...` command, waits three
+full destination and a `go run ./cmd/blitz-client replay follow ...` command, waits three
 seconds, then writes 1,024 bytes every 25 ms. Start the printed follower command
 in another terminal; it also reads any bytes written before it starts. The
 completed or interrupted file is kept for inspection.
@@ -438,7 +428,7 @@ Chunk sizes, delays, and source selection work the same in all modes.
 For a known destination, start the follower first in one terminal:
 
 ```sh
-cargo run -- replay follow /tmp/live-test/data.replay
+go run ./cmd/blitz-client replay follow /tmp/live-test/data.replay
 ```
 
 Then start the writer in another terminal:
@@ -493,12 +483,12 @@ the old installation intact. Write errors trigger rollback. External changes
 to managed game files are rejected. The installation JSON reports `installed`
 and `reinstalled`; `reinstalled` replaces the former `already_installed` field.
 
-For Rust managers, `list_installed_mods(game_dir)` returns the same installed
-metadata. `discover_mods(directory)` returns sorted manifest paths recursively,
+For Go managers, `mods.ListInstalledMods(gameDir)` returns the same installed
+metadata. `mods.DiscoverMods(directory)` returns sorted manifest paths recursively,
 without following directory symlinks or parsing manifests. Empty folders return
-an empty list; each discovered path can be passed to `load_manifest` to retrieve
+an empty list; each discovered path can be passed to `mods.LoadManifest` to retrieve
 metadata and operations or report a broken mod independently. Both APIs are
-available with the `mods` feature, without the CLI.
+available from the `mods` package, without the CLI.
 
 `mod validate <directory>` recursively finds `mod.yaml` and `mod.yml`
 in the directory and its subdirectories (without following directory symlinks). Each mod is
@@ -644,7 +634,7 @@ The game must be closed during installation and uninstallation. Active mods are 
 
 ## Game directory defaults
 
-The ordered installation candidates are implemented in `src/client/location.rs`.
+The ordered installation candidates are implemented in `client/location.go`.
 
 - Windows: `C:\Games\Tanks_Blitz` first (resources in its `Data` subdirectory), followed by standard Steam, WindowsApps, and user game folders.
 - macOS: `/Applications/Tanks Blitz.app/Contents/Resources/Data` first, then the Steam installation under the user's Library.
@@ -653,7 +643,7 @@ The ordered installation candidates are implemented in `src/client/location.rs`.
 `client locate` returns `game_dir` (installation), `resource_dir` (installed
 resources), `cache_dir` (downloaded resources in `packs`), and `replay_dir`.
 The cache path is independent of `--game-dir` and does not need to exist yet.
-It is also available through `client::default_cache_dir()`:
+It is also available through `client.DefaultCacheDir()`:
 
 - macOS: `~/Library/Containers/com.tanksblitz/Data/Library/Caches/packs`
 - Windows (Tanks Blitz): `%USERPROFILE%\Documents\TanksBlitz\packs`, confirmed
@@ -662,7 +652,7 @@ It is also available through `client::default_cache_dir()`:
 
 This Windows default targets Tanks Blitz (Lesta). On other operating systems,
 or when the required
-home-directory environment variable is missing, `default_cache_dir()` returns
+home-directory environment variable is missing, `DefaultCacheDir()` returns
 `CACHE_DIR_NOT_FOUND` and `client locate` reports `cache_dir: null`.
 
 The inspected Windows mods use the following paths beneath the Windows
@@ -680,40 +670,94 @@ OneDrive): wblitz uses `Environment.GetFolderPath(SpecialFolder.Personal)`, and
 BlitzHata accepts the resolved folder through `BH_DOCUMENTS_DIR`. This project's
 current defaults assume `%USERPROFILE%\Documents`.
 
-## Rust API
+## Go API
 
-```rust,no_run
-use std::path::PathBuf;
-use blitz_client::{
-    ClientExportOptions, TankExportOptions, export_client, export_tank_catalog, install_mod,
-    discover_mods, list_client_tanks, list_installed_mods, load_manifest,
-    remove_mod, update_from_git_diff, validate_mod,
-};
+```go
+package main
 
-let game_dir: Option<PathBuf> = None;
-let tanks = list_client_tanks(game_dir.clone())?;
-let mut export = TankExportOptions::new("/path/to/viewer");
-export.game_dir = game_dir.clone();
-export.limit = 10;
-let catalog = export_tank_catalog(&export)?;
+import (
+	"log"
 
-let mut client_export = ClientExportOptions::new("/path/to/export");
-client_export.game_dir = game_dir.clone();
-client_export.data_only = true;
-let exported = export_client(&client_export)?;
+	"github.com/thecoooler/blitz-client/export"
+	"github.com/thecoooler/blitz-client/client"
+	"github.com/thecoooler/blitz-client/mods"
+)
 
-let installed = list_installed_mods(game_dir.clone())?;
-for manifest_path in discover_mods("mods")? {
-    let manifest = load_manifest(manifest_path)?;
-    let is_installed = installed.mods.iter().any(|item| item.id == manifest.id);
+func main() {
+	gameDir := "" // empty selects the platform defaults
+	tanks, err := client.ListClientTanks(gameDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tankOptions := export.NewTankExportOptions("/path/to/viewer")
+	tankOptions.GameDir = gameDir
+	tankOptions.Limit = 10
+	catalog, err := export.ExportTankCatalog(tankOptions)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	clientOptions := export.NewClientExportOptions("/path/to/export")
+	clientOptions.GameDir = gameDir
+	clientOptions.DataOnly = true
+	exported, err := export.ExportClient(clientOptions)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	installed, err := mods.ListInstalledMods(gameDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	paths, err := mods.DiscoverMods("mods")
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, path := range paths {
+		manifest, err := mods.LoadManifest(path)
+		if err != nil {
+			continue // report the broken mod independently
+		}
+		for _, item := range installed.Mods {
+			_ = item.ID == manifest.ID
+		}
+	}
+
+	report, err := mods.ValidateMod("mods/NoMapName", gameDir)
+	if err == nil && report.Valid {
+		_, err = mods.InstallMod("mods/NoMapName", gameDir)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := mods.RemoveMod("NoMapName", ""); err != nil {
+		log.Fatal(err)
+	}
+	head := "HEAD"
+	if _, err := mods.UpdateFromGitDiff("mods/NoMapName", "mods/NoMapName", &head); err != nil {
+		log.Fatal(err)
+	}
+	_, _, _ = tanks, catalog, exported
 }
-
-let report = validate_mod("mods/NoMapName", game_dir.clone())?;
-if report.valid {
-    install_mod("mods/NoMapName", game_dir)?;
-}
-remove_mod("NoMapName", None)?;
-update_from_git_diff("mods/NoMapName", "mods/NoMapName", Some("HEAD"))?;
-# let _ = (tanks, catalog, exported);
-# Ok::<(), blitz_client::InstallerError>(())
 ```
+
+Errors are `*blitzclient.Error` values with `Code`, `Message`, and an optional
+`Path`; use `blitzclient.AsError(err)` to recover them. The replay API follows the
+same shape:
+
+```go
+import "github.com/thecoooler/blitz-client/replay"
+
+analysis, err := replay.AnalyzeReplay("battle.tbreplay", replay.Options{IncludeData: true})
+
+follower := replay.NewFollower("data.replay")
+offset, err := follower.Poll(func(event replay.FollowEvent) error {
+	// event marshals to one NDJSON line
+	return nil
+})
+```
+
+## License
+
+The adapted replay schemas retain their MIT attribution; see `replay/LICENSE-schemas`.

@@ -1,0 +1,293 @@
+package cli
+
+import (
+	"bufio"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	blitz "github.com/thecoooler/blitz-client"
+	"github.com/thecoooler/blitz-client/internal/jsonx"
+	"github.com/thecoooler/blitz-client/internal/pathx"
+	"github.com/thecoooler/blitz-client/internal/rs"
+	"github.com/thecoooler/blitz-client/replay"
+)
+
+func (a *app) runReplay(args []string) (bool, error) {
+	if len(args) > 0 {
+		switch args[0] {
+		case "inspect":
+			return a.runReplayAnalysis(args[1:], false)
+		case "latest":
+			return a.runReplayAnalysis(args[1:], true)
+		case "follow":
+			return a.runReplayFollow(args[1:])
+		}
+	}
+	return false, usageError("expected replay inspect, replay latest or replay follow")
+}
+
+func resolveFilePath(value string) (string, error) {
+	parent := pathx.Parent(value)
+	if parent == "" {
+		parent = "."
+	}
+	canonical, err := pathx.Canonicalize(parent)
+	if err != nil {
+		return "", blitz.ErrorAt("IO_ERROR", "cannot resolve replay path: "+blitz.IOMessage(err), value)
+	}
+	name := filepath.Base(value)
+	if name == "." || name == ".." || strings.HasSuffix(value, "..") {
+		return "", usageError("expected a file path")
+	}
+	return filepath.Join(canonical, name), nil
+}
+
+func (a *app) runReplayFollow(args []string) (bool, error) {
+	path, out := "", ""
+	hasPath, hasOut := false, false
+	pollMS := uint64(25)
+	var idleTimeout time.Duration
+	for index := 0; index < len(args); index++ {
+		switch arg := args[index]; {
+		case arg == "--poll-ms" || arg == "--idle-timeout-ms":
+			index++
+			var value uint64
+			var err error = errors.New("missing")
+			if index < len(args) {
+				value, err = rs.ParseUint(args[index], 64)
+			}
+			if err != nil || value == 0 || value > 86_400_000 {
+				return false, usageError(arg + " requires milliseconds between 1 and 86400000")
+			}
+			if arg == "--poll-ms" {
+				pollMS = value
+			} else {
+				idleTimeout = time.Duration(value) * time.Millisecond
+			}
+		case arg == "--out":
+			value, err := optionValue(args, &index, "--out requires a path")
+			if err != nil {
+				return false, err
+			}
+			out, hasOut = value, true
+		case strings.HasPrefix(arg, "-"):
+			return false, usageError("unknown option: " + arg)
+		case !hasPath:
+			path, hasPath = arg, true
+		default:
+			return false, usageError("unexpected argument: " + arg)
+		}
+	}
+	if !hasPath {
+		return false, usageError("replay follow requires a data.replay path")
+	}
+	var output io.Writer = a.stdout
+	if hasOut {
+		source, err := resolveFilePath(path)
+		if err != nil {
+			return false, err
+		}
+		target, err := resolveFilePath(out)
+		if err != nil {
+			return false, err
+		}
+		if source == target {
+			return false, usageError("--out must differ from the live replay path")
+		}
+		// Create exclusively: never truncate the source or an existing output file.
+		file, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		if err != nil {
+			return false, blitz.ErrorAt("IO_ERROR", "cannot create NDJSON output: "+blitz.IOMessage(err), out)
+		}
+		defer file.Close()
+		output = file
+	}
+	writer := bufio.NewWriter(output)
+	follower := replay.NewFollower(path)
+	defer follower.Close()
+	lastActivity := time.Now()
+	for {
+		reset := false
+		count, err := follower.Poll(func(event replay.FollowEvent) error {
+			reset = reset || event.Event.Kind == replay.EventReset
+			line, err := jsonx.Marshal(&event)
+			if err != nil {
+				return blitz.NewError("JSON_SERIALIZE_FAILED", err.Error())
+			}
+			writer.Write(line)
+			writer.WriteByte('\n')
+			if err := writer.Flush(); err != nil {
+				return blitz.NewError("REPLAY_OUTPUT_FAILED", blitz.IOMessage(err))
+			}
+			return nil
+		})
+		if err != nil {
+			return false, err
+		}
+		if count > 0 || reset {
+			lastActivity = time.Now()
+		}
+		if idleTimeout > 0 && time.Since(lastActivity) >= idleTimeout {
+			return true, nil
+		}
+		wait := time.Duration(pollMS) * time.Millisecond
+		if idleTimeout > 0 {
+			wait = min(wait, max(idleTimeout-time.Since(lastActivity), 0))
+		}
+		time.Sleep(wait)
+	}
+}
+
+func (a *app) runReplayAnalysis(args []string, useLatest bool) (bool, error) {
+	path, directory, out := "", "", ""
+	hasPath, hasDirectory, hasOut, includeData := false, false, false, false
+	for index := 0; index < len(args); index++ {
+		switch arg := args[index]; {
+		case arg == "--data":
+			includeData = true
+		case arg == "--dir":
+			value, err := optionValue(args, &index, "--dir requires a path")
+			if err != nil {
+				return false, err
+			}
+			directory, hasDirectory = value, true
+		case arg == "--out":
+			value, err := optionValue(args, &index, "--out requires a path")
+			if err != nil {
+				return false, err
+			}
+			out, hasOut = value, true
+		case strings.HasPrefix(arg, "-"):
+			return false, usageError("unknown option: " + arg)
+		case !hasPath:
+			path, hasPath = arg, true
+		default:
+			return false, usageError("unexpected argument: " + arg)
+		}
+	}
+	var target string
+	if useLatest {
+		if hasPath {
+			return false, usageError("replay latest accepts no replay path")
+		}
+		var err error
+		if !hasDirectory {
+			directory = ""
+		}
+		if target, err = findLatest(directory, hasDirectory); err != nil {
+			return false, err
+		}
+	} else {
+		if hasDirectory {
+			return false, usageError("--dir is only valid for replay latest")
+		}
+		if !hasPath {
+			return false, usageError("replay inspect requires a .tbreplay or data.replay path")
+		}
+		target = path
+	}
+	analysis, err := replay.AnalyzeReplay(target, replay.Options{IncludeData: includeData})
+	if err != nil {
+		return false, err
+	}
+	if hasOut {
+		data, err := jsonx.MarshalIndent(analysis)
+		if err != nil {
+			return false, blitz.NewError("JSON_SERIALIZE_FAILED", err.Error())
+		}
+		if err := os.WriteFile(out, data, 0o666); err != nil {
+			return false, blitz.ErrorAt("IO_ERROR", "cannot write the replay JSON: "+blitz.IOMessage(err), out)
+		}
+	}
+	if a.json {
+		a.printJSON(analysis)
+	} else {
+		a.printReplaySummary(analysis)
+		if hasOut {
+			a.printf("json: %s\n", out)
+		}
+	}
+	return true, nil
+}
+
+func findLatest(directory string, explicit bool) (string, error) {
+	if explicit && directory == "" {
+		// An empty explicit directory cannot be scanned.
+		return "", blitz.IOError("cannot scan the replay folder", "", os.ErrNotExist)
+	}
+	return replay.FindLatestReplay(directory)
+}
+
+// field formats a JSON member like the original summary: strings raw, null
+// as "?", and other values as compact JSON.
+func field(value any, key string) string {
+	object, _ := value.(jsonx.Object)
+	switch item := object[key].(type) {
+	case nil:
+		return "?"
+	case string:
+		return item
+	default:
+		data, _ := jsonx.Marshal(item)
+		return string(data)
+	}
+}
+
+func asFloat(value any) float64 {
+	switch number := value.(type) {
+	case jsonx.F64:
+		return float64(number)
+	case interface{ Float64() (float64, error) }:
+		parsed, _ := number.Float64()
+		return parsed
+	}
+	return 0
+}
+
+func (a *app) printReplaySummary(analysis *replay.Analysis) {
+	meta, _ := analysis.Meta.(jsonx.Object)
+	results, _ := analysis.BattleResults.(jsonx.Object)
+	a.println(analysis.Source)
+	client := field(analysis.Meta, "version")
+	if analysis.Data != nil {
+		client = field(analysis.Data, "client_version")
+	}
+	a.printf("client: %s\n", client)
+	if analysis.Meta != nil {
+		author := results["author"]
+		a.printf("map: %s (id %s), vehicle: %s\n", field(meta, "mapName"), field(meta, "mapId"), field(meta, "playerVehicleName"))
+		a.printf("author: %s (dbid %s, damage %s, shots %s, hits %s, hp left %s)\n",
+			field(meta, "playerName"), field(meta, "dbid"), field(author, "damage_dealt"),
+			field(author, "n_shots"), field(author, "n_hits"), field(author, "hitpoints_left"))
+		players := 0
+		if list, ok := results["players"].([]any); ok {
+			players = len(list)
+		}
+		a.printf("battle: %.1fs, arena %s, winner team %s, players %d\n",
+			asFloat(meta["battleDuration"]), field(meta, "arenaUniqueId"), field(results, "winner_team_number"), players)
+	}
+	if analysis.Telemetry == nil {
+		return
+	}
+	if data, ok := analysis.Data.(jsonx.Object); ok {
+		if packets, ok := data["packets"].([]any); ok {
+			a.printf("packets: %d\n", len(packets))
+		}
+	}
+	telemetry := analysis.Telemetry
+	a.printf("decoder: %s\n", field(telemetry, "decoder"))
+	summary := telemetry.(jsonx.Object)["summary"]
+	if supported, _ := summary.(jsonx.Object)["packet_layout_decoding_supported"].(bool); !supported {
+		a.printf("telemetry: packet layouts are verified only for %s\n", field(telemetry, "supported_client_version"))
+		return
+	}
+	a.printf("telemetry: shots %s/%s, hits %s/%s, health updates %s, transform updates %s, results snapshots %s\n",
+		field(summary, "projectile_position_packets"), field(summary, "shots_in_battle_results"),
+		field(summary, "hit_messages"), field(summary, "hits_received_in_battle_results"),
+		field(summary, "vehicle_health_updates"), field(summary, "vehicle_transform_updates"),
+		field(summary, "battle_results_snapshot_packets"))
+}

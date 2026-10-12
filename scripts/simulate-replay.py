@@ -12,7 +12,7 @@ import tempfile
 import time
 import zipfile
 
-DEFAULT_SOURCE = Path(__file__).resolve().parent.parent / "tests/fixtures/sample.tbreplay"
+DEFAULT_SOURCE = Path(__file__).resolve().parent.parent / "testdata/sample.tbreplay"
 
 
 def positive_int(value):
@@ -96,7 +96,7 @@ def main():
         with output.open("xb") as writer:
             print(f"Source: {source}", flush=True)
             print(f"Output: {output}", flush=True)
-            print(f"Follow: cargo run -- replay follow {shlex.quote(str(output))}", flush=True)
+            print(f"Follow: go run ./cmd/blitz-client replay follow {shlex.quote(str(output))}", flush=True)
             print(f"Writing {len(data)} bytes, {args.chunk_size} bytes/chunk, "
                   f"{args.interval_ms:g} ms between writes; starts in {args.start_delay:g}s", flush=True)
             time.sleep(args.start_delay)

@@ -1,0 +1,68 @@
+version: 1
+id: Test
+name: 'Test: mod'
+patch:
+- mod.patch
+- extra.patch
+files:
+  UI/a b.yaml:
+  - replace:
+      search: |
+        line1
+          line2
+      replace: "x\ty"
+  - clear: {}
+  yes:
+  - after:
+      search: on
+      insert: |
+        multi
+        line
+  long.yaml:
+  - replace:
+      search: word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word
+      replace: 'x: word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word'
+      ignore-trailing-whitespace: false
+  - after:
+      search: ' lead'
+      insert: "trail \nx"
+  - before:
+      search: '1.'
+      replace: '0x1F'
+  - before:
+      search: 'Null'
+      replace: '012'
+  - before:
+      search: '-.inf'
+      replace: '+5'
+  - before:
+      search: é ñ
+      replace: "\x01"
+  odd.yaml:
+  - before:
+      search: |2
+          indented
+      replace: |2+
+
+
+        lead
+
+
+  - before:
+      search: a\b
+      replace: "tab\there"
+  - before:
+      search: '- x'
+      replace: '#x'
+  - before:
+      search: 'x: y'
+      replace: '[a]'
+  - before:
+      search: '@a'
+      replace: '`b'
+  - before:
+      search: 'ключ: значение'
+      replace: 'a #b'
+  - before:
+      search: ' '
+      replace: ''
