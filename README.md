@@ -26,6 +26,7 @@ executable is `cmd/blitz-client`.
 | `export` | Unpacked client files, client data and tank bundles, model/armor conversion | `client` |
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
 | `replay` | Archive/standalone analysis, byte framing, file following, telemetry | none |
+| `game` | Running client process, window focus and state for overlays | none |
 | `internal/cli` | The `blitz-client` command line | all of the above |
 
 Module dependencies run from high-level operations toward resource readers:
@@ -75,6 +76,8 @@ blitz-client mod update-from-git <mod-dir|mod.yaml|mod.yml> --repo <path> [--bas
 blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]
 blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]
 blitz-client replay follow <data.replay> [--poll-ms <N>] [--idle-timeout-ms <N>] [--out <new-path>]
+
+blitz-client game status [--process-name <name>]... [--watch] [--poll-ms <N>] [--json]
 ```
 
 `--game-dir` accepts either the game directory or the `Data` directory. It is optional; the first existing default path for the current OS is used. An invalid explicit path is an error and never falls back to auto-detection.
@@ -458,6 +461,61 @@ Run the simulator checks (they write only into temporary directories):
 
 ```sh
 python3 -B -m unittest discover -s tests -p test_simulate_replay.py
+```
+
+## Game presence
+
+An overlay should appear only while the player is in the client. The `game`
+package answers two questions: is a client process running, and is the player
+in it — the client window is the foreground window and is visible on screen.
+
+```go
+state, err := game.Detect(game.Options{})
+if err == nil && state.InGame {
+	// show the overlay
+}
+
+// Or receive a state whenever it changes.
+game.Watch(ctx, 250*time.Millisecond, game.Options{}, func(state game.State, err error) {
+	overlay.SetVisible(err == nil && state.InGame)
+})
+```
+
+`State` reports `Running`, the client `PID` and `Executable`, `Focused`,
+`InGame`, and the client `Window`: bounds, `Visible`, `Minimized`, `Maximized`,
+`Fullscreen`, and, where the platform reports it, `CursorHidden` and
+`CursorCaptured`. Processes are matched by executable name, ignoring case and a
+trailing `.exe`; `DefaultProcessNames` covers the macOS app (`Tanks Blitz`) and
+the Windows builds (`tanksblitz.exe`, `wotblitz.exe`). Pass `ProcessNames` to
+replace the list.
+
+The overlay itself must not hide the game. Windows of the current process, and
+of any `IgnorePIDs`, are transparent to focus detection: when the overlay is
+active, the topmost window of another process decides whether the client is
+focused. Prefer a non-activating overlay window anyway, so the client keeps
+keyboard input.
+
+| Platform | Process | Focus | Window state | Cursor |
+| --- | --- | --- | --- | --- |
+| Windows | Toolhelp snapshot | foreground window | minimized, maximized, fullscreen, cloaked on another virtual desktop | hidden, clipped to a region |
+| macOS | `sysctl` process list | frontmost application | on screen, fullscreen (also reported as maximized) | hidden |
+| Linux | `/proc`, including Wine/Proton | `_NET_ACTIVE_WINDOW` | EWMH hidden, maximized, fullscreen | — |
+
+macOS needs no Screen Recording or Accessibility permission: window titles are
+never read. On macOS, `Minimized` also covers a hidden application and a window
+on another Space. Linux reads windows through libX11 loaded at run time, so it
+works on X11 and for XWayland windows such as Wine and Proton games; without a
+display or libX11, `FocusKnown` is false and `Focused` and `InGame` stay false.
+The package uses no cgo.
+
+`blitz-client game status` prints one snapshot; `--json` prints `State`.
+`--watch` prints an NDJSON line on start and on every change until interrupted,
+polling every `--poll-ms` milliseconds (500 by default). `--process-name` can
+be repeated.
+
+```sh
+blitz-client game status
+blitz-client game status --watch --poll-ms 250
 ```
 
 ## Mod commands

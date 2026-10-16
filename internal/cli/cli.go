@@ -31,6 +31,7 @@ blitz-client mod update-from-git <mod-dir|mod.yaml|mod.yml> --repo <path> [--bas
 blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]
 blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]
 blitz-client replay follow <data.replay> [--poll-ms <N>] [--idle-timeout-ms <N>] [--out <new-path>]
+blitz-client game status [--process-name <name>]... [--watch] [--poll-ms <N>] [--json]
 
 --game-dir is optional. Without it the first existing default path for this OS is used.
 replay latest uses the newest .tbreplay of the platform replay folder; --dir overrides it.`
@@ -75,6 +76,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	typed := blitz.AsError(err)
 	follow := len(args) > 1 && args[0] == "replay" && args[1] == "follow"
+	follow = follow || len(args) > 1 && args[0] == "game" && slices.Contains(args, "--watch")
 	switch {
 	case a.json && !follow:
 		a.printJSON(jsonx.Object{"ok": false, "error": jsonx.ToValue(typed)})
@@ -105,7 +107,7 @@ func (a *app) execute(args []string) (bool, error) {
 	root := &cobra.Command{Use: "blitz-client", SilenceErrors: true, SilenceUsage: true}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetHelpCommand(&cobra.Command{Hidden: true})
-	root.AddCommand(command("client", a.runClient), command("mod", a.runMod), command("replay", a.runReplay))
+	root.AddCommand(command("client", a.runClient), command("mod", a.runMod), command("replay", a.runReplay), command("game", a.runGame))
 	if len(args) == 0 {
 		return false, usageError("unknown command: ")
 	}
