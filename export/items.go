@@ -21,12 +21,20 @@ type ShellTypeEntry struct {
 	Icon *string `json:"icon"`
 }
 
+// CrewSkillEntry is a crew skill with its exported icon.
+type CrewSkillEntry struct {
+	client.ClientCrewSkill
+	// Icon follows the same rules as ItemEntry.Icon.
+	Icon *string `json:"icon"`
+}
+
 // ItemsFile is written to items.json.
 type ItemsFile struct {
 	Shells      []ShellTypeEntry `json:"shells"`
 	Consumables []ItemEntry      `json:"consumables"`
 	Provisions  []ItemEntry      `json:"provisions"`
 	Equipment   []ItemEntry      `json:"equipment"`
+	CrewSkills  []CrewSkillEntry `json:"crewSkills"`
 }
 
 // itemIconReferences returns the sprites of the items' icon keys per icon
@@ -74,6 +82,10 @@ func linkItemIcons(items *client.ClientItems, sprites map[client.ItemKind]map[st
 	file.Consumables = entries(client.ItemConsumables, items.Consumables)
 	file.Provisions = entries(client.ItemProvisions, items.Provisions)
 	file.Equipment = entries(client.ItemEquipment, items.Equipment)
+	file.CrewSkills = make([]CrewSkillEntry, 0, len(items.CrewSkills))
+	for _, skill := range items.CrewSkills {
+		file.CrewSkills = append(file.CrewSkills, CrewSkillEntry{ClientCrewSkill: skill, Icon: icon(client.ItemCrewSkills, skill.ID)})
+	}
 	slices.Sort(missing)
 	return file, missing
 }

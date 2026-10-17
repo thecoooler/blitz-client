@@ -197,21 +197,22 @@ func TestPackedImagesAndItemReferencesJoinIconSets(t *testing.T) {
 	f, _ := iconFixture(t)
 	f.packed("game/Data/Gfx/Other/packed@2x.packed.webp.dvpl", packedWebP(t, "1\n\n6 6\n1\n0 0 4 2 1 3 0 \n"), 2)
 	f.write("game/Data/Gfx/Other/packed.packed.webp", packedWebP(t, "1\n\n3 3\n1\n0 0 2 1 0 0 0 \n"))
-	items := &client.ClientItems{Shells: []client.ClientShellType{{ID: "ap"}, {ID: "atgm_he"}}, Consumables: []client.ClientItem{
-		{ID: 1, IconKey: "packed"}, {ID: 2, IconKey: "red"}, {ID: 3, IconKey: "packed"},
-		{ID: 4, IconKey: "gone"}, {ID: 5, IconKey: "elsewhere"}, {ID: 6, IconKey: "unstyled"}, {ID: 7},
-	}}
+	items := &client.ClientItems{Shells: []client.ClientShellType{{ID: "ap"}, {ID: "atgm_he"}},
+		CrewSkills: []client.ClientCrewSkill{{ID: "sniper"}}, Consumables: []client.ClientItem{
+			{ID: 1, IconKey: "packed"}, {ID: 2, IconKey: "red"}, {ID: 3, IconKey: "packed"},
+			{ID: 4, IconKey: "gone"}, {ID: 5, IconKey: "elsewhere"}, {ID: 6, IconKey: "unstyled"}, {ID: 7},
+		}}
 	sprites := map[client.ItemKind]map[string]string{client.ItemConsumables: {
 		"packed": "Gfx/Other/packed.psd", "red": "Gfx/A/red.txt",
 		"gone": "Gfx/Other/gone", "elsewhere": "Gfx/Nowhere/icon.txt",
-	}, client.ItemShells: {"ap": "Gfx/A/red"}}
-	sets := []iconSet{{"shells", nil}, {"consumables", []string{"Gfx/A"}}}
+	}, client.ItemShells: {"ap": "Gfx/A/red"}, client.ItemCrewSkills: {"sniper": "Gfx/A/red.txt"}}
+	sets := []iconSet{{"shells", nil}, {"consumables", []string{"Gfx/A"}}, {"crew-skills", nil}}
 	output := f.path("output")
 	report, index, err := exportIcons(f.path("game/Data"), output, sets, itemIconReferences(items, sprites))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.IconCount != 3 || len(index["consumables"]) != 2 || index["shells"]["Gfx/A/red"] != "shells/red.png" ||
+	if report.IconCount != 4 || len(index["consumables"]) != 2 || index["shells"]["Gfx/A/red"] != "shells/red.png" ||
 		index["consumables"]["Gfx/Other/packed.psd"] != "consumables/packed.png" ||
 		index["consumables"]["Gfx/A/red.txt"] != "consumables/red.png" {
 		t.Fatalf("report %+v, index %v", report, index)
@@ -241,6 +242,9 @@ func TestPackedImagesAndItemReferencesJoinIconSets(t *testing.T) {
 	if len(file.Shells) != 2 || file.Shells[0].Icon == nil || *file.Shells[0].Icon != "assets/icons/shells/red.png" ||
 		file.Shells[1].Icon != nil {
 		t.Fatalf("unexpected shell types %+v", file.Shells)
+	}
+	if len(file.CrewSkills) != 1 || file.CrewSkills[0].Icon == nil || *file.CrewSkills[0].Icon != "assets/icons/crew-skills/red.png" {
+		t.Fatalf("unexpected crew skills %+v", file.CrewSkills)
 	}
 	if len(file.Consumables) != 7 ||
 		!maps.Equal(icons, map[int64]string{1: "assets/icons/consumables/packed.png",

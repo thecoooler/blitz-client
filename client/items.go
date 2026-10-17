@@ -19,10 +19,11 @@ const (
 	ItemConsumables ItemKind = "consumables"
 	ItemProvisions  ItemKind = "provisions"
 	ItemEquipment   ItemKind = "equipment"
+	ItemCrewSkills  ItemKind = "crew-skills"
 )
 
 // ItemKinds lists the item categories in export order.
-var ItemKinds = []ItemKind{ItemShells, ItemConsumables, ItemProvisions, ItemEquipment}
+var ItemKinds = []ItemKind{ItemShells, ItemConsumables, ItemProvisions, ItemEquipment, ItemCrewSkills}
 
 // ClientItem is one consumable, provision, or equipment definition.
 type ClientItem struct {
@@ -51,16 +52,36 @@ type ClientShellType struct {
 	UserString string `json:"userString"`
 }
 
+// ClientCrewSkill is a crew skill from XML/item_defs/tankmen/avatar.xml.
+type ClientCrewSkill struct {
+	// ID is the XML element name, such as lucky_shot; the UI keys the skill's
+	// icon by it.
+	ID string `json:"id"`
+	// UserString, Description, Tip, and Features are localized from
+	// <userString>, <effectDescription>, <tipDescription>, and
+	// <featuresDescription>; empty when absent.
+	UserString  string `json:"userString"`
+	Description string `json:"description"`
+	Tip         string `json:"tip"`
+	Features    string `json:"features"`
+	// TankClass is the <skillsByClasses> entry listing the skill, such as
+	// lightTank; empty when none does.
+	TankClass string `json:"tankClass"`
+	// Type is the skill's <type>, such as trigger or continuous.
+	Type string `json:"type"`
+}
+
 // ClientItems groups item definitions by kind.
 type ClientItems struct {
 	Shells      []ClientShellType `json:"shells"`
 	Consumables []ClientItem      `json:"consumables"`
 	Provisions  []ClientItem      `json:"provisions"`
 	Equipment   []ClientItem      `json:"equipment"`
+	CrewSkills  []ClientCrewSkill `json:"crewSkills"`
 }
 
-// IconKeys returns the distinct icon keys of one kind in item order. A shell
-// type's key is its ID.
+// IconKeys returns the distinct icon keys of one kind in item order. Shell
+// types and crew skills are keyed by their ID.
 func (items *ClientItems) IconKeys(kind ItemKind) []string {
 	var keys []string
 	add := func(key string) {
@@ -71,6 +92,12 @@ func (items *ClientItems) IconKeys(kind ItemKind) []string {
 	if kind == ItemShells {
 		for _, shell := range items.Shells {
 			add(shell.ID)
+		}
+		return keys
+	}
+	if kind == ItemCrewSkills {
+		for _, skill := range items.CrewSkills {
+			add(skill.ID)
 		}
 		return keys
 	}
@@ -106,6 +133,9 @@ func readItems(dataDir string, localized map[string]string) (*ClientItems, error
 		return nil, err
 	}
 	if items.Shells, err = readShellTypes(dataDir, localized); err != nil {
+		return nil, err
+	}
+	if items.CrewSkills, err = readCrewSkills(dataDir, localized); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -189,6 +219,47 @@ func readShellTypes(dataDir string, localized map[string]string) ([]ClientShellT
 	return types, nil
 }
 
+// readCrewSkills reads the <skills> of the crew definition in XML order.
+func readCrewSkills(dataDir string, localized map[string]string) ([]ClientCrewSkill, error) {
+	skills := []ClientCrewSkill{}
+	root, path, err := readOptionalXML(dataDir, "XML/item_defs/tankmen/avatar.xml")
+	if root == nil || root.Child("skills") == nil {
+		return skills, err
+	}
+	classes := map[string]string{}
+	if table := root.Child("skillsByClasses"); table != nil {
+		for _, class := range table.Children {
+			for _, skill := range strings.Fields(class.Text) {
+				if previous, ok := classes[skill]; ok {
+					return nil, blitz.ErrorAt("CLIENT_XML_INVALID", fmt.Sprintf(
+						"crew skill %s is listed for both %s and %s", skill, previous, class.Name), path)
+				}
+				classes[skill] = class.Name
+			}
+		}
+	}
+	text := func(node *xml.Node, name string) string {
+		value, _ := xml.ChildText(node, name)
+		if value == "" {
+			return ""
+		}
+		return localize(value, localized)
+	}
+	for _, node := range root.Child("skills").Children {
+		kind, _ := xml.ChildText(node, "type")
+		skills = append(skills, ClientCrewSkill{
+			ID:          node.Name,
+			UserString:  text(node, "userString"),
+			Description: text(node, "effectDescription"),
+			Tip:         text(node, "tipDescription"),
+			Features:    text(node, "featuresDescription"),
+			TankClass:   classes[node.Name],
+			Type:        kind,
+		})
+	}
+	return skills, nil
+}
+
 // readOptionalXML parses a resource; the root is nil when it does not exist.
 func readOptionalXML(dataDir, relative string) (*xml.Node, string, error) {
 	path := ResolveClientAsset(dataDir, relative)
@@ -220,6 +291,9 @@ var (
 		{"UI/Styles/Lobby/Inventory/InventoryBigStyles.style", selectorPatterns(`\.equipment_item\.KEY #icon`)},
 		{"UI/Styles/Lobby/Inventory/InventoryNormalStyles.style",
 			selectorPatterns(`\.equipment_item\.KEY #icon`, `\.equipment_item\.KEY #icon\.small`)},
+	}
+	crewSkillIconStyles = []iconStyle{
+		{"UI/Screens3/Lobby/Inventory/Crew/SkillImage.style", selectorPatterns(`\.crew_skills\.KEY \* \.skill-img`)},
 	}
 	equipmentIconStyles = []iconStyle{
 		{"UI/Screens3/Lobby/Inventory/OptionalDevices/OptionalDevicesItemImage.style",
@@ -253,6 +327,10 @@ func ReadItemIconSprites(dataDir string) (map[ItemKind]map[string]string, error)
 	if err != nil {
 		return nil, err
 	}
+	crewSkills, err := readStyleSprites(dataDir, crewSkillIconStyles)
+	if err != nil {
+		return nil, err
+	}
 	shells := map[string]string{}
 	if path := ResolveClientAsset(dataDir, shellIconMap); path != "" {
 		data, err := ReadClientAsset(path)
@@ -270,6 +348,7 @@ func ReadItemIconSprites(dataDir string) (map[ItemKind]map[string]string, error)
 		ItemConsumables: supplies,
 		ItemProvisions:  supplies,
 		ItemEquipment:   equipment,
+		ItemCrewSkills:  crewSkills,
 	}, nil
 }
 

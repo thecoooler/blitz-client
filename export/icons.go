@@ -36,6 +36,7 @@ var iconSets = []iconSet{
 	{"consumables", []string{"Gfx/UI/InventoryIcons/Big/Consumables"}},
 	{"provisions", []string{"Gfx/UI/InventoryIcons/Big/Provisions"}},
 	{"equipment", []string{"Gfx/UI/InventoryIcons/Big/OptionalDevices", "Gfx/Lobby/tank-supply/optional-devices"}},
+	{"crew-skills", []string{"Gfx/UI/CrewSkillIcons"}},
 }
 
 const iconCatalogFormatVersion = 1

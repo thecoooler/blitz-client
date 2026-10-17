@@ -29,7 +29,7 @@ func NewClientExportOptions(outputDir string) ClientExportOptions {
 }
 
 // ClientExportReport summarizes a combined export. ItemCount counts
-// consumables, provisions, and equipment; MissingItemIcons lists the
+// consumables, provisions, and equipment, without shell types and crew skills; MissingItemIcons lists the
 // "kind/key" icon keys that got no icon.
 type ClientExportReport struct {
 	OutputDir        string            `json:"outputDir"`
@@ -40,6 +40,7 @@ type ClientExportReport struct {
 	TankCount        int               `json:"tankCount"`
 	ShellTypeCount   int               `json:"shellTypeCount"`
 	ItemCount        int               `json:"itemCount"`
+	CrewSkillCount   int               `json:"crewSkillCount"`
 	MissingItemIcons []string          `json:"missingItemIcons"`
 	DataOnly         bool              `json:"dataOnly"`
 	IconExport       *IconExportReport `json:"iconExport"`
@@ -108,6 +109,7 @@ func ExportClient(options ClientExportOptions) (*ClientExportReport, error) {
 	}
 	report.ShellTypeCount = len(items.Shells)
 	report.ItemCount = len(items.Consumables) + len(items.Provisions) + len(items.Equipment)
+	report.CrewSkillCount = len(items.CrewSkills)
 	report.MissingItemIcons = missing
 	if !options.DataOnly {
 		modelOptions := options.ModelOptions

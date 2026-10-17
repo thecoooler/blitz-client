@@ -9,7 +9,13 @@ import (
 func TestCatalogReadsRegularItemsWithLocalization(t *testing.T) {
 	f := newFixture(t)
 	f.maps()
-	f.write("Strings/ru.yaml", `"#artefacts:kit/name": "Ремкомплект"`+"\n"+`"ARMOR_PIERCING_FULL": "Бронебойный снаряд"`+"\n")
+	f.write("Strings/ru.yaml", `"#artefacts:kit/name": "Ремкомплект"`+"\n"+`"ARMOR_PIERCING_FULL": "Бронебойный снаряд"`+"\n"+
+		`"#crew_skills:sniper/name": "Снайпер"`+"\n"+`"trigger": "not a type"`+"\n")
+	f.writeDVPL("XML/item_defs/tankmen/avatar.xml", "<root><roles><commander><userString>c</userString></commander></roles>"+
+		"<skillsByClasses><AT-SPG>sniper</AT-SPG><lightTank>scout_unused</lightTank></skillsByClasses><skills>"+
+		"<sniper><userString>#crew_skills:sniper/name</userString><effectDescription>#crew_skills:sniper/effect</effectDescription>"+
+		"<icon><name>~res:/Gfx/UI/CrewSkillIcons/sniper</name><state>1</state></icon><type>trigger</type></sniper>"+
+		"<unlisted><type>continuous</type></unlisted></skills></root>")
 	f.writeDVPL(commonItemDefs+"consumables/common.xml", "<root><nextAvailableId>9</nextAvailableId>"+
 		"<repairKit><id>3</id><userString>#artefacts:kit/name</userString><description>#artefacts:kit/descr</description>"+
 		"<icon>largeRepairkit</icon><script>Repair<automatic>true</automatic></script></repairKit>"+
@@ -39,6 +45,10 @@ func TestCatalogReadsRegularItemsWithLocalization(t *testing.T) {
 		},
 		Provisions: []ClientItem{},
 		Equipment:  []ClientItem{{ID: 100, Name: "rammer", UserString: "rammer"}},
+		CrewSkills: []ClientCrewSkill{
+			{ID: "sniper", UserString: "Снайпер", Description: "#crew_skills:sniper/effect", TankClass: "AT-SPG", Type: "trigger"},
+			{ID: "unlisted", Type: "continuous"},
+		},
 	}
 	if !reflect.DeepEqual(catalog.Items, want) {
 		t.Fatalf("got %+v, want %+v", catalog.Items, want)
@@ -47,9 +57,17 @@ func TestCatalogReadsRegularItemsWithLocalization(t *testing.T) {
 	if keys := catalog.Items.IconKeys(ItemShells); !reflect.DeepEqual(keys, []string{"ap", "ap_premium", "atgm_heat"}) {
 		t.Fatalf("shell icon keys %v", keys)
 	}
+	if keys := catalog.Items.IconKeys(ItemCrewSkills); !reflect.DeepEqual(keys, []string{"sniper", "unlisted"}) {
+		t.Fatalf("crew skill icon keys %v", keys)
+	}
 	if keys := catalog.Items.IconKeys(ItemConsumables); !reflect.DeepEqual(keys, []string{"largeRepairkit", "ability"}) {
 		t.Fatalf("consumable icon keys %v", keys)
 	}
+
+	crewPath := f.write("XML/item_defs/tankmen/avatar.xml", "<root><skillsByClasses><a>x</a><b>x</b></skillsByClasses><skills/></root>")
+	_, err = DiscoverClientCatalog(f.data)
+	requireError(t, err, "CLIENT_XML_INVALID", crewPath)
+	f.write("XML/item_defs/tankmen/avatar.xml", "<root/>")
 
 	path := f.write("XML/item_defs/vehicles/china/components/shells.xml", "<root><icons><ap>OTHER.png</ap></icons></root>")
 	_, err = DiscoverClientCatalog(f.data)
@@ -79,6 +97,7 @@ func TestReadsItemIconSpritesFromUIResources(t *testing.T) {
 	f.write(supplyIconStyles[2].path, `.equipment_item.ability.ready #icon.small { bg-sprite: "~res:/Gfx/ready"; }
 .equipment_item.small #icon.small { bg-sprite: "~res:/Gfx/small"; }
 .equipment_item.small #icon { bg-sprite: "~res:/Gfx/regular"; }`)
+	f.write(crewSkillIconStyles[0].path, `.crew_skills.sniper * .skill-img { bg-sprite: "~res:/Gfx/UI/CrewSkillIcons/sniper.txt"; }`)
 	f.write(equipmentIconStyles[0].path, `.optional_device_item.rammer ? #Img, .optional_device_item.rammer #Img { bg-sprite: "~res:/Gfx/rammer.txt"; }`)
 	f.write(shellIconMap, `- ["string", "iconPath", "when slot.iconType == \"ap\" -> \"~res:/Gfx/ammo/ap_l\", `+
 		`when slot.iconType == \"r_he\" -> \"~res:/Gfx/ammo/rocket_he_l\", \"~res:/Gfx/ammo/ap_l\""]`)
@@ -93,8 +112,9 @@ func TestReadsItemIconSpritesFromUIResources(t *testing.T) {
 	}
 	for kind, want := range map[ItemKind]map[string]string{
 		ItemConsumables: supplies, ItemProvisions: supplies,
-		ItemEquipment: {"rammer": "Gfx/rammer.txt"},
-		ItemShells:    {"ap": "Gfx/ammo/ap_l", "r_he": "Gfx/ammo/rocket_he_l"},
+		ItemEquipment:  {"rammer": "Gfx/rammer.txt"},
+		ItemCrewSkills: {"sniper": "Gfx/UI/CrewSkillIcons/sniper.txt"},
+		ItemShells:     {"ap": "Gfx/ammo/ap_l", "r_he": "Gfx/ammo/rocket_he_l"},
 	} {
 		if !maps.Equal(sprites[kind], want) {
 			t.Errorf("%s: got %v, want %v", kind, sprites[kind], want)

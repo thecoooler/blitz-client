@@ -140,7 +140,7 @@ repairs and collision armor-zone checks remain specific to their export paths.
 
 ## Items and icons
 
-`client export` writes `items.json` with the shell types and the regular consumables, provisions, and equipment, and exports their icons as PNG under `assets/icons`. Event-specific items and icon folders are not included.
+`client export` writes `items.json` with the shell types, the regular consumables, provisions, and equipment, and the crew skills, and exports their icons as PNG under `assets/icons`. Event-specific items and icon folders are not included.
 
 ### Items
 
@@ -163,9 +163,16 @@ Consumables, provisions, and equipment come from `XML/item_defs/vehicles/common/
 }
 ```
 
+Crew skills come from the `<skills>` of `XML/item_defs/tankmen/avatar.xml`, in XML order. `id` is the skill's element name; `userString`, `description`, `tip`, and `features` are localized from `<userString>`, `<effectDescription>`, `<tipDescription>`, and `<featuresDescription>` and are empty when absent. `tankClass` is the `<skillsByClasses>` entry that lists the skill, and `type` is its `<type>` (`trigger` or `continuous`). A skill listed for two classes fails the export.
+
+```json
+{ "id": "skilled_ranging", "userString": "Лихая пристрелка", "description": "…", "tip": "…", "features": "…",
+  "tankClass": "lightTank", "type": "continuous", "icon": "assets/icons/crew-skills/skilled_ranging_1.png" }
+```
+
 Item `userString` and `description` are localized from `Strings/ru.yaml` and keep the key when no translation exists; hidden service items have none and export empty strings. `icon` is relative to the export directory and is `null` when there is no icon.
 
-`iconKey` is the item's `<icon>`, and a shell type's key is its `id`. The client UI, not the item, decides which sprite shows for a key, so the exporter reads the same UI resources:
+`iconKey` is the item's `<icon>`; shell types and crew skills are keyed by their `id`. The client UI, not the item, decides which sprite shows for a key, so the exporter reads the same UI resources:
 
 | Items | UI resource | Selector |
 | --- | --- | --- |
@@ -174,8 +181,9 @@ Item `userString` and `description` are localized from `Strings/ru.yaml` and kee
 | | `UI/Styles/Lobby/Inventory/InventoryNormalStyles.style` | `.equipment_item.<key> #icon`, then `#icon.small` |
 | Equipment | `UI/Screens3/Lobby/Inventory/OptionalDevices/OptionalDevicesItemImage.style` | `.optional_device_item.<key> #Img` |
 | Shells | `UI/Screens3/Lobby/Inventory/Ammo/AmmoInfoOverlay.yaml` | `slot.iconType == "<key>"` cases |
+| Crew skills | `UI/Screens3/Lobby/Inventory/Crew/SkillImage.style` | `.crew_skills.<key> * .skill-img` |
 
-The first resource and selector that define a key win. Selectors with extra classes, such as event variants or ability states (`.ready`, `.cooldown`), are ignored, so abilities that only have state icons get no icon. The report's `missingItemIcons` lists `kind/key` pairs left without an icon, either because no selector defines the key or because its sprite does not exist.
+The first resource and selector that define a key win. Selectors with extra classes, such as event variants or ability states (`.ready`, `.cooldown`), are ignored, so abilities that only have state icons get no icon. Crew skills get their lobby icon; the per-state battle icons listed in `avatar.xml` are not exported. The report's `missingItemIcons` lists `kind/key` pairs left without an icon, either because no selector defines the key or because its sprite does not exist.
 
 ### Icons
 
@@ -187,6 +195,7 @@ Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png
 | `consumables` | `Gfx/UI/InventoryIcons/Big/Consumables` |
 | `provisions` | `Gfx/UI/InventoryIcons/Big/Provisions` |
 | `equipment` | `Gfx/UI/InventoryIcons/Big/OptionalDevices`, `Gfx/Lobby/tank-supply/optional-devices` |
+| `crew-skills` | `Gfx/UI/CrewSkillIcons` |
 
 Every sprite descriptor (`.txt`) and image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. Packed WebP images usually embed their own descriptor in an `extr` chunk; it places the image on its canvas like a separate descriptor. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. A UI sprite reference may omit the extension or name a `.psd` source; it resolves to the icon with the same ID in the referenced directory. Frames are placed on the descriptor's full canvas, so icons keep the client's alignment. Output is lossless PNG and needs no external tools. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export.
 
@@ -195,7 +204,7 @@ Every sprite descriptor (`.txt`) and image in these directories becomes one icon
 ```json
 {
   "formatVersion": 1,
-  "count": 103,
+  "count": 123,
   "sets": [
     {
       "id": "shells",

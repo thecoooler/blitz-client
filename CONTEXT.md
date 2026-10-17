@@ -24,9 +24,11 @@ showroom-model results.
 - **Shell type**: an entry of the `<icons>` table in the nations' shells
   lists, such as `ap_cr_premium`. A shell's icon depends only on its type, so
   types are exported instead of individual shells.
-- **Icon key**: an item's `<icon>` or a shell type's ID. UI resources map keys
-  to sprites; the item never names its sprite. Selectors with state or event
-  classes are ignored.
+- **Crew skill**: an entry of `<skills>` in `XML/item_defs/tankmen/avatar.xml`,
+  with the tank class that lists it in `<skillsByClasses>`.
+- **Icon key**: an item's `<icon>`, or a shell type's or crew skill's ID. UI
+  resources map keys to sprites; the item never names its sprite. Selectors
+  with state or event classes are ignored.
 - **Sprite descriptor**: a DAVA `.txt` resource that places frames from texture
   atlases onto a canvas of fixed size, or the same text embedded in a packed
   WebP's `extr` chunk, where it refers to the image itself. `resources/sprite`
