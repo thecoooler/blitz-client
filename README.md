@@ -21,9 +21,9 @@ executable is `cmd/blitz-client`.
 | --- | --- | --- |
 | `blitzclient` (root) | Shared `Error` type (`NewError`, `ErrorAt`, `AsError`), default cache and replay directories | none |
 | `resources` | DVPL codecs | root |
-| `resources/xml`, `resources/archive` | Client XML parser, SC2/SCG archives | `resources` |
+| `resources/xml`, `resources/archive`, `resources/sprite` | Client XML parser, SC2/SCG archives, sprite descriptors | `resources` |
 | `client` | Client location, resource lookup, localization, tank and map catalogs | `resources` |
-| `export` | Unpacked client files, client data and tank bundles, model/armor conversion | `client` |
+| `export` | Unpacked client files, client data, icons and tank bundles, model/armor conversion | `client` |
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
 | `replay` | Archive/standalone analysis, byte framing, file following, telemetry | none |
 | `game` | Running client process, window focus and state for overlays | none |
@@ -115,7 +115,7 @@ continues to reject incomplete or invalid required tank metadata, including
 records without model files. Unreadable resources and invalid XML or DVPL
 containers remain errors in both commands.
 
-`client export` writes `maps.json` and `tanks.json` into the output directory, then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files always contain the full client catalog. Add `--data-only` to skip model conversion.
+`client export` writes `maps.json`, `tanks.json`, and `items.json` into the output directory, exports icons under `assets/icons` (see [Items and icons](#items-and-icons)), then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files, items, and icons always cover the full client. Add `--data-only` to skip model conversion; icons are still exported.
 
 The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
 
@@ -137,6 +137,100 @@ Geometry is decoded only for groups referenced by the selected scene nodes;
 unused groups still require valid, unique IDs. Used groups with unknown vertex
 layout bits or overflowing counts produce an explicit error. Showroom UV/normal
 repairs and collision armor-zone checks remain specific to their export paths.
+
+## Items and icons
+
+`client export` writes `items.json` with the shell types, the regular consumables, provisions, and equipment, and the crew skills, and exports their icons as PNG under `assets/icons`. Event-specific items and icon folders are not included.
+
+### Items
+
+A shell's icon depends only on its type, so `shells` lists shell types rather than individual shells. The types come from the `<icons>` table of each available nation's `components/shells.xml`, merged in first-seen order; a type must have the same image name in every nation. The type `id` is the key shells use in `<icon>`. `premium` comes from the `_PREMIUM` suffix of `name`, and `userString` is the localized `<name without _PREMIUM>_FULL` string, empty when the client has none (as for ATGM types).
+
+Consumables, provisions, and equipment come from `XML/item_defs/vehicles/common/consumables/common.xml`, `provisions/common.xml`, and `optional_devices.xml`; every element with an `<id>` is an item. A missing list contributes nothing.
+
+```json
+{
+  "shells": [
+    { "id": "ap_cr_premium", "name": "ARMOR_PIERCING_CR_PREMIUM", "premium": true,
+      "userString": "Подкалиберный снаряд", "icon": "assets/icons/shells/ap_cr_premium_l.png" }
+  ],
+  "consumables": [
+    { "id": 45, "name": "tungstenTip", "userString": "Вольфрамовые сердечники", "description": "…",
+      "iconKey": "tungstentip", "icon": "assets/icons/consumables/consumable_tungsten-tip_m.png" }
+  ],
+  "provisions": [],
+  "equipment": []
+}
+```
+
+Crew skills come from the `<skills>` of `XML/item_defs/tankmen/avatar.xml`, in XML order. `id` is the skill's element name; `userString`, `description`, `tip`, and `features` are localized from `<userString>`, `<effectDescription>`, `<tipDescription>`, and `<featuresDescription>` and are empty when absent. `tankClass` is the `<skillsByClasses>` entry that lists the skill, and `type` is its `<type>` (`trigger` or `continuous`). A skill listed for two classes fails the export.
+
+```json
+{ "id": "skilled_ranging", "userString": "Лихая пристрелка", "description": "…", "tip": "…", "features": "…",
+  "tankClass": "lightTank", "type": "continuous", "icon": "assets/icons/crew-skills/skilled_ranging_1.png" }
+```
+
+Item `userString` and `description` are localized from `Strings/ru.yaml` and keep the key when no translation exists; hidden service items have none and export empty strings. `icon` is relative to the export directory and is `null` when there is no icon.
+
+`iconKey` is the item's `<icon>`; shell types and crew skills are keyed by their `id`. The client UI, not the item, decides which sprite shows for a key, so the exporter reads the same UI resources:
+
+| Items | UI resource | Selector |
+| --- | --- | --- |
+| Consumables, provisions | `UI/Screens3/Lobby/Inventory/Equipment/EquipmentItemImage.style` | `.equipment_item.<key> * .equipment-img` |
+| | `UI/Styles/Lobby/Inventory/InventoryBigStyles.style` | `.equipment_item.<key> #icon` |
+| | `UI/Styles/Lobby/Inventory/InventoryNormalStyles.style` | `.equipment_item.<key> #icon`, then `#icon.small` |
+| Equipment | `UI/Screens3/Lobby/Inventory/OptionalDevices/OptionalDevicesItemImage.style` | `.optional_device_item.<key> #Img` |
+| Shells | `UI/Screens3/Lobby/Inventory/Ammo/AmmoInfoOverlay.yaml` | `slot.iconType == "<key>"` cases |
+| Crew skills | `UI/Screens3/Lobby/Inventory/Crew/SkillImage.style` | `.crew_skills.<key> * .skill-img` |
+
+The first resource and selector that define a key win. Selectors with extra classes, such as event variants or ability states (`.ready`, `.cooldown`), are ignored, so abilities that only have state icons get no icon. Crew skills get their lobby icon; the per-state battle icons listed in `avatar.xml` are not exported. The report's `missingItemIcons` lists `kind/key` pairs left without an icon, either because no selector defines the key or because its sprite does not exist.
+
+### Icons
+
+Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png`. Each set contains every icon of its client directories and every sprite its items reference from elsewhere:
+
+| Set | Client directories under `Data` |
+| --- | --- |
+| `shells` | `Gfx/Shared/tank-supply/ammunition/big` |
+| `consumables` | `Gfx/UI/InventoryIcons/Big/Consumables` |
+| `provisions` | `Gfx/UI/InventoryIcons/Big/Provisions` |
+| `equipment` | `Gfx/UI/InventoryIcons/Big/OptionalDevices`, `Gfx/Lobby/tank-supply/optional-devices` |
+| `crew-skills` | `Gfx/UI/CrewSkillIcons` |
+
+Every sprite descriptor (`.txt`) and image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. Packed WebP images usually embed their own descriptor in an `extr` chunk; it places the image on its canvas like a separate descriptor. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. A UI sprite reference may omit the extension or name a `.psd` source; it resolves to the icon with the same ID in the referenced directory. Frames are placed on the descriptor's full canvas, so icons keep the client's alignment. Output is lossless PNG and needs no external tools. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export. Images in different formats with the same ID are duplicates, including when their resolution suffixes differ. Descriptor canvases are limited to 16,777,216 pixels (64 MiB of RGBA data); oversized canvases and overflowing frame coordinates are rejected.
+
+`assets/icons/catalog.json` lists every icon:
+
+```json
+{
+  "formatVersion": 1,
+  "count": 123,
+  "sets": [
+    {
+      "id": "shells",
+      "sources": ["Gfx/Shared/tank-supply/ammunition/big"],
+      "count": 17,
+      "icons": [
+        {
+          "id": "ap_l",
+          "file": "shells/ap_l.png",
+          "width": 360,
+          "height": 360,
+          "scale": 2,
+          "source": {
+            "kind": "sprite",
+            "path": "Gfx/Shared/tank-supply/ammunition/big/ap_l@2x.txt",
+            "texture": "Gfx/Shared/tank-supply/ammunition/big/texture0@2x.packed.webp",
+            "frame": { "x": 973, "y": 308, "width": 303, "height": 304, "offsetX": 36, "offsetY": 31 }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`. A packed image with an embedded descriptor is a `sprite` whose `texture` is its own `path`; an image without one has `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept. Catalog paths are normalized before comparison and deletion. UI sprite and atlas references must stay inside `Data`; both slash styles are accepted. Symlinks below the resource or output root are rejected when traversed by icon discovery, atlas reads, or output operations. Atlas exclusion uses full resource paths across all discovered directories, so unrelated images with the same basename remain icons.
 
 ## Unpacked client files
 
