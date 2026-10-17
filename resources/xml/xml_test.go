@@ -26,3 +26,23 @@ func TestParsesCommentsCDATAAndRejectsMalformedInput(t *testing.T) {
 		}
 	}
 }
+
+func TestAttributesAndRepeatedChildren(t *testing.T) {
+	root, err := Parse([]byte(`<root><items path="common.xml"/><items path='mode&amp;test.xml'/><factor>1</factor><factor>2</factor><empty/></root>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Children) != 5 || root.Children[0].Attributes["path"] != "common.xml" || root.Children[1].Attributes["path"] != "mode&test.xml" || root.Children[2].Text != "1" || root.Children[3].Text != "2" || root.Children[4].Text != "" {
+		t.Fatalf("attributes/order/scalars lost: %+v", root)
+	}
+}
+
+func TestMalformedAttributesDoNotFailParsing(t *testing.T) {
+	root, err := Parse([]byte(`<root><a x=1 y="&nbsp;&" x="2"/><b =broken path="kept.xml"/><c/></root>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Children) != 3 || root.Children[0].Attributes["x"] != "1" || root.Children[0].Attributes["y"] != "\u00a0&" || root.Children[1].Attributes["path"] != "kept.xml" {
+		t.Fatalf("permissive attributes lost: %+v", root.Children[0])
+	}
+}

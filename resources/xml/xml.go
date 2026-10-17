@@ -1,9 +1,10 @@
 // Package xml is a small, permissive parser for the client's XML resources. It
-// keeps element names, text, and children and ignores attributes.
+// keeps element names, scalar text, attributes, and ordered children.
 package xml
 
 import (
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"unicode"
@@ -13,9 +14,10 @@ import (
 
 // Node is one XML element.
 type Node struct {
-	Name     string
-	Text     string
-	Children []*Node
+	Name       string
+	Text       string
+	Children   []*Node
+	Attributes map[string]string
 }
 
 // Child returns the first child with the given name.
@@ -119,6 +121,9 @@ func Parse(data []byte) (*Node, error) {
 				return nil, fmt.Errorf("empty XML tag name")
 			}
 			node := &Node{Name: body[:nameEnd]}
+			if attributes := strings.TrimSpace(body[nameEnd:]); attributes != "" {
+				node.Attributes = parseAttributes(attributes)
+			}
 			if selfClosing {
 				roots = appendNode(roots, stack, node)
 			} else {
@@ -241,4 +246,59 @@ func scalar(entity, digits string, base int) (rune, error) {
 		return 0, fmt.Errorf("invalid XML scalar in &%s;", entity)
 	}
 	return rune(value), nil
+}
+
+// parseAttributes is permissive like the rest of the parser: unquoted values,
+// HTML entities and stray ampersands are accepted. Malformed fragments are
+// skipped without losing the attributes around them; the first duplicate wins.
+func parseAttributes(attributes string) map[string]string {
+	result := map[string]string{}
+	isSpace := func(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+	i := 0
+	for i < len(attributes) {
+		for i < len(attributes) && isSpace(attributes[i]) {
+			i++
+		}
+		start := i
+		for i < len(attributes) && !isSpace(attributes[i]) && attributes[i] != '=' {
+			i++
+		}
+		name := attributes[start:i]
+		for i < len(attributes) && isSpace(attributes[i]) {
+			i++
+		}
+		value := ""
+		if i < len(attributes) && attributes[i] == '=' {
+			i++
+			for i < len(attributes) && isSpace(attributes[i]) {
+				i++
+			}
+			if i < len(attributes) && (attributes[i] == '"' || attributes[i] == '\'') {
+				quote := attributes[i]
+				i++
+				end := strings.IndexByte(attributes[i:], quote)
+				if end < 0 {
+					end = len(attributes) - i
+				}
+				value = attributes[i : i+end]
+				i = min(i+end+1, len(attributes))
+			} else {
+				start := i
+				for i < len(attributes) && !isSpace(attributes[i]) {
+					i++
+				}
+				value = attributes[start:i]
+			}
+		}
+		if name == "" || strings.ContainsAny(name, "\"'<>") {
+			continue
+		}
+		if _, exists := result[name]; !exists {
+			result[name] = html.UnescapeString(value)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

@@ -19,10 +19,9 @@ import (
 const usage = `blitz-client commands:
 
 blitz-client client locate [--game-dir <path>] [--json]
-blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <all|configs,images,models,sounds,fonts,shaders,other>] [--exclude <pattern>] [--dry-run] [--json]
+blitz-client client files unpack --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <all|configs,images,models,sounds,fonts,shaders,other>] [--exclude <pattern>] [--dry-run] [--json]
 blitz-client client tanks list [--game-dir <path>] [--json]
-blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
-blitz-client client tanks export [--game-dir <path>] --viewer-dir <path> [--tank <nation/ID>] [--limit <N>] [--pbr] [--no-compress] [--json]
+blitz-client client export --output-dir <path> [--game-dir <path>] [--include <all|data,icons,models>]... [--cache-dir <path> | --no-cache] [model options]
 blitz-client mod list [--game-dir <path>] [--json]
 blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
 blitz-client mod install <mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]

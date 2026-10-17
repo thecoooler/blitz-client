@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/thecoooler/blitz-client/internal/jsonx"
 	ka "github.com/thecoooler/blitz-client/internal/katest"
@@ -226,7 +225,7 @@ func TestShowroomPolicyKeepsNonfiniteRepairsAndPositionUVErrors(t *testing.T) {
 	}
 }
 
-func TestFallbackPNGsAreValidAndSelectionOrdersBenchmarks(t *testing.T) {
+func TestFallbackPNGsAndTexturePaths(t *testing.T) {
 	path := t.TempDir() + "/fallback.png"
 	if err := writeFallbackPNG(path, "baseColor"); err != nil {
 		t.Fatal(err)
@@ -238,9 +237,6 @@ func TestFallbackPNGsAreValidAndSelectionOrdersBenchmarks(t *testing.T) {
 		t.Fatal(got)
 	}
 	if got := setExtension("tex", "dds"); got != "tex.dds" {
-		t.Fatal(got)
-	}
-	if got := isoTimestamp(time.Unix(86400*365, 0)); got != "1971-01-01T00:00:00+00:00" {
 		t.Fatal(got)
 	}
 }

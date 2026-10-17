@@ -61,10 +61,9 @@ The executable is `blitz-client`.
 
 ```text
 blitz-client client locate [--game-dir <path>] [--json]
-blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--exclude <pattern>] [--dry-run] [--json]
+blitz-client client files unpack --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--exclude <pattern>] [--dry-run] [--json]
 blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
-blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
-blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
+blitz-client client export --output-dir <path> [--game-dir <path>] [--include <all|data,icons,models>]... [--cache-dir <path> | --no-cache] [model options]
 
 blitz-client mod list [--game-dir <path>] [--json]
 blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
@@ -84,50 +83,46 @@ blitz-client client locate
 blitz-client client tanks list --json
 blitz-client client tanks list --nation ussr
 
-blitz-client client export \
-  --game-dir "/path/to/Tanks Blitz" \
-  --output-dir "/path/to/export"
+# Complete snapshot: game data, tank UI icons and 3D models
+blitz-client client export --game-dir "/path/to/Data" --output-dir "/path/to/export"
 
-blitz-client client export \
-  --game-dir "/path/to/Tanks Blitz" \
-  --output-dir "/path/to/export" \
-  --data-only
+# Data only, without image reads or model conversion
+blitz-client client export --game-dir "/path/to/Data" --output-dir "/path/to/export-data" --include data
 
-blitz-client client tanks export \
-  --viewer-dir "/path/to/viewer" \
-  --limit 10
-
-blitz-client client tanks export \
-  --viewer-dir "/path/to/viewer" \
-  --tank china/Ch48_BZ_75
+# Data and icons, or only model assets with their vehicle identities
+blitz-client client export --output-dir "/path/to/export-icons" --include data,icons
+blitz-client client export --output-dir "/path/to/export-models" --include models
 ```
 
-`client tanks list` reports the vehicles with both showroom model files installed. The JSON response contains `count` and a `tanks` array with the ID, localized name, nation, level, `userString`, and source model paths.
+`client export` is the only game-data export command. It writes one versioned
+`data.json`, with all properties and media references of each tank in one record.
+Shared components, equipment, presets, provisions and localization live once in
+that same file. Images and model payloads are external binary assets referenced
+by those records. No alternate `tanks.json`, `maps.json`, model catalog or raw
+source-document copies are produced. Consumers use the same schema for every
+selection; `included` declares the requested sections.
 
-Model discovery uses the vehicle XML node name as the tank ID. Localization,
-`userString`, and level are optional; the display name falls back to the node
-name with underscores replaced by spaces. Missing or invalid price, shop, and
-configuration metadata does not prevent model discovery. Full catalog export
-continues to reject incomplete or invalid required tank metadata, including
-records without model files. Unreadable resources and invalid XML or DVPL
-containers remain errors in both commands.
+`--include` defaults to `all`, or accepts a comma-separated selection of `data`,
+`icons`, `models`; the option may be repeated. `all` includes PBR model assets and
+can be expensive (`--no-pbr` skips them). There are
+no `--data-only`, `--skip-images` or separate model-export commands. Use a new or
+empty output directory; a failed export removes what it wrote. Resource loading uses the same Data/packs overlay as
+`client files unpack`; `--cache-dir` overrides packs, `--no-cache` disables it.
 
-`client export` writes `maps.json` and `tanks.json` into the output directory, then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files always contain the full client catalog. Add `--data-only` to skip model conversion.
+Encoding options apply only to model conversion:
 
-The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
+- `--max-texture-size original|N|WIDTHxHEIGHT` (default `1024x1024`).
+- `--texture-format webp|png` (default `webp`), `--webp-quality 0..100` (default 90).
+- `--no-compress` disables Brotli for model payloads. `data.json` is always plain JSON.
+- `--no-pbr` skips PBR maps and `model.pbr.bin`, keeping base-color textures only.
 
-The model exporter is implemented in Go and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
+The full contract and consumer examples are in [Game data export](docs/game-data-export.md).
+Go consumers can call `export.ReadClientExport(directory)` to load any selection.
+The viewer implementation is outside this repository; it must read `tanks[].model`
+from `data.json` instead of the removed `assets/tanks/catalog.json`. Binary model
+and armor schemas are unchanged. Site projects are not modified by this change.
 
-The following model options apply to both model export commands:
-
-- `--tank <ID|nation/ID>` can be repeated. An unqualified ID must be unique across nations.
-- `--nation <nation>` filters automatic discovery; `--limit N` exports at most N successful models. A limit of 0 means all models.
-- `--max-texture-size original|N|WIDTHxHEIGHT` caps source textures; the default is `1024x1024`.
-- `--texture-format webp|png` selects texture format; WebP is the default. `--webp-quality 0..100` sets lossy base-color quality.
-- `--pbr` exports the PBR maps and tangent basis. `--no-compress` writes plain model JSON and geometry instead of `.br` assets.
-- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Go exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
-
-SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+SC2/SCG decoding, mesh transforms, geometry generation, armor joining and model bundles are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
 
 SCG groups share binary-layout, buffer-size, and triangle-index validation.
 Geometry is decoded only for groups referenced by the selected scene nodes;
@@ -140,14 +135,14 @@ repairs and collision armor-zone checks remain specific to their export paths.
 Export the effective client resource tree to a directory:
 
 ```sh
-blitz-client client files export --output-dir ./Data
+blitz-client client files unpack --output-dir ./Data
 ```
 
 Count the selected files and their stored size without creating or changing the
 output directory, reading file contents, or unpacking DVPL:
 
 ```sh
-blitz-client client files export --output-dir ./Data --types configs,images --dry-run
+blitz-client client files unpack --output-dir ./Data --types configs,images --dry-run
 ```
 
 Dry runs apply the same filters and source precedence as exports. Only the
@@ -166,8 +161,8 @@ preserving the directory structure and original resource formats.
 Use `--types` to select comma-separated categories (the option can be repeated):
 
 ```sh
-blitz-client client files export --output-dir ./Data --types configs,images
-blitz-client client files export --output-dir ./Models --types models
+blitz-client client files unpack --output-dir ./Data --types configs,images
+blitz-client client files unpack --output-dir ./Models --types models
 ```
 
 Categories are selected by the extension after removing `.dvpl`, independently
@@ -184,14 +179,14 @@ of the directory name:
 | `shaders` | `sl`, `slh`, `glsl`, `hlsl`, `vert`, `frag`, `metal` |
 | `other` | All extensions not assigned to the categories above, and extensionless files |
 
-Models remain in their native game formats; the existing `client tanks export`
+Models remain in their native game formats; the `client export --include models`
 command produces viewer bundles. Selecting `models` does not automatically
 include textures; use `models,images` to include both.
 
 Exclude files using repeatable glob patterns:
 
 ```sh
-blitz-client client files export --output-dir ./Data \
+blitz-client client files unpack --output-dir ./Data \
   --exclude '3d/**' --exclude '**/*.dds' --dry-run
 ```
 
@@ -209,9 +204,9 @@ installation copy. Existing destination files are retained. JSON reports
 Override the sources or disable the cache overlay:
 
 ```sh
-blitz-client client files export --game-dir /path/to/game \
+blitz-client client files unpack --game-dir /path/to/game \
   --cache-dir /path/to/packs --output-dir ./Data --types configs
-blitz-client client files export --output-dir ./Data --no-cache
+blitz-client client files unpack --output-dir ./Data --no-cache
 ```
 
 A missing default cache is skipped. An explicitly supplied `--cache-dir` must
@@ -690,21 +685,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	tankOptions := export.NewTankExportOptions("/path/to/viewer")
-	tankOptions.GameDir = gameDir
-	tankOptions.Limit = 10
-	catalog, err := export.ExportTankCatalog(tankOptions)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	clientOptions := export.NewClientExportOptions("/path/to/export")
 	clientOptions.GameDir = gameDir
-	clientOptions.DataOnly = true
+	clientOptions.Include = []string{"data", "icons"}
 	exported, err := export.ExportClient(clientOptions)
 	if err != nil {
 		log.Fatal(err)
 	}
+	snapshot, err := export.ReadClientExport("/path/to/export")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = snapshot.Tanks
 
 	installed, err := mods.ListInstalledMods(gameDir)
 	if err != nil {
