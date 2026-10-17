@@ -15,9 +15,9 @@ import (
 type ClientExportOptions struct {
 	// GameDir is the install directory or its Data directory; empty uses platform defaults.
 	GameDir string
-	// OutputDir receives maps.json, tanks.json and assets/tanks.
+	// OutputDir receives maps.json, tanks.json, assets/icons and assets/tanks.
 	OutputDir string
-	// DataOnly writes only the map and tank metadata files.
+	// DataOnly skips the model export; metadata and icons are still written.
 	DataOnly bool
 	// ModelOptions configures the model export. Its ViewerDir is set to OutputDir.
 	ModelOptions TankExportOptions
@@ -36,12 +36,13 @@ type ClientExportReport struct {
 	MapCount       int               `json:"mapCount"`
 	TankCount      int               `json:"tankCount"`
 	DataOnly       bool              `json:"dataOnly"`
+	IconExport     *IconExportReport `json:"iconExport"`
 	ModelExport    *TankExportReport `json:"modelExport,omitempty"`
 	ElapsedSeconds jsonx.F64         `json:"elapsedSeconds"`
 }
 
-// ExportClient exports client maps, full tank metadata, and optionally the
-// model bundles in one run. Resource lists and localization are shared with
+// ExportClient exports client maps, full tank metadata, icons, and optionally
+// the model bundles in one run. Resource lists and localization are shared with
 // model discovery, and the metadata files use the legacy exporter's schema.
 func ExportClient(options ClientExportOptions) (*ClientExportReport, error) {
 	started := time.Now()
@@ -83,6 +84,9 @@ func ExportClient(options ClientExportOptions) (*ClientExportReport, error) {
 		MapCount:  len(catalog.Maps),
 		TankCount: len(catalog.Tanks),
 		DataOnly:  options.DataOnly,
+	}
+	if report.IconExport, err = exportIcons(resolved.ResourceDir, outputDir, iconSets); err != nil {
+		return nil, err
 	}
 	if !options.DataOnly {
 		modelOptions := options.ModelOptions

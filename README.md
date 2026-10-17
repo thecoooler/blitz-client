@@ -21,9 +21,9 @@ executable is `cmd/blitz-client`.
 | --- | --- | --- |
 | `blitzclient` (root) | Shared `Error` type (`NewError`, `ErrorAt`, `AsError`), default cache and replay directories | none |
 | `resources` | DVPL codecs | root |
-| `resources/xml`, `resources/archive` | Client XML parser, SC2/SCG archives | `resources` |
+| `resources/xml`, `resources/archive`, `resources/sprite` | Client XML parser, SC2/SCG archives, sprite descriptors | `resources` |
 | `client` | Client location, resource lookup, localization, tank and map catalogs | `resources` |
-| `export` | Unpacked client files, client data and tank bundles, model/armor conversion | `client` |
+| `export` | Unpacked client files, client data, icons and tank bundles, model/armor conversion | `client` |
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
 | `replay` | Archive/standalone analysis, byte framing, file following, telemetry | none |
 | `game` | Running client process, window focus and state for overlays | none |
@@ -115,9 +115,55 @@ continues to reject incomplete or invalid required tank metadata, including
 records without model files. Unreadable resources and invalid XML or DVPL
 containers remain errors in both commands.
 
-`client export` writes `maps.json` and `tanks.json` into the output directory, then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files always contain the full client catalog. Add `--data-only` to skip model conversion.
+`client export` writes `maps.json` and `tanks.json` into the output directory, exports icons under `assets/icons`, then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files and icons always cover the full client. Add `--data-only` to skip model conversion; icons are still exported.
 
-The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
+The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests.
+
+### Icons
+
+Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png`:
+
+| Set | Client directories under `Data` |
+| --- | --- |
+| `shells` | `Gfx/Shared/tank-supply/ammunition/big` |
+| `consumables` | `Gfx/UI/InventoryIcons/Big/Consumables` |
+| `provisions` | `Gfx/UI/InventoryIcons/Big/Provisions` |
+| `equipment` | `Gfx/UI/InventoryIcons/Big/OptionalDevices`, `Gfx/Lobby/tank-supply/optional-devices` |
+
+Every sprite descriptor (`.txt`) and standalone image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. Sprite frames are cut from their atlas and placed on the descriptor's full canvas, so icons of a set keep the client's alignment. Output is lossless PNG and needs no external tools. Event-specific icon folders are not exported. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export.
+
+`assets/icons/catalog.json` lists every icon:
+
+```json
+{
+  "formatVersion": 1,
+  "count": 98,
+  "sets": [
+    {
+      "id": "shells",
+      "sources": ["Gfx/Shared/tank-supply/ammunition/big"],
+      "count": 17,
+      "icons": [
+        {
+          "id": "ap_l",
+          "file": "shells/ap_l.png",
+          "width": 360,
+          "height": 360,
+          "scale": 2,
+          "source": {
+            "kind": "sprite",
+            "path": "Gfx/Shared/tank-supply/ammunition/big/ap_l@2x.txt",
+            "texture": "Gfx/Shared/tank-supply/ammunition/big/texture0@2x.packed.webp",
+            "frame": { "x": 973, "y": 308, "width": 303, "height": 304, "offsetX": 36, "offsetY": 31 }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`; standalone images have `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
 
 The model exporter is implemented in Go and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
 

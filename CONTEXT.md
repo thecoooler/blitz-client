@@ -17,6 +17,18 @@ The catalog module owns these distinct validation rules. Combined catalog
 discovery shares vehicle-list and localization reads between metadata and
 showroom-model results.
 
+# Icon vocabulary
+
+- **Sprite descriptor**: a DAVA `.txt` resource that places frames from texture
+  atlases onto a canvas of fixed size. `resources/sprite` parses it.
+- **Icon set**: a named group of client directories exported to one folder.
+  Every descriptor and standalone image in them is an icon; atlases referenced
+  by descriptors are not. The icon ID is the file name without `@2x` and
+  extension, and must be unique within its set.
+- **Icon catalog**: `assets/icons/catalog.json`, listing sets and icons with
+  size, resolution scale, and source resource. Adding a set means adding a row
+  to `iconSets` in the export module.
+
 # Geometry vocabulary
 
 - **SCG polygon group**: indexed vertex geometry referenced by an SC2 scene.

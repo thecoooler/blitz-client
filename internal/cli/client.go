@@ -252,6 +252,11 @@ func (a *app) runClientExport(args []string) (bool, error) {
 	a.printf("Exported %d map(s) and %d tank record(s)\n", report.MapCount, report.TankCount)
 	a.printf("maps: %s\n", report.MapsFile)
 	a.printf("tanks: %s\n", report.TanksFile)
+	if icons := report.IconExport; icons != nil {
+		a.printf("Exported %d icon(s): %d written, %d unchanged, %d removed\n",
+			icons.IconCount, icons.WrittenCount, icons.UnchangedCount, icons.RemovedCount)
+		a.printf("icon catalog: %s\n", icons.Catalog)
+	}
 	if models := report.ModelExport; models != nil {
 		a.printf("Exported %d tank model(s); %d failed\n", models.ExportedCount, models.FailedCount)
 		a.printf("model catalog: %s\n", models.Catalog)
