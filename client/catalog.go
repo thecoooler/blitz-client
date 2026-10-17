@@ -13,11 +13,12 @@ import (
 	"github.com/thecoooler/blitz-client/resources/xml"
 )
 
-// ClientCatalog is the data exported from maps.yaml and
-// XML/item_defs/vehicles/*/list.xml.
+// ClientCatalog is the data exported from maps.yaml,
+// XML/item_defs/vehicles/*/list.xml, and the item definitions.
 type ClientCatalog struct {
 	Maps  []ClientMap
 	Tanks []ClientTankMetadata
+	Items *ClientItems
 	// ModelTanks are vehicles with both showroom model resources, kept in
 	// legacy model order.
 	ModelTanks []ClientTank
@@ -68,7 +69,11 @@ func DiscoverClientCatalog(dataDir string) (*ClientCatalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ClientCatalog{Maps: maps, Tanks: discovered.metadata, ModelTanks: discovered.models}, nil
+	items, err := readItems(dataDir, discovered.localized)
+	if err != nil {
+		return nil, err
+	}
+	return &ClientCatalog{Maps: maps, Tanks: discovered.metadata, Items: items, ModelTanks: discovered.models}, nil
 }
 
 func discoverModels(dataDir string) ([]ClientTank, error) {

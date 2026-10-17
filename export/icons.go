@@ -73,6 +73,8 @@ type IconEntry struct {
 // Data and omit the .dvpl suffix.
 type IconSource struct {
 	// Kind is "sprite" for an atlas frame or "image" for a standalone image.
+	// A packed image with an embedded descriptor is a sprite whose texture is
+	// the image itself.
 	Kind    string     `json:"kind"`
 	Path    string     `json:"path"`
 	Texture string     `json:"texture,omitempty"`
@@ -108,32 +110,45 @@ type iconSource struct {
 	sprite   *sprite.Sprite
 }
 
+// iconIndex maps a set ID and a sprite reference to the icon file relative
+// to the catalog directory.
+type iconIndex map[string]map[string]string
+
 // exportIcons writes every icon set under outputDir/assets/icons as PNG with
-// the descriptor's full canvas, then the catalog. Icons listed by a previous
-// catalog and absent from the new one are removed; other files are kept.
-func exportIcons(resourceDir, outputDir string, sets []iconSet) (*IconExportReport, error) {
+// the descriptor's full canvas, then the catalog. References name additional
+// sprites per set, relative to Data with an optional extension; each one that
+// exists joins its set and is listed in the returned index. Icons listed by a
+// previous catalog and absent from the new one are removed; other files are
+// kept.
+func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[string][]string) (*IconExportReport, iconIndex, error) {
 	root := filepath.Join(outputDir, "assets", "icons")
 	catalogPath := filepath.Join(root, "catalog.json")
 	previous := previousIconFiles(catalogPath)
 	report := &IconExportReport{Catalog: catalogPath}
 	catalog := IconCatalog{FormatVersion: iconCatalogFormatVersion, Sets: []IconSetEntry{}}
+	directories := iconDirectories{resourceDir: resourceDir, cache: map[string]map[string]iconSource{}}
 	atlases := map[string]image.Image{}
 	written := map[string]bool{}
+	index := iconIndex{}
 	for _, set := range sets {
-		sources, err := discoverIcons(resourceDir, set)
+		sources, referenced, err := directories.set(set, references[set.id])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		index[set.id] = map[string]string{}
+		for reference, id := range referenced {
+			index[set.id][reference] = set.id + "/" + id + ".png"
 		}
 		entry := IconSetEntry{ID: set.id, Sources: set.sources, Count: len(sources), Icons: []IconEntry{}}
 		for _, source := range sources {
 			icon, encoded, err := renderIcon(resourceDir, source, atlases)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			icon.File = set.id + "/" + source.id + ".png"
 			changed, err := writeIfChanged(filepath.Join(root, filepath.FromSlash(icon.File)), encoded)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if changed {
 				report.WrittenCount++
@@ -149,85 +164,164 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet) (*IconExportRepo
 	for _, file := range previous {
 		if !written[file] {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(file))); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return nil, blitz.IOError("could not remove stale icon", file, err)
+				return nil, nil, blitz.IOError("could not remove stale icon", file, err)
 			}
 			report.RemovedCount++
 		}
 	}
 	if err := writeJSON(catalogPath, catalog, false); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	report.IconCount = catalog.Count
-	return report, nil
+	return report, index, nil
 }
 
-// discoverIcons returns a set's icons sorted by ID, preferring @2x variants.
-func discoverIcons(resourceDir string, set iconSet) ([]iconSource, error) {
+// iconDirectories discovers the icons of client directories once each.
+type iconDirectories struct {
+	resourceDir string
+	cache       map[string]map[string]iconSource
+}
+
+// set returns a set's icons sorted by ID and the IDs of the references that
+// resolved. Source directories must exist; a reference to a missing
+// directory or file is left out.
+func (d *iconDirectories) set(set iconSet, references []string) ([]iconSource, map[string]string, error) {
 	byID := map[string]iconSource{}
+	add := func(source iconSource) error {
+		if existing, ok := byID[source.id]; ok && existing.relative != source.relative {
+			return blitz.ErrorAt("ICON_EXPORT_DUPLICATE", fmt.Sprintf(
+				"icon set %s has two icons named %s: %s and %s", set.id, source.id, existing.relative, source.relative), source.file)
+		}
+		byID[source.id] = source
+		return nil
+	}
 	for _, directory := range set.sources {
-		entries, err := os.ReadDir(filepath.Join(resourceDir, filepath.FromSlash(directory)))
+		icons, err := d.directory(directory)
 		if err != nil {
-			return nil, blitz.IOError("could not read icon directory", filepath.Join(resourceDir, filepath.FromSlash(directory)), err)
+			return nil, nil, err
 		}
-		files := map[string]string{}
-		for _, entry := range entries {
-			if entry.Type().IsRegular() {
-				name := unpackedPath(entry.Name())
-				// A plain file takes precedence over its .dvpl sibling.
-				if _, ok := files[name]; !ok || !isPacked(entry.Name()) {
-					files[name] = entry.Name()
-				}
+		for _, id := range slices.Sorted(maps.Keys(icons)) {
+			if err := add(icons[id]); err != nil {
+				return nil, nil, err
 			}
 		}
-		// Atlases are matched by stem so either resolution of one is skipped.
-		textures := map[string]bool{}
-		local := map[string]iconSource{}
-		for _, name := range slices.Sorted(maps.Keys(files)) {
-			stem, kind, ok := iconFileStem(name)
-			if !ok {
-				continue
-			}
-			id, double := strings.CutSuffix(stem, "@2x")
-			source := iconSource{id: id, relative: directory + "/" + name,
-				file: filepath.Join(resourceDir, filepath.FromSlash(directory), files[name]), scale: 1}
-			if double {
-				source.scale = 2
-			}
-			if kind == "sprite" {
-				data, err := client.ReadClientAsset(source.file)
-				if err != nil {
-					return nil, err
-				}
-				if source.sprite, err = sprite.Parse(data); err != nil {
-					return nil, atPath(err, source.file)
-				}
-				for _, texture := range source.sprite.Textures {
-					if stem, _, ok := iconFileStem(path.Base(texture)); ok {
-						textures[strings.TrimSuffix(stem, "@2x")] = true
-					}
-				}
-			}
-			key := source.id + "\x00" + kind
-			if current, ok := local[key]; !ok || source.scale > current.scale {
-				local[key] = source
-			}
+	}
+	referenced := map[string]string{}
+	for _, reference := range references {
+		directory, name := path.Split(reference)
+		directory = strings.TrimSuffix(directory, "/")
+		if !isDir(filepath.Join(d.resourceDir, filepath.FromSlash(directory))) {
+			continue
 		}
-		for _, source := range local {
-			if source.sprite == nil && textures[source.id] {
-				continue
-			}
-			if existing, ok := byID[source.id]; ok {
-				return nil, blitz.ErrorAt("ICON_EXPORT_DUPLICATE", fmt.Sprintf(
-					"icon set %s has two icons named %s: %s and %s", set.id, source.id, existing.relative, source.relative), source.file)
-			}
-			byID[source.id] = source
+		icons, err := d.directory(directory)
+		if err != nil {
+			return nil, nil, err
 		}
+		source, ok := icons[spriteReferenceStem(name)]
+		if !ok {
+			continue
+		}
+		if err := add(source); err != nil {
+			return nil, nil, err
+		}
+		referenced[reference] = source.id
 	}
 	out := make([]iconSource, 0, len(byID))
 	for _, id := range slices.Sorted(maps.Keys(byID)) {
 		out = append(out, byID[id])
 	}
-	return out, nil
+	return out, referenced, nil
+}
+
+// directory returns the icons of one directory by ID, preferring @2x
+// variants. Images used as atlases by its descriptors are not icons.
+func (d *iconDirectories) directory(directory string) (map[string]iconSource, error) {
+	if icons, ok := d.cache[directory]; ok {
+		return icons, nil
+	}
+	absolute := filepath.Join(d.resourceDir, filepath.FromSlash(directory))
+	entries, err := os.ReadDir(absolute)
+	if err != nil {
+		return nil, blitz.IOError("could not read icon directory", absolute, err)
+	}
+	files := map[string]string{}
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			name := unpackedPath(entry.Name())
+			// A plain file takes precedence over its .dvpl sibling.
+			if _, ok := files[name]; !ok || !isPacked(entry.Name()) {
+				files[name] = entry.Name()
+			}
+		}
+	}
+	// Atlases are matched by stem so either resolution of one is skipped.
+	textures := map[string]bool{}
+	local := map[string]iconSource{}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		stem, kind, ok := iconFileStem(name)
+		if !ok {
+			continue
+		}
+		id, double := strings.CutSuffix(stem, "@2x")
+		source := iconSource{id: id, relative: directory + "/" + name, file: filepath.Join(absolute, files[name]), scale: 1}
+		if double {
+			source.scale = 2
+		}
+		if kind == "sprite" {
+			data, err := client.ReadClientAsset(source.file)
+			if err != nil {
+				return nil, err
+			}
+			if source.sprite, err = sprite.Parse(data); err != nil {
+				return nil, atPath(err, source.file)
+			}
+			for _, texture := range source.sprite.Textures {
+				if stem, _, ok := iconFileStem(path.Base(texture)); ok {
+					textures[strings.TrimSuffix(stem, "@2x")] = true
+				}
+			}
+		} else {
+			// Packed images may carry their own canvas and frame.
+			data, err := client.ReadClientAsset(source.file)
+			if err != nil {
+				return nil, err
+			}
+			if embedded, ok, err := sprite.Embedded(data); err != nil {
+				return nil, atPath(err, source.file)
+			} else if ok {
+				source.sprite = embedded
+			}
+		}
+		key := source.id + "\x00" + kind
+		if current, ok := local[key]; !ok || source.scale > current.scale {
+			local[key] = source
+		}
+	}
+	icons := map[string]iconSource{}
+	for _, key := range slices.Sorted(maps.Keys(local)) {
+		source := local[key]
+		if source.sprite == nil && textures[source.id] {
+			continue
+		}
+		if existing, ok := icons[source.id]; ok {
+			return nil, blitz.ErrorAt("ICON_EXPORT_DUPLICATE", fmt.Sprintf(
+				"%s has a sprite and an image named %s: %s and %s", directory, source.id, existing.relative, source.relative), source.file)
+		}
+		icons[source.id] = source
+	}
+	d.cache[directory] = icons
+	return icons, nil
+}
+
+// spriteReferenceStem drops the extension a UI sprite reference may carry:
+// the descriptor's, an image format, or the .psd the sprite was made from.
+func spriteReferenceStem(name string) string {
+	for _, extension := range []string{".txt", ".psd", ".packed.webp", ".webp", ".png"} {
+		if stem, ok := strings.CutSuffix(name, extension); ok {
+			return strings.TrimSuffix(stem, "@2x")
+		}
+	}
+	return strings.TrimSuffix(name, "@2x")
 }
 
 // iconFileStem splits an unpacked file name into its stem and icon kind.
@@ -260,7 +354,10 @@ func renderIcon(resourceDir string, source iconSource, atlases map[string]image.
 				fmt.Sprintf("icon sprite must have one frame, found %d", len(descriptor.Frames)), source.file)
 		}
 		frame := descriptor.Frames[0]
-		texture := path.Join(path.Dir(source.relative), descriptor.Textures[frame.Texture])
+		texture := source.relative
+		if name := descriptor.Textures[frame.Texture]; name != "" {
+			texture = path.Join(path.Dir(source.relative), name)
+		}
 		atlas, ok := atlases[texture]
 		if !ok {
 			file := client.ResolveClientAsset(resourceDir, filepath.FromSlash(texture))

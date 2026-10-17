@@ -17,17 +17,29 @@ The catalog module owns these distinct validation rules. Combined catalog
 discovery shares vehicle-list and localization reads between metadata and
 showroom-model results.
 
-# Icon vocabulary
+# Item and icon vocabulary
 
+- **Item**: a regular consumable, provision, or equipment definition with an
+  `<id>`. Event-specific item files are not read.
+- **Shell type**: an entry of the `<icons>` table in the nations' shells
+  lists, such as `ap_cr_premium`. A shell's icon depends only on its type, so
+  types are exported instead of individual shells.
+- **Icon key**: an item's `<icon>` or a shell type's ID. UI resources map keys
+  to sprites; the item never names its sprite. Selectors with state or event
+  classes are ignored.
 - **Sprite descriptor**: a DAVA `.txt` resource that places frames from texture
-  atlases onto a canvas of fixed size. `resources/sprite` parses it.
-- **Icon set**: a named group of client directories exported to one folder.
-  Every descriptor and standalone image in them is an icon; atlases referenced
-  by descriptors are not. The icon ID is the file name without `@2x` and
+  atlases onto a canvas of fixed size, or the same text embedded in a packed
+  WebP's `extr` chunk, where it refers to the image itself. `resources/sprite`
+  parses both.
+- **Icon set**: a named group of client directories exported to one folder,
+  plus the sprites its items reference from other directories. Every
+  descriptor and image in the directories is an icon; atlases referenced by
+  descriptors are not. The icon ID is the file name without `@2x` and
   extension, and must be unique within its set.
 - **Icon catalog**: `assets/icons/catalog.json`, listing sets and icons with
   size, resolution scale, and source resource. Adding a set means adding a row
-  to `iconSets` in the export module.
+  to `iconSets` in the export module; items link to icons through
+  `items.json`.
 
 # Geometry vocabulary
 

@@ -15,7 +15,7 @@ import (
 type ClientExportOptions struct {
 	// GameDir is the install directory or its Data directory; empty uses platform defaults.
 	GameDir string
-	// OutputDir receives maps.json, tanks.json, assets/icons and assets/tanks.
+	// OutputDir receives maps.json, tanks.json, items.json, assets/icons and assets/tanks.
 	OutputDir string
 	// DataOnly skips the model export; metadata and icons are still written.
 	DataOnly bool
@@ -28,22 +28,29 @@ func NewClientExportOptions(outputDir string) ClientExportOptions {
 	return ClientExportOptions{OutputDir: outputDir, ModelOptions: NewTankExportOptions(outputDir)}
 }
 
-// ClientExportReport summarizes a combined export.
+// ClientExportReport summarizes a combined export. ItemCount counts
+// consumables, provisions, and equipment; MissingItemIcons lists the
+// "kind/key" icon keys that got no icon.
 type ClientExportReport struct {
-	OutputDir      string            `json:"outputDir"`
-	MapsFile       string            `json:"mapsFile"`
-	TanksFile      string            `json:"tanksFile"`
-	MapCount       int               `json:"mapCount"`
-	TankCount      int               `json:"tankCount"`
-	DataOnly       bool              `json:"dataOnly"`
-	IconExport     *IconExportReport `json:"iconExport"`
-	ModelExport    *TankExportReport `json:"modelExport,omitempty"`
-	ElapsedSeconds jsonx.F64         `json:"elapsedSeconds"`
+	OutputDir        string            `json:"outputDir"`
+	MapsFile         string            `json:"mapsFile"`
+	TanksFile        string            `json:"tanksFile"`
+	ItemsFile        string            `json:"itemsFile"`
+	MapCount         int               `json:"mapCount"`
+	TankCount        int               `json:"tankCount"`
+	ShellTypeCount   int               `json:"shellTypeCount"`
+	ItemCount        int               `json:"itemCount"`
+	MissingItemIcons []string          `json:"missingItemIcons"`
+	DataOnly         bool              `json:"dataOnly"`
+	IconExport       *IconExportReport `json:"iconExport"`
+	ModelExport      *TankExportReport `json:"modelExport,omitempty"`
+	ElapsedSeconds   jsonx.F64         `json:"elapsedSeconds"`
 }
 
-// ExportClient exports client maps, full tank metadata, icons, and optionally
-// the model bundles in one run. Resource lists and localization are shared with
-// model discovery, and the metadata files use the legacy exporter's schema.
+// ExportClient exports client maps, full tank metadata, items, icons, and
+// optionally the model bundles in one run. Resource lists and localization
+// are shared with model discovery, and the metadata files use the legacy
+// exporter's schema.
 func ExportClient(options ClientExportOptions) (*ClientExportReport, error) {
 	started := time.Now()
 	resolved, err := client.ResolveGameDir(options.GameDir)
@@ -85,9 +92,23 @@ func ExportClient(options ClientExportOptions) (*ClientExportReport, error) {
 		TankCount: len(catalog.Tanks),
 		DataOnly:  options.DataOnly,
 	}
-	if report.IconExport, err = exportIcons(resolved.ResourceDir, outputDir, iconSets); err != nil {
+	sprites, err := client.ReadItemIconSprites(resolved.ResourceDir)
+	if err != nil {
 		return nil, err
 	}
+	icons, index, err := exportIcons(resolved.ResourceDir, outputDir, iconSets, itemIconReferences(catalog.Items, sprites))
+	if err != nil {
+		return nil, err
+	}
+	report.IconExport = icons
+	items, missing := linkItemIcons(catalog.Items, sprites, index)
+	report.ItemsFile = filepath.Join(outputDir, "items.json")
+	if err := writeJSON(report.ItemsFile, items, false); err != nil {
+		return nil, err
+	}
+	report.ShellTypeCount = len(items.Shells)
+	report.ItemCount = len(items.Consumables) + len(items.Provisions) + len(items.Equipment)
+	report.MissingItemIcons = missing
 	if !options.DataOnly {
 		modelOptions := options.ModelOptions
 		modelOptions.GameDir = resolved.GameDir

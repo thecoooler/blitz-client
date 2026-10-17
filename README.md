@@ -115,13 +115,71 @@ continues to reject incomplete or invalid required tank metadata, including
 records without model files. Unreadable resources and invalid XML or DVPL
 containers remain errors in both commands.
 
-`client export` writes `maps.json` and `tanks.json` into the output directory, exports icons under `assets/icons`, then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files and icons always cover the full client. Add `--data-only` to skip model conversion; icons are still exported.
+`client export` writes `maps.json`, `tanks.json`, and `items.json` into the output directory, exports icons under `assets/icons` (see [Items and icons](#items-and-icons)), then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files, items, and icons always cover the full client. Add `--data-only` to skip model conversion; icons are still exported.
 
-The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests.
+The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
+
+The model exporter is implemented in Go and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
+
+The following model options apply to both model export commands:
+
+- `--tank <ID|nation/ID>` can be repeated. An unqualified ID must be unique across nations.
+- `--nation <nation>` filters automatic discovery; `--limit N` exports at most N successful models. A limit of 0 means all models.
+- `--max-texture-size original|N|WIDTHxHEIGHT` caps source textures; the default is `1024x1024`.
+- `--texture-format webp|png` selects texture format; WebP is the default. `--webp-quality 0..100` sets lossy base-color quality.
+- `--pbr` exports the PBR maps and tangent basis. `--no-compress` writes plain model JSON and geometry instead of `.br` assets.
+- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Go exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
+
+SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+
+SCG groups share binary-layout, buffer-size, and triangle-index validation.
+Geometry is decoded only for groups referenced by the selected scene nodes;
+unused groups still require valid, unique IDs. Used groups with unknown vertex
+layout bits or overflowing counts produce an explicit error. Showroom UV/normal
+repairs and collision armor-zone checks remain specific to their export paths.
+
+## Items and icons
+
+`client export` writes `items.json` with the shell types and the regular consumables, provisions, and equipment, and exports their icons as PNG under `assets/icons`. Event-specific items and icon folders are not included.
+
+### Items
+
+A shell's icon depends only on its type, so `shells` lists shell types rather than individual shells. The types come from the `<icons>` table of each available nation's `components/shells.xml`, merged in first-seen order; a type must have the same image name in every nation. The type `id` is the key shells use in `<icon>`. `premium` comes from the `_PREMIUM` suffix of `name`, and `userString` is the localized `<name without _PREMIUM>_FULL` string, empty when the client has none (as for ATGM types).
+
+Consumables, provisions, and equipment come from `XML/item_defs/vehicles/common/consumables/common.xml`, `provisions/common.xml`, and `optional_devices.xml`; every element with an `<id>` is an item. A missing list contributes nothing.
+
+```json
+{
+  "shells": [
+    { "id": "ap_cr_premium", "name": "ARMOR_PIERCING_CR_PREMIUM", "premium": true,
+      "userString": "Подкалиберный снаряд", "icon": "assets/icons/shells/ap_cr_premium_l.png" }
+  ],
+  "consumables": [
+    { "id": 45, "name": "tungstenTip", "userString": "Вольфрамовые сердечники", "description": "…",
+      "iconKey": "tungstentip", "icon": "assets/icons/consumables/consumable_tungsten-tip_m.png" }
+  ],
+  "provisions": [],
+  "equipment": []
+}
+```
+
+Item `userString` and `description` are localized from `Strings/ru.yaml` and keep the key when no translation exists; hidden service items have none and export empty strings. `icon` is relative to the export directory and is `null` when there is no icon.
+
+`iconKey` is the item's `<icon>`, and a shell type's key is its `id`. The client UI, not the item, decides which sprite shows for a key, so the exporter reads the same UI resources:
+
+| Items | UI resource | Selector |
+| --- | --- | --- |
+| Consumables, provisions | `UI/Screens3/Lobby/Inventory/Equipment/EquipmentItemImage.style` | `.equipment_item.<key> * .equipment-img` |
+| | `UI/Styles/Lobby/Inventory/InventoryBigStyles.style` | `.equipment_item.<key> #icon` |
+| | `UI/Styles/Lobby/Inventory/InventoryNormalStyles.style` | `.equipment_item.<key> #icon`, then `#icon.small` |
+| Equipment | `UI/Screens3/Lobby/Inventory/OptionalDevices/OptionalDevicesItemImage.style` | `.optional_device_item.<key> #Img` |
+| Shells | `UI/Screens3/Lobby/Inventory/Ammo/AmmoInfoOverlay.yaml` | `slot.iconType == "<key>"` cases |
+
+The first resource and selector that define a key win. Selectors with extra classes, such as event variants or ability states (`.ready`, `.cooldown`), are ignored, so abilities that only have state icons get no icon. The report's `missingItemIcons` lists `kind/key` pairs left without an icon, either because no selector defines the key or because its sprite does not exist.
 
 ### Icons
 
-Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png`:
+Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png`. Each set contains every icon of its client directories and every sprite its items reference from elsewhere:
 
 | Set | Client directories under `Data` |
 | --- | --- |
@@ -130,14 +188,14 @@ Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png
 | `provisions` | `Gfx/UI/InventoryIcons/Big/Provisions` |
 | `equipment` | `Gfx/UI/InventoryIcons/Big/OptionalDevices`, `Gfx/Lobby/tank-supply/optional-devices` |
 
-Every sprite descriptor (`.txt`) and standalone image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. Sprite frames are cut from their atlas and placed on the descriptor's full canvas, so icons of a set keep the client's alignment. Output is lossless PNG and needs no external tools. Event-specific icon folders are not exported. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export.
+Every sprite descriptor (`.txt`) and image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. Packed WebP images usually embed their own descriptor in an `extr` chunk; it places the image on its canvas like a separate descriptor. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. A UI sprite reference may omit the extension or name a `.psd` source; it resolves to the icon with the same ID in the referenced directory. Frames are placed on the descriptor's full canvas, so icons keep the client's alignment. Output is lossless PNG and needs no external tools. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export.
 
 `assets/icons/catalog.json` lists every icon:
 
 ```json
 {
   "formatVersion": 1,
-  "count": 98,
+  "count": 103,
   "sets": [
     {
       "id": "shells",
@@ -163,26 +221,7 @@ Every sprite descriptor (`.txt`) and standalone image in these directories becom
 }
 ```
 
-`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`; standalone images have `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
-
-The model exporter is implemented in Go and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
-
-The following model options apply to both model export commands:
-
-- `--tank <ID|nation/ID>` can be repeated. An unqualified ID must be unique across nations.
-- `--nation <nation>` filters automatic discovery; `--limit N` exports at most N successful models. A limit of 0 means all models.
-- `--max-texture-size original|N|WIDTHxHEIGHT` caps source textures; the default is `1024x1024`.
-- `--texture-format webp|png` selects texture format; WebP is the default. `--webp-quality 0..100` sets lossy base-color quality.
-- `--pbr` exports the PBR maps and tangent basis. `--no-compress` writes plain model JSON and geometry instead of `.br` assets.
-- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Go exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
-
-SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
-
-SCG groups share binary-layout, buffer-size, and triangle-index validation.
-Geometry is decoded only for groups referenced by the selected scene nodes;
-unused groups still require valid, unique IDs. Used groups with unknown vertex
-layout bits or overflowing counts produce an explicit error. Showroom UV/normal
-repairs and collision armor-zone checks remain specific to their export paths.
+`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`. A packed image with an embedded descriptor is a `sprite` whose `texture` is its own `path`; an image without one has `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept.
 
 ## Unpacked client files
 

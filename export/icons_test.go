@@ -2,13 +2,19 @@ package export
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/thecoooler/blitz-client/client"
 )
 
 func pngBytes(t *testing.T, width, height int, fill func(x, y int) color.NRGBA) string {
@@ -69,7 +75,7 @@ func readPNG(t *testing.T, path string) image.Image {
 func TestExportsIconSetsWithCatalog(t *testing.T) {
 	f, sets := iconFixture(t)
 	output := f.path("output")
-	report, err := exportIcons(f.path("game/Data"), output, sets)
+	report, _, err := exportIcons(f.path("game/Data"), output, sets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,14 +131,14 @@ func TestExportsIconSetsWithCatalog(t *testing.T) {
 func TestIconExportKeepsUnchangedAndRemovesStaleIcons(t *testing.T) {
 	f, sets := iconFixture(t)
 	output := f.path("output")
-	if _, err := exportIcons(f.path("game/Data"), output, sets); err != nil {
+	if _, _, err := exportIcons(f.path("game/Data"), output, sets, nil); err != nil {
 		t.Fatal(err)
 	}
 	unrelated := f.write("output/assets/icons/b/custom.png", "user file")
 	if err := os.Remove(f.path("game/Data/Gfx/B2/plain@2x.png")); err != nil {
 		t.Fatal(err)
 	}
-	report, err := exportIcons(f.path("game/Data"), output, sets)
+	report, _, err := exportIcons(f.path("game/Data"), output, sets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,11 +156,11 @@ func TestIconExportKeepsUnchangedAndRemovesStaleIcons(t *testing.T) {
 func TestIconExportRejectsDuplicatesAndMissingSources(t *testing.T) {
 	f, sets := iconFixture(t)
 	f.write("game/Data/Gfx/B1/plain.png", pngBytes(t, 1, 1, atlasPixel))
-	if _, err := exportIcons(f.path("game/Data"), f.path("output"), sets); errorCode(err) != "ICON_EXPORT_DUPLICATE" {
+	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), sets, nil); errorCode(err) != "ICON_EXPORT_DUPLICATE" {
 		t.Fatalf("expected ICON_EXPORT_DUPLICATE, got %v", err)
 	}
 	missing := []iconSet{{"missing", []string{"Gfx/Missing"}}}
-	if _, err := exportIcons(f.path("game/Data"), f.path("output"), missing); errorCode(err) != "IO_ERROR" {
+	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), missing, nil); errorCode(err) != "IO_ERROR" {
 		t.Fatalf("expected IO_ERROR, got %v", err)
 	}
 }
@@ -162,7 +168,86 @@ func TestIconExportRejectsDuplicatesAndMissingSources(t *testing.T) {
 func TestIconExportRejectsFramesOutsideAtlas(t *testing.T) {
 	f, sets := iconFixture(t)
 	f.packed("game/Data/Gfx/A/red@2x.txt.dvpl", "1\ntexture0@2x.png\n6 5\n1\n3 3 2 2 0 0 0\n", 1)
-	if _, err := exportIcons(f.path("game/Data"), f.path("output"), sets); errorCode(err) != "ICON_EXPORT_INVALID" {
+	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), sets, nil); errorCode(err) != "ICON_EXPORT_INVALID" {
 		t.Fatalf("expected ICON_EXPORT_INVALID, got %v", err)
+	}
+}
+
+// tinyWebP is a 4x2 lossless WebP filled with (60, 100, 7).
+const tinyWebP = "UklGRh4AAABXRUJQVlA4TBEAAAAvA0AAAAdQsvL0oP+BiOh/AAA="
+
+// packedWebP appends an embedded sprite descriptor to tinyWebP.
+func packedWebP(t *testing.T, descriptor string) string {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString(tinyWebP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, "extr"...)
+	data = binary.LittleEndian.AppendUint32(data, uint32(len(descriptor)))
+	data = append(data, descriptor...)
+	if len(descriptor)%2 == 1 {
+		data = append(data, 0)
+	}
+	binary.LittleEndian.PutUint32(data[4:8], uint32(len(data)-8))
+	return string(data)
+}
+
+func TestPackedImagesAndItemReferencesJoinIconSets(t *testing.T) {
+	f, _ := iconFixture(t)
+	f.packed("game/Data/Gfx/Other/packed@2x.packed.webp.dvpl", packedWebP(t, "1\n\n6 6\n1\n0 0 4 2 1 3 0 \n"), 2)
+	f.write("game/Data/Gfx/Other/packed.packed.webp", packedWebP(t, "1\n\n3 3\n1\n0 0 2 1 0 0 0 \n"))
+	items := &client.ClientItems{Shells: []client.ClientShellType{{ID: "ap"}, {ID: "atgm_he"}}, Consumables: []client.ClientItem{
+		{ID: 1, IconKey: "packed"}, {ID: 2, IconKey: "red"}, {ID: 3, IconKey: "packed"},
+		{ID: 4, IconKey: "gone"}, {ID: 5, IconKey: "elsewhere"}, {ID: 6, IconKey: "unstyled"}, {ID: 7},
+	}}
+	sprites := map[client.ItemKind]map[string]string{client.ItemConsumables: {
+		"packed": "Gfx/Other/packed.psd", "red": "Gfx/A/red.txt",
+		"gone": "Gfx/Other/gone", "elsewhere": "Gfx/Nowhere/icon.txt",
+	}, client.ItemShells: {"ap": "Gfx/A/red"}}
+	sets := []iconSet{{"shells", nil}, {"consumables", []string{"Gfx/A"}}}
+	output := f.path("output")
+	report, index, err := exportIcons(f.path("game/Data"), output, sets, itemIconReferences(items, sprites))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.IconCount != 3 || len(index["consumables"]) != 2 || index["shells"]["Gfx/A/red"] != "shells/red.png" ||
+		index["consumables"]["Gfx/Other/packed.psd"] != "consumables/packed.png" ||
+		index["consumables"]["Gfx/A/red.txt"] != "consumables/red.png" {
+		t.Fatalf("report %+v, index %v", report, index)
+	}
+	packed := readCatalog(t, report.Catalog).Sets[1].Icons[0]
+	if packed.ID != "packed" || packed.Width != 6 || packed.Height != 6 || packed.Scale != 2 ||
+		packed.Source.Kind != "sprite" || packed.Source.Texture != "Gfx/Other/packed@2x.packed.webp" ||
+		packed.Source.Path != packed.Source.Texture || *packed.Source.Frame != (IconFrame{Width: 4, Height: 2, OffsetX: 1, OffsetY: 3}) {
+		t.Fatalf("unexpected packed icon %+v", packed)
+	}
+	img := readPNG(t, filepath.Join(output, "assets/icons/consumables/packed.png"))
+	for point, want := range map[image.Point]color.NRGBA{
+		{1, 3}: {60, 100, 7, 255}, {4, 4}: {60, 100, 7, 255}, {0, 3}: {}, {5, 4}: {}, {1, 5}: {},
+	} {
+		if got := color.NRGBAModel.Convert(img.At(point.X, point.Y)); got != want {
+			t.Errorf("pixel %v = %v, want %v", point, got, want)
+		}
+	}
+
+	file, missing := linkItemIcons(items, sprites, index)
+	icons := map[int64]string{}
+	for _, entry := range file.Consumables {
+		if entry.Icon != nil {
+			icons[entry.ID] = *entry.Icon
+		}
+	}
+	if len(file.Shells) != 2 || file.Shells[0].Icon == nil || *file.Shells[0].Icon != "assets/icons/shells/red.png" ||
+		file.Shells[1].Icon != nil {
+		t.Fatalf("unexpected shell types %+v", file.Shells)
+	}
+	if len(file.Consumables) != 7 ||
+		!maps.Equal(icons, map[int64]string{1: "assets/icons/consumables/packed.png",
+			2: "assets/icons/consumables/red.png", 3: "assets/icons/consumables/packed.png"}) {
+		t.Fatalf("unexpected items %+v", file)
+	}
+	if !slices.Equal(missing, []string{"consumables/elsewhere", "consumables/gone", "consumables/unstyled", "shells/atgm_he"}) {
+		t.Fatalf("unexpected missing keys %v", missing)
 	}
 }

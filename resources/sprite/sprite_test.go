@@ -1,6 +1,7 @@
 package sprite
 
 import (
+	"encoding/binary"
 	"slices"
 	"testing"
 
@@ -35,5 +36,47 @@ func TestRejectsInvalidDescriptors(t *testing.T) {
 		if _, err := Parse([]byte(source)); blitz.AsError(err) == nil || blitz.AsError(err).Code != "SPRITE_INVALID" {
 			t.Errorf("%s: expected SPRITE_INVALID, got %v", name, err)
 		}
+	}
+}
+
+// riff builds a WebP container from tagged chunks.
+func riff(chunks ...string) []byte {
+	body := []byte("WEBP")
+	for index := 0; index < len(chunks); index += 2 {
+		data := chunks[index+1]
+		body = append(body, chunks[index]...)
+		body = binary.LittleEndian.AppendUint32(body, uint32(len(data)))
+		body = append(body, data...)
+		if len(data)%2 == 1 {
+			body = append(body, 0)
+		}
+	}
+	return append(binary.LittleEndian.AppendUint32([]byte("RIFF"), uint32(len(body))), body...)
+}
+
+func TestReadsEmbeddedDescriptor(t *testing.T) {
+	data := riff("VP8X", "odd", "extr", "1\n\n192 192\n1\n0 0 122 151 30 17 0 \n")
+	sprite, ok, err := Embedded(data)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if !slices.Equal(sprite.Textures, []string{""}) || sprite.Width != 192 ||
+		sprite.Frames[0] != (Frame{Width: 122, Height: 151, OffsetX: 30, OffsetY: 17}) {
+		t.Fatalf("unexpected sprite %+v", sprite)
+	}
+	for name, data := range map[string][]byte{
+		"png":        []byte("\x89PNG\r\n\x1a\n...."),
+		"plain webp": riff("VP8L", "pixels"),
+	} {
+		if _, ok, err := Embedded(data); ok || err != nil {
+			t.Errorf("%s: ok=%v err=%v", name, ok, err)
+		}
+	}
+	truncated := riff("extr", "1\n\n1 1\n1\n0 0 1 1 0 0 0\n")
+	if _, _, err := Embedded(truncated[:len(truncated)-4]); blitz.AsError(err).Code != "SPRITE_INVALID" {
+		t.Fatalf("expected SPRITE_INVALID, got %v", err)
+	}
+	if _, _, err := Embedded(riff("extr", "1\n\n1 1\n1\n0 0 2 2 0 0 0\n")); blitz.AsError(err).Code != "SPRITE_INVALID" {
+		t.Fatalf("expected SPRITE_INVALID, got %v", err)
 	}
 }

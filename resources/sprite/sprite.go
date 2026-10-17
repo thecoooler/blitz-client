@@ -1,8 +1,11 @@
 // Package sprite parses DAVA sprite descriptors: the .txt resources that
-// place named frames from one or more texture atlases onto a sprite canvas.
+// place named frames from one or more texture atlases onto a sprite canvas,
+// and the descriptors embedded in packed WebP images.
 package sprite
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,6 +16,7 @@ import (
 // Sprite is a parsed descriptor.
 type Sprite struct {
 	// Textures are atlas file names relative to the descriptor's directory.
+	// An embedded descriptor names its own image with an empty string.
 	Textures []string
 	Width    int
 	Height   int
@@ -37,11 +41,10 @@ type Frame struct {
 //
 // Frames must lie inside the canvas and reference a listed texture.
 func Parse(data []byte) (*Sprite, error) {
+	// Lines are kept positionally: an embedded descriptor's texture name is empty.
 	var lines []string
 	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
+		lines = append(lines, strings.TrimSpace(line))
 	}
 	next := 0
 	line := func(what string) (string, error) {
@@ -118,6 +121,28 @@ func Parse(data []byte) (*Sprite, error) {
 		sprite.Frames = append(sprite.Frames, frame)
 	}
 	return sprite, nil
+}
+
+// Embedded returns the descriptor stored in the "extr" chunk of a packed
+// WebP image, whose frames refer to the image itself. ok is false for other
+// data, including WebP images without the chunk.
+func Embedded(data []byte) (sprite *Sprite, ok bool, err error) {
+	if len(data) < 12 || !bytes.Equal(data[:4], []byte("RIFF")) || !bytes.Equal(data[8:12], []byte("WEBP")) {
+		return nil, false, nil
+	}
+	for offset := 12; offset+8 <= len(data); {
+		size := int(binary.LittleEndian.Uint32(data[offset+4 : offset+8]))
+		end := offset + 8 + size
+		if size < 0 || end > len(data) {
+			return nil, false, invalid("WebP chunk %q overruns the file", data[offset:offset+4])
+		}
+		if bytes.Equal(data[offset:offset+4], []byte("extr")) {
+			sprite, err := Parse(data[offset+8 : end])
+			return sprite, err == nil, err
+		}
+		offset = end + size&1
+	}
+	return nil, false, nil
 }
 
 func invalid(format string, args ...any) error {
