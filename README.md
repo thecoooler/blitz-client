@@ -197,7 +197,7 @@ Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png
 | `equipment` | `Gfx/UI/InventoryIcons/Big/OptionalDevices`, `Gfx/Lobby/tank-supply/optional-devices` |
 | `crew-skills` | `Gfx/UI/CrewSkillIcons` |
 
-Every sprite descriptor (`.txt`) and image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. Packed WebP images usually embed their own descriptor in an `extr` chunk; it places the image on its canvas like a separate descriptor. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. A UI sprite reference may omit the extension or name a `.psd` source; it resolves to the icon with the same ID in the referenced directory. Frames are placed on the descriptor's full canvas, so icons keep the client's alignment. Output is lossless PNG and needs no external tools. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export.
+Every sprite descriptor (`.txt`) and image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. Packed WebP images usually embed their own descriptor in an `extr` chunk; it places the image on its canvas like a separate descriptor. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. A UI sprite reference may omit the extension or name a `.psd` source; it resolves to the icon with the same ID in the referenced directory. Frames are placed on the descriptor's full canvas, so icons keep the client's alignment. Output is lossless PNG and needs no external tools. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export. Images in different formats with the same ID are duplicates, including when their resolution suffixes differ. Descriptor canvases are limited to 16,777,216 pixels (64 MiB of RGBA data); oversized canvases and overflowing frame coordinates are rejected.
 
 `assets/icons/catalog.json` lists every icon:
 
@@ -230,7 +230,7 @@ Every sprite descriptor (`.txt`) and image in these directories becomes one icon
 }
 ```
 
-`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`. A packed image with an embedded descriptor is a `sprite` whose `texture` is its own `path`; an image without one has `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept.
+`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`. A packed image with an embedded descriptor is a `sprite` whose `texture` is its own `path`; an image without one has `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept. Catalog paths are normalized before comparison and deletion. UI sprite and atlas references must stay inside `Data`; both slash styles are accepted. Symlinks below the resource or output root are rejected when traversed by icon discovery, atlas reads, or output operations. Atlas exclusion uses full resource paths across all discovered directories, so unrelated images with the same basename remain icons.
 
 ## Unpacked client files
 

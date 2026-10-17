@@ -32,12 +32,16 @@ showroom-model results.
 - **Sprite descriptor**: a DAVA `.txt` resource that places frames from texture
   atlases onto a canvas of fixed size, or the same text embedded in a packed
   WebP's `extr` chunk, where it refers to the image itself. `resources/sprite`
-  parses both.
+  parses both and rejects canvases over 16,777,216 pixels and overflowing frame
+  coordinates.
 - **Icon set**: a named group of client directories exported to one folder,
   plus the sprites its items reference from other directories. Every
   descriptor and image in the directories is an icon; atlases referenced by
   descriptors are not. The icon ID is the file name without `@2x` and
-  extension, and must be unique within its set.
+  extension, and must be unique within its set. Different image formats do not
+  count as resolution variants. Atlas exclusion compares full resource paths
+  across discovered directories. References must stay inside `Data`; icon path
+  operations reject symlinks below the chosen resource and output roots.
 - **Icon catalog**: `assets/icons/catalog.json`, listing sets and icons with
   size, resolution scale, and source resource. Adding a set means adding a row
   to `iconSets` in the export module; items link to icons through

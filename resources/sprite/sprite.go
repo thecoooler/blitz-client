@@ -95,6 +95,11 @@ func Parse(data []byte) (*Sprite, error) {
 	if sprite.Width <= 0 || sprite.Height <= 0 {
 		return nil, invalid("sprite size must be positive, got %dx%d", sprite.Width, sprite.Height)
 	}
+	// Bound an RGBA canvas to 64 MiB before consumers allocate it.
+	const maxPixels = 16 * 1024 * 1024
+	if sprite.Width > maxPixels/sprite.Height {
+		return nil, invalid("sprite canvas exceeds %d pixels", maxPixels)
+	}
 	frameCount, _, err := numbers("frame count", 1)
 	if err != nil {
 		return nil, err
@@ -113,7 +118,8 @@ func Parse(data []byte) (*Sprite, error) {
 		case frame.X < 0 || frame.Y < 0 || frame.Width <= 0 || frame.Height <= 0:
 			return nil, invalid("frame %d has an invalid atlas rectangle", index)
 		case frame.OffsetX < 0 || frame.OffsetY < 0 ||
-			frame.OffsetX+frame.Width > sprite.Width || frame.OffsetY+frame.Height > sprite.Height:
+			frame.OffsetX > sprite.Width || frame.OffsetY > sprite.Height ||
+			frame.Width > sprite.Width-frame.OffsetX || frame.Height > sprite.Height-frame.OffsetY:
 			return nil, invalid("frame %d does not fit the %dx%d sprite", index, sprite.Width, sprite.Height)
 		case frame.Texture < 0 || frame.Texture >= len(sprite.Textures):
 			return nil, invalid("frame %d references missing texture %d", index, frame.Texture)

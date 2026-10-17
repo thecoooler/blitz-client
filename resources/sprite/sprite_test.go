@@ -2,6 +2,7 @@ package sprite
 
 import (
 	"encoding/binary"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -78,5 +79,19 @@ func TestReadsEmbeddedDescriptor(t *testing.T) {
 	}
 	if _, _, err := Embedded(riff("extr", "1\n\n1 1\n1\n0 0 2 2 0 0 0\n")); blitz.AsError(err).Code != "SPRITE_INVALID" {
 		t.Fatalf("expected SPRITE_INVALID, got %v", err)
+	}
+}
+
+func TestRejectsOversizedCanvasAndOverflowingFrame(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	for _, descriptor := range []string{
+		fmt.Sprintf("1\nt.png\n%d 2\n1\n0 0 1 1 0 0 0\n", maxInt),
+		"1\nt.png\n8192 8192\n1\n0 0 1 1 0 0 0\n",
+		fmt.Sprintf("1\nt.png\n10 10\n1\n0 0 2 1 %d 0 0\n", maxInt),
+		fmt.Sprintf("1\nt.png\n10 10\n1\n0 0 %d 1 2 0 0\n", maxInt),
+	} {
+		if _, err := Parse([]byte(descriptor)); err == nil || blitz.AsError(err).Code != "SPRITE_INVALID" {
+			t.Fatalf("expected SPRITE_INVALID, got %v", err)
+		}
 	}
 }

@@ -122,12 +122,39 @@ type iconIndex map[string]map[string]string
 // previous catalog and absent from the new one are removed; other files are
 // kept.
 func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[string][]string) (*IconExportReport, iconIndex, error) {
-	root := filepath.Join(outputDir, "assets", "icons")
-	catalogPath := filepath.Join(root, "catalog.json")
+	catalogPath, err := iconPath(outputDir, "assets/icons/catalog.json")
+	if err != nil {
+		return nil, nil, err
+	}
 	previous := previousIconFiles(catalogPath)
 	report := &IconExportReport{Catalog: catalogPath}
 	catalog := IconCatalog{FormatVersion: iconCatalogFormatVersion, Sets: []IconSetEntry{}}
-	directories := iconDirectories{resourceDir: resourceDir, cache: map[string]map[string]iconSource{}}
+	directories := iconDirectories{resourceDir: resourceDir, cache: map[string]map[string]iconSource{}, textures: map[string]bool{}}
+	// Discover every directory before selecting icons: an atlas can be named
+	// by a descriptor in another directory or set.
+	for _, set := range sets {
+		for _, directory := range set.sources {
+			if _, err := directories.directory(directory); err != nil {
+				return nil, nil, err
+			}
+		}
+		for _, reference := range references[set.id] {
+			clean, err := iconRelativePath(reference)
+			if err != nil {
+				return nil, nil, err
+			}
+			directory := path.Dir(clean)
+			absolute, err := iconPath(resourceDir, directory)
+			if err != nil {
+				return nil, nil, err
+			}
+			if isDir(absolute) {
+				if _, err := directories.directory(directory); err != nil {
+					return nil, nil, err
+				}
+			}
+		}
+	}
 	atlases := map[string]image.Image{}
 	written := map[string]bool{}
 	index := iconIndex{}
@@ -147,7 +174,11 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 				return nil, nil, err
 			}
 			icon.File = set.id + "/" + source.id + ".png"
-			changed, err := writeIfChanged(filepath.Join(root, filepath.FromSlash(icon.File)), encoded)
+			file, err := iconPath(outputDir, "assets/icons/"+icon.File)
+			if err != nil {
+				return nil, nil, err
+			}
+			changed, err := writeIfChanged(file, encoded)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -164,7 +195,11 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 	}
 	for _, file := range previous {
 		if !written[file] {
-			if err := os.Remove(filepath.Join(root, filepath.FromSlash(file))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			absolute, err := iconPath(outputDir, "assets/icons/"+file)
+			if err != nil {
+				return nil, nil, err
+			}
+			if err := os.Remove(absolute); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return nil, nil, blitz.IOError("could not remove stale icon", file, err)
 			}
 			report.RemovedCount++
@@ -181,6 +216,7 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 type iconDirectories struct {
 	resourceDir string
 	cache       map[string]map[string]iconSource
+	textures    map[string]bool
 }
 
 // set returns a set's icons sorted by ID and the IDs of the references that
@@ -197,7 +233,7 @@ func (d *iconDirectories) set(set iconSet, references []string) ([]iconSource, m
 		return nil
 	}
 	for _, directory := range set.sources {
-		icons, err := d.directory(directory)
+		icons, err := d.icons(directory)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -209,12 +245,19 @@ func (d *iconDirectories) set(set iconSet, references []string) ([]iconSource, m
 	}
 	referenced := map[string]string{}
 	for _, reference := range references {
-		directory, name := path.Split(reference)
-		directory = strings.TrimSuffix(directory, "/")
-		if !isDir(filepath.Join(d.resourceDir, filepath.FromSlash(directory))) {
+		clean, err := iconRelativePath(reference)
+		if err != nil {
+			return nil, nil, err
+		}
+		directory, name := path.Dir(clean), path.Base(clean)
+		absolute, err := iconPath(d.resourceDir, directory)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !isDir(absolute) {
 			continue
 		}
-		icons, err := d.directory(directory)
+		icons, err := d.icons(directory)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -234,13 +277,20 @@ func (d *iconDirectories) set(set iconSet, references []string) ([]iconSource, m
 	return out, referenced, nil
 }
 
-// directory returns the icons of one directory by ID, preferring @2x
-// variants. Images used as atlases by its descriptors are not icons.
+// directory discovers candidates by ID and kind, preferring @2x variants.
+// Atlas filtering waits until all descriptors have been discovered.
 func (d *iconDirectories) directory(directory string) (map[string]iconSource, error) {
+	directory, err := iconRelativePath(directory)
+	if err != nil {
+		return nil, err
+	}
 	if icons, ok := d.cache[directory]; ok {
 		return icons, nil
 	}
-	absolute := filepath.Join(d.resourceDir, filepath.FromSlash(directory))
+	absolute, err := iconPath(d.resourceDir, directory)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(absolute)
 	if err != nil {
 		return nil, blitz.IOError("could not read icon directory", absolute, err)
@@ -255,16 +305,20 @@ func (d *iconDirectories) directory(directory string) (map[string]iconSource, er
 			}
 		}
 	}
-	// Atlases are matched by stem so either resolution of one is skipped.
-	textures := map[string]bool{}
+	if d.textures == nil {
+		d.textures = map[string]bool{}
+	}
 	local := map[string]iconSource{}
 	for _, name := range slices.Sorted(maps.Keys(files)) {
 		stem, kind, ok := iconFileStem(name)
 		if !ok {
 			continue
 		}
+		if strings.ContainsAny(name, `\:`) {
+			return nil, blitz.ErrorAt("ICON_EXPORT_INVALID", "icon file name contains a path separator or drive prefix", filepath.Join(absolute, files[name]))
+		}
 		id, double := strings.CutSuffix(stem, "@2x")
-		source := iconSource{id: id, relative: directory + "/" + name, file: filepath.Join(absolute, files[name]), scale: 1}
+		source := iconSource{id: id, relative: path.Join(directory, name), file: filepath.Join(absolute, files[name]), scale: 1}
 		if double {
 			source.scale = 2
 		}
@@ -277,9 +331,17 @@ func (d *iconDirectories) directory(directory string) (map[string]iconSource, er
 				return nil, atPath(err, source.file)
 			}
 			for _, texture := range source.sprite.Textures {
-				if stem, _, ok := iconFileStem(path.Base(texture)); ok {
-					textures[strings.TrimSuffix(stem, "@2x")] = true
+				if texture == "" {
+					continue
 				}
+				relative, err := iconTexturePath(source.relative, texture)
+				if err != nil {
+					return nil, err
+				}
+				if _, err := iconPath(d.resourceDir, relative); err != nil {
+					return nil, err
+				}
+				d.textures[iconTextureKey(relative)] = true
 			}
 		} else {
 			// Packed images may carry their own canvas and frame.
@@ -293,24 +355,35 @@ func (d *iconDirectories) directory(directory string) (map[string]iconSource, er
 				source.sprite = embedded
 			}
 		}
-		key := source.id + "\x00" + kind
+		// Only equal formats can be resolution variants. Keep other formats
+		// until atlas exclusion, then reject any remaining ID collisions.
+		key := source.id + "\x00" + kind + "\x00" + strings.TrimPrefix(name, stem)
 		if current, ok := local[key]; !ok || source.scale > current.scale {
 			local[key] = source
 		}
 	}
+	d.cache[directory] = local
+	return local, nil
+}
+
+// icons resolves candidates after all atlas paths are known.
+func (d *iconDirectories) icons(directory string) (map[string]iconSource, error) {
+	candidates, err := d.directory(directory)
+	if err != nil {
+		return nil, err
+	}
 	icons := map[string]iconSource{}
-	for _, key := range slices.Sorted(maps.Keys(local)) {
-		source := local[key]
-		if source.sprite == nil && textures[source.id] {
+	for _, key := range slices.Sorted(maps.Keys(candidates)) {
+		source := candidates[key]
+		if d.isAtlas(source) {
 			continue
 		}
 		if existing, ok := icons[source.id]; ok {
 			return nil, blitz.ErrorAt("ICON_EXPORT_DUPLICATE", fmt.Sprintf(
-				"%s has a sprite and an image named %s: %s and %s", directory, source.id, existing.relative, source.relative), source.file)
+				"%s has two icons named %s: %s and %s", directory, source.id, existing.relative, source.relative), source.file)
 		}
 		icons[source.id] = source
 	}
-	d.cache[directory] = icons
 	return icons, nil
 }
 
@@ -357,10 +430,20 @@ func renderIcon(resourceDir string, source iconSource, atlases map[string]image.
 		frame := descriptor.Frames[0]
 		texture := source.relative
 		if name := descriptor.Textures[frame.Texture]; name != "" {
-			texture = path.Join(path.Dir(source.relative), name)
+			var err error
+			texture, err = iconTexturePath(source.relative, name)
+			if err != nil {
+				return IconEntry{}, nil, err
+			}
 		}
 		atlas, ok := atlases[texture]
 		if !ok {
+			if _, err := iconPath(resourceDir, texture); err != nil {
+				return IconEntry{}, nil, err
+			}
+			if _, err := iconPath(resourceDir, texture+".dvpl"); err != nil {
+				return IconEntry{}, nil, err
+			}
 			file := client.ResolveClientAsset(resourceDir, filepath.FromSlash(texture))
 			if file == "" {
 				return IconEntry{}, nil, blitz.ErrorAt("ICON_EXPORT_INVALID", "sprite atlas does not exist",
@@ -372,11 +455,11 @@ func renderIcon(resourceDir string, source iconSource, atlases map[string]image.
 			}
 			atlases[texture] = atlas
 		}
-		rect := image.Rect(frame.X, frame.Y, frame.X+frame.Width, frame.Y+frame.Height).Add(atlas.Bounds().Min)
-		if !rect.In(atlas.Bounds()) {
-			return IconEntry{}, nil, blitz.ErrorAt("ICON_EXPORT_INVALID",
-				fmt.Sprintf("sprite frame %v lies outside its %v atlas %s", rect, atlas.Bounds().Size(), texture), source.file)
+		if frame.X > atlas.Bounds().Dx() || frame.Y > atlas.Bounds().Dy() ||
+			frame.Width > atlas.Bounds().Dx()-frame.X || frame.Height > atlas.Bounds().Dy()-frame.Y {
+			return IconEntry{}, nil, blitz.ErrorAt("ICON_EXPORT_INVALID", "sprite frame lies outside its atlas", source.file)
 		}
+		rect := image.Rect(frame.X, frame.Y, frame.X+frame.Width, frame.Y+frame.Height).Add(atlas.Bounds().Min)
 		canvas = image.NewNRGBA(image.Rect(0, 0, descriptor.Width, descriptor.Height))
 		target := image.Rect(frame.OffsetX, frame.OffsetY, frame.OffsetX+frame.Width, frame.OffsetY+frame.Height)
 		draw.Draw(canvas, target, atlas, rect.Min, draw.Src)
@@ -419,8 +502,8 @@ func previousIconFiles(catalogPath string) []string {
 	for _, set := range catalog.Sets {
 		for _, icon := range set.Icons {
 			// Only PNG paths inside the icon folder are trusted for removal.
-			if filepath.IsLocal(filepath.FromSlash(icon.File)) && strings.HasSuffix(icon.File, ".png") {
-				files = append(files, icon.File)
+			if clean, err := iconRelativePath(icon.File); err == nil && strings.HasSuffix(clean, ".png") {
+				files = append(files, clean)
 			}
 		}
 	}
@@ -446,4 +529,55 @@ func atPath(err error, file string) error {
 	typed := *blitz.AsError(err)
 	typed.Path = file
 	return &typed
+}
+
+// iconRelativePath uses a portable spelling before applying native path rules.
+func iconRelativePath(relative string) (string, error) {
+	relative = strings.ReplaceAll(relative, `\`, "/")
+	clean := path.Clean(relative)
+	if strings.ContainsAny(clean, ":\x00") || !filepath.IsLocal(filepath.FromSlash(clean)) || path.IsAbs(clean) {
+		return "", blitz.ErrorAt("ICON_EXPORT_INVALID", "icon path must stay inside its root", relative)
+	}
+	return clean, nil
+}
+
+// iconPath rejects symlinks below the selected root, including the final file.
+// Like the other file exporter, it assumes the tree is not concurrently mutated.
+func iconPath(root, relative string) (string, error) {
+	clean, err := iconRelativePath(relative)
+	if err != nil {
+		return "", err
+	}
+	absolute := filepath.Join(root, filepath.FromSlash(clean))
+	for current := absolute; current != filepath.Clean(root); current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err == nil && info.Mode()&fs.ModeSymlink != 0 {
+			return "", blitz.ErrorAt("ICON_EXPORT_INVALID", "icon path contains a symlink", current)
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", blitz.IOError("could not inspect icon path", current, err)
+		}
+	}
+	return absolute, nil
+}
+
+func iconTexturePath(descriptor, texture string) (string, error) {
+	texture = strings.ReplaceAll(texture, `\`, "/")
+	if path.IsAbs(texture) || strings.Contains(texture, ":") {
+		return "", blitz.ErrorAt("ICON_EXPORT_INVALID", "atlas path must be relative to its descriptor", texture)
+	}
+	return iconRelativePath(path.Join(path.Dir(descriptor), texture))
+}
+
+func iconTextureKey(relative string) string {
+	stem, _, ok := iconFileStem(path.Base(relative))
+	if !ok {
+		return relative
+	}
+	return path.Join(path.Dir(relative), strings.TrimSuffix(stem, "@2x")+strings.TrimPrefix(path.Base(relative), stem))
+}
+
+func (d *iconDirectories) isAtlas(source iconSource) bool {
+	_, kind, _ := iconFileStem(path.Base(source.relative))
+	return kind == "image" && d.textures[iconTextureKey(source.relative)]
 }
