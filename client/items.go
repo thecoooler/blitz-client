@@ -52,25 +52,6 @@ type ClientShellType struct {
 	UserString string `json:"userString"`
 }
 
-// ClientCrewSkill is a crew skill from XML/item_defs/tankmen/avatar.xml.
-type ClientCrewSkill struct {
-	// ID is the XML element name, such as lucky_shot; the UI keys the skill's
-	// icon by it.
-	ID string `json:"id"`
-	// UserString, Description, Tip, and Features are localized from
-	// <userString>, <effectDescription>, <tipDescription>, and
-	// <featuresDescription>; empty when absent.
-	UserString  string `json:"userString"`
-	Description string `json:"description"`
-	Tip         string `json:"tip"`
-	Features    string `json:"features"`
-	// TankClass is the <skillsByClasses> entry listing the skill, such as
-	// lightTank; empty when none does.
-	TankClass string `json:"tankClass"`
-	// Type is the skill's <type>, such as trigger or continuous.
-	Type string `json:"type"`
-}
-
 // ClientItems groups item definitions by kind.
 type ClientItems struct {
 	Shells      []ClientShellType `json:"shells"`

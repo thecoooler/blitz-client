@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"math"
 	"slices"
 	"strings"
 
@@ -40,16 +39,14 @@ func (a *app) runClient(args []string) (bool, error) {
 		return true, nil
 	}
 	switch {
-	case len(args) >= 2 && args[0] == "files" && args[1] == "export":
+	case len(args) >= 2 && args[0] == "files" && args[1] == "unpack":
 		return a.runFilesExport(args[2:])
 	case len(args) >= 1 && args[0] == "export":
 		return a.runClientExport(args[1:])
 	case len(args) >= 2 && args[0] == "tanks" && args[1] == "list":
 		return a.runTankList(args[2:])
-	case len(args) >= 2 && args[0] == "tanks" && args[1] == "export":
-		return a.runTankExport(args[2:])
 	}
-	return false, usageError("expected client locate, client export, client files export, or client tanks list/export")
+	return false, usageError("expected client locate, client export, client files unpack, or client tanks list")
 }
 
 func (a *app) runFilesExport(args []string) (bool, error) {
@@ -113,7 +110,7 @@ func (a *app) runFilesExport(args []string) (bool, error) {
 		return false, usageError("--cache-dir and --no-cache cannot be combined")
 	}
 	if !hasOutput {
-		return false, usageError("client files export requires --output-dir <path>")
+		return false, usageError("client files unpack requires --output-dir <path>")
 	}
 	options.OutputDir = outputDir
 	if len(types) > 0 {
@@ -203,161 +200,75 @@ func (a *app) runTankList(args []string) (bool, error) {
 	return true, nil
 }
 
-func (a *app) runTankExport(args []string) (bool, error) {
-	options, viewerDir, _, err := parseModelExportOptions(args, false)
-	if err != nil {
-		return false, err
+func (a *app) runClientExport(args []string) (bool, error) {
+	o := export.NewClientExportOptions("")
+	hasInclude := false
+	for index := 0; index < len(args); index++ {
+		switch arg := args[index]; arg {
+		case "--game-dir", "--output-dir", "--cache-dir", "--server-config", "--include", "--max-texture-size", "--texture-format", "--webp-quality":
+			value, err := optionValue(args, &index, arg+" requires a value")
+			if err != nil {
+				return false, err
+			}
+			if value == "" {
+				return false, usageError(arg + " requires a nonempty value")
+			}
+			switch arg {
+			case "--game-dir":
+				o.GameDir = value
+			case "--output-dir":
+				o.OutputDir = value
+			case "--cache-dir":
+				o.CacheDir = value
+			case "--server-config":
+				o.ServerConfig = value
+			case "--include":
+				if !hasInclude {
+					o.Include = nil
+				}
+				o.Include, hasInclude = append(o.Include, value), true
+			case "--max-texture-size":
+				o.ModelOptions.MaxTextureSize, err = parseTextureSize(value)
+			case "--texture-format":
+				o.ModelOptions.TextureFormat = value
+			case "--webp-quality":
+				var quality uint64
+				quality, err = rs.ParseUint(value, 8)
+				if err == nil && quality > 100 {
+					err = usageError("--webp-quality must be from 0 to 100")
+				}
+				o.ModelOptions.WebPQuality = uint8(quality)
+			}
+			if err != nil {
+				return false, usageError(err.Error())
+			}
+		case "--no-cache":
+			o.NoCache = true
+		case "--no-compress":
+			o.ModelOptions.Compress = false
+		case "--no-pbr":
+			o.ModelOptions.IncludePBR = false
+		default:
+			return false, usageError("unexpected argument: " + arg)
+		}
 	}
-	if viewerDir == nil {
-		return false, usageError("client tanks export requires --viewer-dir <path>")
+	if o.OutputDir == "" {
+		return false, usageError("client export requires --output-dir <path>")
 	}
-	options.ViewerDir = *viewerDir
-	report, err := export.ExportTankCatalog(options)
+	report, err := export.ExportClient(o)
 	if err != nil {
 		return false, err
 	}
 	if a.json {
 		a.printJSON(report)
 	} else {
-		a.printf("Exported %d tank model(s); %d failed\n", report.ExportedCount, report.FailedCount)
-		a.printf("catalog: %s\n", report.Catalog)
-		a.printf("report: %s\n", report.ExportReport)
-		for _, failure := range report.Failures {
-			a.eprintf("FAIL %s: %s\n", failure.ID, failure.Error)
+		a.printf("Exported %d tanks, %d models (%s)\n", report.Tanks, report.Models, strings.Join(report.Included, ","))
+		a.printf("Snapshot: %s\n", report.File)
+		if len(report.Issues) > 0 {
+			a.printf("Media issues: %d (see data.json)\n", len(report.Issues))
 		}
 	}
 	return true, nil
-}
-
-func (a *app) runClientExport(args []string) (bool, error) {
-	modelOptions, outputDir, dataOnly, err := parseModelExportOptions(args, true)
-	if err != nil {
-		return false, err
-	}
-	if outputDir == nil {
-		return false, usageError("client export requires --output-dir <path>")
-	}
-	options := export.NewClientExportOptions(*outputDir)
-	options.GameDir = modelOptions.GameDir
-	options.ModelOptions = modelOptions
-	options.DataOnly = dataOnly
-	report, err := export.ExportClient(options)
-	if err != nil {
-		return false, err
-	}
-	if a.json {
-		a.printJSON(report)
-		return true, nil
-	}
-	a.printf("Exported %d map(s) and %d tank record(s)\n", report.MapCount, report.TankCount)
-	a.printf("maps: %s\n", report.MapsFile)
-	a.printf("tanks: %s\n", report.TanksFile)
-	a.printf("Exported %d shell type(s), %d item(s), and %d crew skill(s); %d icon key(s) without an icon\n",
-		report.ShellTypeCount, report.ItemCount, report.CrewSkillCount, len(report.MissingItemIcons))
-	a.printf("items: %s\n", report.ItemsFile)
-	if icons := report.IconExport; icons != nil {
-		a.printf("Exported %d icon(s): %d written, %d unchanged, %d removed\n",
-			icons.IconCount, icons.WrittenCount, icons.UnchangedCount, icons.RemovedCount)
-		a.printf("icon catalog: %s\n", icons.Catalog)
-	}
-	if models := report.ModelExport; models != nil {
-		a.printf("Exported %d tank model(s); %d failed\n", models.ExportedCount, models.FailedCount)
-		a.printf("model catalog: %s\n", models.Catalog)
-		a.printf("model report: %s\n", models.ExportReport)
-		for _, failure := range models.Failures {
-			a.eprintf("FAIL %s: %s\n", failure.ID, failure.Error)
-		}
-	}
-	return true, nil
-}
-
-func parseModelExportOptions(args []string, unified bool) (export.TankExportOptions, *string, bool, error) {
-	options := export.NewTankExportOptions(".")
-	var outputDir *string
-	dataOnly := false
-	fail := func(err error) (export.TankExportOptions, *string, bool, error) {
-		return export.TankExportOptions{}, nil, false, err
-	}
-	for index := 0; index < len(args); index++ {
-		arg := args[index]
-		switch {
-		case arg == "--game-dir":
-			value, err := optionValue(args, &index, "--game-dir requires a path")
-			if err != nil {
-				return fail(err)
-			}
-			if options.GameDir, err = gameDirOption(value); err != nil {
-				return fail(err)
-			}
-		case arg == "--viewer-dir" && !unified, arg == "--output-dir" && unified:
-			value, err := optionValue(args, &index, arg+" requires a path")
-			if err != nil {
-				return fail(err)
-			}
-			outputDir = &value
-		case arg == "--data-only" && unified:
-			dataOnly = true
-		case arg == "--tank":
-			value, err := optionValue(args, &index, "--tank requires an ID")
-			if err != nil {
-				return fail(err)
-			}
-			options.Tanks = append(options.Tanks, value)
-		case arg == "--nation":
-			value, err := optionValue(args, &index, "--nation requires a name")
-			if err != nil {
-				return fail(err)
-			}
-			options.Nation = asciiLower(value)
-		case arg == "--limit":
-			value, err := optionValue(args, &index, "--limit requires a number")
-			if err != nil {
-				return fail(err)
-			}
-			limit, err := rs.ParseUint(value, 64)
-			if err != nil {
-				return fail(usageError("--limit must be a non-negative integer"))
-			}
-			options.Limit = int(min(limit, uint64(math.MaxInt)))
-		case arg == "--max-texture-size":
-			value, err := optionValue(args, &index, "--max-texture-size requires a size")
-			if err != nil {
-				return fail(err)
-			}
-			if options.MaxTextureSize, err = parseTextureSize(value); err != nil {
-				return fail(err)
-			}
-		case arg == "--texture-format":
-			value, err := optionValue(args, &index, "--texture-format requires webp or png")
-			if err != nil {
-				return fail(err)
-			}
-			options.TextureFormat = value
-		case arg == "--webp-quality":
-			value, err := optionValue(args, &index, "--webp-quality requires a number")
-			if err != nil {
-				return fail(err)
-			}
-			quality, err := rs.ParseUint(value, 8)
-			if err != nil {
-				return fail(usageError("--webp-quality must be from 0 to 100"))
-			}
-			options.WebPQuality = uint8(quality)
-		case arg == "--pbr":
-			options.IncludePBR = true
-		case arg == "--no-compress":
-			options.Compress = false
-		case arg == "--force":
-			options.ForceTextures = true
-		case arg == "--prune":
-			options.Prune = true
-		case strings.HasPrefix(arg, "-"):
-			return fail(usageError("unknown option: " + arg))
-		default:
-			return fail(usageError("unexpected argument: " + arg))
-		}
-	}
-	return options, outputDir, dataOnly, nil
 }
 
 func parseTextureSize(value string) (*export.TextureSize, error) {

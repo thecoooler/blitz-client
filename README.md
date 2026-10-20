@@ -62,10 +62,9 @@ The executable is `blitz-client`.
 
 ```text
 blitz-client client locate [--game-dir <path>] [--json]
-blitz-client client files export --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--exclude <pattern>] [--dry-run] [--json]
+blitz-client client files unpack --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--exclude <pattern>] [--dry-run] [--json]
 blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
-blitz-client client export --output-dir <path> [--game-dir <path>] [--data-only] [model options]
-blitz-client client tanks export --viewer-dir <path> [--game-dir <path>] [options]
+blitz-client client export --output-dir <path> [--game-dir <path>] [--include <all|data,icons,models>]... [--cache-dir <path> | --no-cache] [model options]
 
 blitz-client mod list [--game-dir <path>] [--json]
 blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
@@ -87,50 +86,50 @@ blitz-client client locate
 blitz-client client tanks list --json
 blitz-client client tanks list --nation ussr
 
-blitz-client client export \
-  --game-dir "/path/to/Tanks Blitz" \
-  --output-dir "/path/to/export"
+# Complete snapshot: game data, tank UI icons and 3D models
+blitz-client client export --game-dir "/path/to/Data" --output-dir "/path/to/export"
 
-blitz-client client export \
-  --game-dir "/path/to/Tanks Blitz" \
-  --output-dir "/path/to/export" \
-  --data-only
+# Data only, without image reads or model conversion
+blitz-client client export --game-dir "/path/to/Data" --output-dir "/path/to/export-data" --include data
 
-blitz-client client tanks export \
-  --viewer-dir "/path/to/viewer" \
-  --limit 10
-
-blitz-client client tanks export \
-  --viewer-dir "/path/to/viewer" \
-  --tank china/Ch48_BZ_75
+# Data and icons, or only model assets with their vehicle identities
+blitz-client client export --output-dir "/path/to/export-icons" --include data,icons
+blitz-client client export --output-dir "/path/to/export-models" --include models
 ```
 
-`client tanks list` reports the vehicles with both showroom model files installed. The JSON response contains `count` and a `tanks` array with the ID, localized name, nation, level, `userString`, and source model paths.
+`client export` is the only game-data export command. It writes one versioned
+`data.json`, with all properties and media references of each tank in one record.
+Shared components, equipment, presets, provisions and localization live once in
+that same file. Crew skill definitions, effect parameters and activation conditions
+are included by `data`; localization fields retain their source keys. Supply
+`--server-config /path/to/server_config_*.dat` to add training levels, XP prices
+and acceleration economics from a local server cache. Without it, skill `levels`
+are null. Images and model payloads are external binary assets referenced
+by those records. No alternate `tanks.json`, `maps.json`, model catalog or raw
+source-document copies are produced. Consumers use the same schema for every
+selection; `included` declares the requested sections.
 
-Model discovery uses the vehicle XML node name as the tank ID. Localization,
-`userString`, and level are optional; the display name falls back to the node
-name with underscores replaced by spaces. Missing or invalid price, shop, and
-configuration metadata does not prevent model discovery. Full catalog export
-continues to reject incomplete or invalid required tank metadata, including
-records without model files. Unreadable resources and invalid XML or DVPL
-containers remain errors in both commands.
+`--include` defaults to `all`, or accepts a comma-separated selection of `data`,
+`icons`, `models`; the option may be repeated. `all` includes PBR model assets and
+can be expensive (`--no-pbr` skips them). There are
+no `--data-only`, `--skip-images` or separate model-export commands. Use a new or
+empty output directory; a failed export removes what it wrote. Resource loading uses the same Data/packs overlay as
+`client files unpack`; `--cache-dir` overrides packs, `--no-cache` disables it.
 
-`client export` writes `maps.json`, `tanks.json`, and `items.json` into the output directory, exports icons under `assets/icons` (see [Items and icons](#items-and-icons)), then exports the same tank model bundles as `client tanks export` under `assets/tanks`. The two metadata files preserve the former Python JSON export fields and localized Russian strings. Model filters such as `--tank`, `--nation`, and `--limit` affect only model bundles; the metadata files, items, and icons always cover the full client. Add `--data-only` to skip model conversion; icons are still exported.
+Encoding options apply only to model conversion:
 
-The combined exporter reads plain client resources and `.dvpl` resources through the same client reader used for model discovery. It does not process map images or tank icons and does not make API requests. The legacy `client tanks export --viewer-dir` command remains available for model-only exports.
+- `--max-texture-size original|N|WIDTHxHEIGHT` (default `1024x1024`).
+- `--texture-format webp|png` (default `webp`), `--webp-quality 0..100` (default 90).
+- `--no-compress` disables Brotli for model payloads. `data.json` is always plain JSON.
+- `--no-pbr` skips PBR maps and `model.pbr.bin`, keeping base-color textures only.
 
-The model exporter is implemented in Go and writes to `<viewer-dir>/assets/tanks` (or `<output-dir>/assets/tanks` for the combined command). It generates the viewer's `catalog.json` format (`formatVersion: 1`, `count`, `entries`) and `export-report.json`. Each successful entry points to the model bundle, optional armor files, and texture assets using the same URL layout the viewer already reads. Tank bundles are left in place unless `--prune` is explicitly supplied.
+The full contract and consumer examples are in [Game data export](docs/game-data-export.md).
+Go consumers can call `export.ReadClientExport(directory)` to load any selection.
+The viewer implementation is outside this repository; it must read `tanks[].model`
+from `data.json` instead of the removed `assets/tanks/catalog.json`. Binary model
+and armor schemas are unchanged. Site projects are not modified by this change.
 
-The following model options apply to both model export commands:
-
-- `--tank <ID|nation/ID>` can be repeated. An unqualified ID must be unique across nations.
-- `--nation <nation>` filters automatic discovery; `--limit N` exports at most N successful models. A limit of 0 means all models.
-- `--max-texture-size original|N|WIDTHxHEIGHT` caps source textures; the default is `1024x1024`.
-- `--texture-format webp|png` selects texture format; WebP is the default. `--webp-quality 0..100` sets lossy base-color quality.
-- `--pbr` exports the PBR maps and tangent basis. `--no-compress` writes plain model JSON and geometry instead of `.br` assets.
-- `--force` is accepted for explicit full regeneration. Texture caching is not enabled in this Go exporter yet, so exports currently rewrite textures on every run. `--prune` removes bundles omitted from the new catalog.
-
-SC2/SCG decoding, mesh transforms, geometry generation, armor joining, catalogs, and reports are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+SC2/SCG decoding, mesh transforms, geometry generation, armor joining and model bundles are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
 
 SCG groups share binary-layout, buffer-size, and triangle-index validation.
 Geometry is decoded only for groups referenced by the selected scene nodes;
@@ -140,111 +139,28 @@ repairs and collision armor-zone checks remain specific to their export paths.
 
 ## Items and icons
 
-`client export` writes `items.json` with the shell types, the regular consumables, provisions, and equipment, and the crew skills, and exports their icons as PNG under `assets/icons`. Event-specific items and icon folders are not included.
+The snapshot keeps shared item definitions and crew skills in `data.json`.
+Localization fields retain their source keys, with translations in `localization`.
+The `icons` section adds tank image references to `tanks[].icons`; see
+[Game data export](docs/game-data-export.md) for the schema and asset layout.
 
-### Items
-
-A shell's icon depends only on its type, so `shells` lists shell types rather than individual shells. The types come from the `<icons>` table of each available nation's `components/shells.xml`, merged in first-seen order; a type must have the same image name in every nation. The type `id` is the key shells use in `<icon>`. `premium` comes from the `_PREMIUM` suffix of `name`, and `userString` is the localized `<name without _PREMIUM>_FULL` string, empty when the client has none (as for ATGM types).
-
-Consumables, provisions, and equipment come from `XML/item_defs/vehicles/common/consumables/common.xml`, `provisions/common.xml`, and `optional_devices.xml`; every element with an `<id>` is an item. A missing list contributes nothing.
-
-```json
-{
-  "shells": [
-    { "id": "ap_cr_premium", "name": "ARMOR_PIERCING_CR_PREMIUM", "premium": true,
-      "userString": "Подкалиберный снаряд", "icon": "assets/icons/shells/ap_cr_premium_l.png" }
-  ],
-  "consumables": [
-    { "id": 45, "name": "tungstenTip", "userString": "Вольфрамовые сердечники", "description": "…",
-      "iconKey": "tungstentip", "icon": "assets/icons/consumables/consumable_tungsten-tip_m.png" }
-  ],
-  "provisions": [],
-  "equipment": []
-}
-```
-
-Crew skills come from the `<skills>` of `XML/item_defs/tankmen/avatar.xml`, in XML order. `id` is the skill's element name; `userString`, `description`, `tip`, and `features` are localized from `<userString>`, `<effectDescription>`, `<tipDescription>`, and `<featuresDescription>` and are empty when absent. `tankClass` is the `<skillsByClasses>` entry that lists the skill, and `type` is its `<type>` (`trigger` or `continuous`). A skill listed for two classes fails the export.
-
-```json
-{ "id": "skilled_ranging", "userString": "Лихая пристрелка", "description": "…", "tip": "…", "features": "…",
-  "tankClass": "lightTank", "type": "continuous", "icon": "assets/icons/crew-skills/skilled_ranging_1.png" }
-```
-
-Item `userString` and `description` are localized from `Strings/ru.yaml` and keep the key when no translation exists; hidden service items have none and export empty strings. `icon` is relative to the export directory and is `null` when there is no icon.
-
-`iconKey` is the item's `<icon>`; shell types and crew skills are keyed by their `id`. The client UI, not the item, decides which sprite shows for a key, so the exporter reads the same UI resources:
-
-| Items | UI resource | Selector |
-| --- | --- | --- |
-| Consumables, provisions | `UI/Screens3/Lobby/Inventory/Equipment/EquipmentItemImage.style` | `.equipment_item.<key> * .equipment-img` |
-| | `UI/Styles/Lobby/Inventory/InventoryBigStyles.style` | `.equipment_item.<key> #icon` |
-| | `UI/Styles/Lobby/Inventory/InventoryNormalStyles.style` | `.equipment_item.<key> #icon`, then `#icon.small` |
-| Equipment | `UI/Screens3/Lobby/Inventory/OptionalDevices/OptionalDevicesItemImage.style` | `.optional_device_item.<key> #Img` |
-| Shells | `UI/Screens3/Lobby/Inventory/Ammo/AmmoInfoOverlay.yaml` | `slot.iconType == "<key>"` cases |
-| Crew skills | `UI/Screens3/Lobby/Inventory/Crew/SkillImage.style` | `.crew_skills.<key> * .skill-img` |
-
-The first resource and selector that define a key win. Selectors with extra classes, such as event variants or ability states (`.ready`, `.cooldown`), are ignored, so abilities that only have state icons get no icon. Crew skills get their lobby icon; the per-state battle icons listed in `avatar.xml` are not exported. The report's `missingItemIcons` lists `kind/key` pairs left without an icon, either because no selector defines the key or because its sprite does not exist.
-
-### Icons
-
-Icons are grouped into sets, one folder each, under `assets/icons/<set>/<id>.png`. Each set contains every icon of its client directories and every sprite its items reference from elsewhere:
-
-| Set | Client directories under `Data` |
-| --- | --- |
-| `shells` | `Gfx/Shared/tank-supply/ammunition/big` |
-| `consumables` | `Gfx/UI/InventoryIcons/Big/Consumables` |
-| `provisions` | `Gfx/UI/InventoryIcons/Big/Provisions` |
-| `equipment` | `Gfx/UI/InventoryIcons/Big/OptionalDevices`, `Gfx/Lobby/tank-supply/optional-devices` |
-| `crew-skills` | `Gfx/UI/CrewSkillIcons` |
-
-Every sprite descriptor (`.txt`) and image in these directories becomes one icon; atlases referenced by descriptors are not icons themselves. Packed WebP images usually embed their own descriptor in an `extr` chunk; it places the image on its canvas like a separate descriptor. The icon ID is the client file name without the `@2x` suffix and extension, and the `@2x` variant is used when present. A UI sprite reference may omit the extension or name a `.psd` source; it resolves to the icon with the same ID in the referenced directory. Frames are placed on the descriptor's full canvas, so icons keep the client's alignment. Output is lossless PNG and needs no external tools. Two icons with the same ID in one set, a missing source directory, or an invalid descriptor or image fail the export. Images in different formats with the same ID are duplicates, including when their resolution suffixes differ. Descriptor canvases are limited to 16,777,216 pixels (64 MiB of RGBA data); oversized canvases and overflowing frame coordinates are rejected.
-
-`assets/icons/catalog.json` lists every icon:
-
-```json
-{
-  "formatVersion": 1,
-  "count": 123,
-  "sets": [
-    {
-      "id": "shells",
-      "sources": ["Gfx/Shared/tank-supply/ammunition/big"],
-      "count": 17,
-      "icons": [
-        {
-          "id": "ap_l",
-          "file": "shells/ap_l.png",
-          "width": 360,
-          "height": 360,
-          "scale": 2,
-          "source": {
-            "kind": "sprite",
-            "path": "Gfx/Shared/tank-supply/ammunition/big/ap_l@2x.txt",
-            "texture": "Gfx/Shared/tank-supply/ammunition/big/texture0@2x.packed.webp",
-            "frame": { "x": 973, "y": 308, "width": 303, "height": 304, "offsetX": 36, "offsetY": 31 }
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-`file` is relative to the catalog. Source paths are relative to `Data` and omit `.dvpl`. A packed image with an embedded descriptor is a `sprite` whose `texture` is its own `path`; an image without one has `"kind": "image"` and no `texture` or `frame`. Unchanged PNGs are not rewritten. Icons listed by the previous catalog that are gone from the client are deleted; other files in the folder are kept. Catalog paths are normalized before comparison and deletion. UI sprite and atlas references must stay inside `Data`; both slash styles are accepted. Symlinks below the resource or output root are rejected when traversed by icon discovery, atlas reads, or output operations. Atlas exclusion uses full resource paths across all discovered directories, so unrelated images with the same basename remain icons.
+The library's `client.DiscoverClientCatalog` also provides localized item,
+shell type and crew skill summaries through `ClientItems`. These summaries
+remain available independently of the snapshot exporter.
 
 ## Unpacked client files
 
 Export the effective client resource tree to a directory:
 
 ```sh
-blitz-client client files export --output-dir ./Data
+blitz-client client files unpack --output-dir ./Data
 ```
 
 Count the selected files and their stored size without creating or changing the
 output directory, reading file contents, or unpacking DVPL:
 
 ```sh
-blitz-client client files export --output-dir ./Data --types configs,images --dry-run
+blitz-client client files unpack --output-dir ./Data --types configs,images --dry-run
 ```
 
 Dry runs apply the same filters and source precedence as exports. Only the
@@ -263,8 +179,8 @@ preserving the directory structure and original resource formats.
 Use `--types` to select comma-separated categories (the option can be repeated):
 
 ```sh
-blitz-client client files export --output-dir ./Data --types configs,images
-blitz-client client files export --output-dir ./Models --types models
+blitz-client client files unpack --output-dir ./Data --types configs,images
+blitz-client client files unpack --output-dir ./Models --types models
 ```
 
 Categories are selected by the extension after removing `.dvpl`, independently
@@ -281,14 +197,14 @@ of the directory name:
 | `shaders` | `sl`, `slh`, `glsl`, `hlsl`, `vert`, `frag`, `metal` |
 | `other` | All extensions not assigned to the categories above, and extensionless files |
 
-Models remain in their native game formats; the existing `client tanks export`
+Models remain in their native game formats; the `client export --include models`
 command produces viewer bundles. Selecting `models` does not automatically
 include textures; use `models,images` to include both.
 
 Exclude files using repeatable glob patterns:
 
 ```sh
-blitz-client client files export --output-dir ./Data \
+blitz-client client files unpack --output-dir ./Data \
   --exclude '3d/**' --exclude '**/*.dds' --dry-run
 ```
 
@@ -306,9 +222,9 @@ installation copy. Existing destination files are retained. JSON reports
 Override the sources or disable the cache overlay:
 
 ```sh
-blitz-client client files export --game-dir /path/to/game \
+blitz-client client files unpack --game-dir /path/to/game \
   --cache-dir /path/to/packs --output-dir ./Data --types configs
-blitz-client client files export --output-dir ./Data --no-cache
+blitz-client client files unpack --output-dir ./Data --no-cache
 ```
 
 A missing default cache is skipped. An explicitly supplied `--cache-dir` must
@@ -842,21 +758,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	tankOptions := export.NewTankExportOptions("/path/to/viewer")
-	tankOptions.GameDir = gameDir
-	tankOptions.Limit = 10
-	catalog, err := export.ExportTankCatalog(tankOptions)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	clientOptions := export.NewClientExportOptions("/path/to/export")
 	clientOptions.GameDir = gameDir
-	clientOptions.DataOnly = true
+	clientOptions.Include = []string{"data", "icons"}
 	exported, err := export.ExportClient(clientOptions)
 	if err != nil {
 		log.Fatal(err)
 	}
+	snapshot, err := export.ReadClientExport("/path/to/export")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = snapshot.Tanks
 
 	installed, err := mods.ListInstalledMods(gameDir)
 	if err != nil {

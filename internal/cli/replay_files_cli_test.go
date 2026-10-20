@@ -129,7 +129,7 @@ func TestCLIExportsSelectedEffectiveFilesAndEmitsOneJSONReport(t *testing.T) {
 	writeFile(t, f.path("game/Data/tank.scg"), "model")
 	writeFile(t, f.path("game/Data/image.webp"), "image")
 	export := func() result {
-		return run(t, nil, "client", "files", "export", "--game-dir", f.path("game"), "--cache-dir", f.path("packs"),
+		return run(t, nil, "client", "files", "unpack", "--game-dir", f.path("game"), "--cache-dir", f.path("packs"),
 			"--output-dir", f.path("output"), "--types", "configs,images", "--json")
 	}
 	first := export()
@@ -151,7 +151,7 @@ func TestInvalidCLIOptionsFailBeforeCreatingOutput(t *testing.T) {
 		{"--types", "configs,unknown"}, {"--types", "configs,"}, {"--types"}, {"--exclude"},
 		{"--cache-dir", ".", "--no-cache"}, {"--unknown"},
 	} {
-		full := append(append([]string{"client", "files", "export", "--output-dir", output}, args...), "--json")
+		full := append(append([]string{"client", "files", "unpack", "--output-dir", output}, args...), "--json")
 		result := run(t, nil, full...)
 		if result.code == 0 || get(result.json(t), "error", "code") != "USAGE" || exists(output) {
 			t.Fatalf("%v: %s", args, result.stdout)
@@ -169,7 +169,7 @@ func TestDryRunCountsStoredEffectiveFilesWithoutDecodingOrWriting(t *testing.T) 
 	writeFile(t, f.path("game/Data/image.webp"), "excluded")
 	writeFile(t, f.path("game/Data/note.txt.dvpl"), "shadowed sibling")
 	dryRun := func(json bool) result {
-		args := []string{"client", "files", "export", "--game-dir", f.path("game"), "--cache-dir", f.path("packs"),
+		args := []string{"client", "files", "unpack", "--game-dir", f.path("game"), "--cache-dir", f.path("packs"),
 			"--output-dir", output, "--types", "configs", "--dry-run"}
 		if json {
 			args = append(args, "--json")
@@ -206,7 +206,7 @@ func TestCLIAcceptsRepeatedExclusionsForExportAndDryRun(t *testing.T) {
 	writeFile(t, f.path("game/Data/skip.txt"), "skip")
 	writeFile(t, f.path("game/Data/keep.yaml"), "keep")
 	for _, dryRun := range []bool{true, false} {
-		args := []string{"client", "files", "export", "--game-dir", f.path("game"), "--output-dir", output,
+		args := []string{"client", "files", "unpack", "--game-dir", f.path("game"), "--output-dir", output,
 			"--no-cache", "--exclude", "Gfx/**", "--exclude", "skip.txt", "--json"}
 		if dryRun {
 			args = append(args, "--dry-run")
