@@ -60,6 +60,35 @@ func TestCrewSkillsExport(t *testing.T) {
 	}
 }
 
+func TestHangarParametersExport(t *testing.T) {
+	for _, include := range [][]string{{"data"}, {"icons"}} {
+		t.Run(strings.Join(include, ","), func(t *testing.T) {
+			f, o := fullDataFixture(t)
+			o.Include = include
+			f.write("game/Data/hangarParamsConfig.yaml", "keyedArchive: {gunAimingTime: {keyedArchive: {digits: {int32: 9}}}}\n")
+			f.packed("packs/hangarParamsConfig.yaml.dvpl", "keyedArchive: {gunAimingTime: {keyedArchive: {digits: {int32: 1}, units: {string: SECOND}}}, unknown: [null, 2]}\n", 1)
+			if _, err := ExportClient(o); err != nil {
+				t.Fatal(err)
+			}
+			s, err := ReadClientExport(o.OutputDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if include[0] == "icons" {
+				if s.HangarParameters != nil {
+					t.Fatal("icons read hangar configuration")
+				}
+				return
+			}
+			archive := s.HangarParameters.(map[string]any)["keyedArchive"].(map[string]any)
+			digits := archive["gunAimingTime"].(map[string]any)["keyedArchive"].(map[string]any)["digits"].(map[string]any)["int32"]
+			if digits != json.Number("1") || archive["unknown"].([]any)[0] != nil {
+				t.Fatalf("raw config/overlay lost: %#v", archive)
+			}
+		})
+	}
+}
+
 func fullDataFixture(t *testing.T) (*filesFixture, ClientExportOptions) {
 	f := newFilesFixture(t)
 	f.write("game/Data/available_nations.yaml", "available_nations: [ussr, usa]\n")

@@ -78,6 +78,7 @@ Snapshot = {
   equipment?: { devices: XMLValue, slots: XMLValue },
   provisions?: { [mode: string]: XMLValue },
   settings?: { [name: string]: XMLValue | YAMLValue },
+  hangarParameters?: YAMLValue,
   crewSkills?: CrewSkill[],
   crewSkillTraining?: CrewSkillTraining,
   issues: { tank: string, section: "icons" | "models", message: string }[]
@@ -238,6 +239,13 @@ and provisions are excluded here to avoid duplicate entities. Source IDs tables
 and nextAvailableId fields are retained where present. `maps` is the complete
 maps.yaml/maps.yml object if installed (maps.yaml wins); no second map schema is
 produced. Only ru localization is currently selected by `data`.
+
+`hangarParameters` preserves the installed root `hangarParamsConfig.yaml`, including
+its `keyedArchive` wrappers, per-parameter `digits`, `units` and unknown fields.
+It is optional when the resource is absent and is read only with `data`, through
+the same Data/packs overlay. It is UI configuration, not computed tank statistics.
+Binary-embedded calculation constants are documented for the researched binary in
+[hangar-ttx.md](hangar-ttx.md); they are not resource fields or server defaults.
 
 ## Crew skills and training
 

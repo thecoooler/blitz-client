@@ -31,6 +31,7 @@ type Snapshot struct {
 	Equipment         any                       `json:"equipment,omitempty"`
 	Provisions        map[string]any            `json:"provisions,omitempty"`
 	Settings          map[string]any            `json:"settings,omitempty"`
+	HangarParameters  any                       `json:"hangarParameters,omitempty"`
 	CrewSkills        []client.ClientCrewSkill  `json:"crewSkills,omitempty"`
 	CrewSkillTraining *client.CrewSkillTraining `json:"crewSkillTraining,omitempty"`
 	Issues            []ExportIssue             `json:"issues"`
@@ -296,6 +297,12 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 		return nil, err
 	}
 	s.Localization = map[string]any{"ru": ru}
+	if r.has("hangarParamsConfig.yaml") {
+		s.HangarParameters, err = r.document("hangarParamsConfig.yaml")
+		if err != nil {
+			return nil, err
+		}
+	}
 	if r.has("XML/item_defs/tankmen/avatar.xml") {
 		root, err := r.xml("XML/item_defs/tankmen/avatar.xml")
 		if err != nil {

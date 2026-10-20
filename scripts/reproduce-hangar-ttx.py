@@ -30,17 +30,89 @@ def percent_factor(percent):
     return add(div(percent, 100), 1)
 
 
-def crew_efficiency(mastery=100, crew_increase=0):
-    """0x1008fe3a0: one separate commander and one tanker per other role.
+def crew_efficiency(mastery=100, crew_increase=0, members=None):
+    """0x1008fe3a0: common mastery, primary role + extra roles per member.
 
-    For combined roles the native code averages contributions from the crew
-    members serving that role; this convenience wrapper covers Leopard 1.
+    Members is a sequence of tuples, not a role-keyed dict: two loaders must
+    remain two people. A commander's additional roles retain commander mastery.
+    No mastery cap is present in this calculation. Invalid/missing roles are
+    outside this reconstruction (the native role lookup asserts if absent).
     """
+    if members is None:
+        members = [("commander", "radioman"), ("gunner",),
+                   ("driver",), ("loader",)]
     level = div(add(mastery, crew_increase), 100)
     commander = add(mul(0.43, level), 0.57)
     others = add(mul(0.43, add(div(level, 10), level)), 0.57)
-    return {"commander": commander, "loader": others,
-            "gunner": others, "driver": others}
+    contributions = {}
+    for roles in members:
+        efficiency = commander if roles[0] == "commander" else others
+        for role in roles:
+            contributions.setdefault(role, []).append(efficiency)
+    result = {}
+    for role, values in contributions.items():
+        total = f32(0)
+        for value in values:
+            total = add(total, value)
+        result[role] = div(total, len(values))
+    return result
+
+
+def modifier_sum(values):
+    """0x1008fe0c0: sum contributions to ONE resolved modifier key."""
+    total = f32(0)
+    for value in values:
+        total = add(total, value)
+    return total
+
+
+def turret_rotation(base, gunner, percent=0):
+    """0x1008feb6a..bd3, degrees/s in this convenience interface."""
+    return mul(mul(base, percent_factor(percent)), gunner)
+
+
+def engine_power(base, percent=0):
+    """0x1008fed02..d4f; same units as base, no crew multiplier."""
+    return mul(base, percent_factor(percent))
+
+
+def stationary_dispersion(radius, gunner, percent=0):
+    """0x1008ff4a3..514; radius in metres at 100 m (XML units)."""
+    return div(mul(mul(div(radius, 100), 100), percent_factor(percent)), gunner)
+
+
+def average_speed(power_watts, mass_kg, medium_resistance, max_speed_mps,
+                  fallback_speed_kph=None):
+    """0x1008fef88..ff025: empirical hangar estimate, not physics simulation.
+
+    Coefficients read from binary, not fitted. Negative/nonpositive adjusted
+    power requires the runtime model's fallback; never invent a default.
+    """
+    specific = div(div(power_watts, 735.5), div(mass_kg, 1000))
+    resistance = div(add(1, -medium_resistance), 0.1)
+    adjusted = add(mul(add(mul(specific, -0.0371), 1.3115), resistance), specific)
+    if adjusted > 0:
+        speed = mul(f32(math.pow(adjusted, f32(0.5225))), 7.5587)
+    elif fallback_speed_kph is not None:
+        speed = f32(fallback_speed_kph)
+    else:
+        raise ValueError("runtime fallback speed required for adjusted power <= 0")
+    return min(mul(speed, 0.27778), f32(max_speed_mps))
+
+
+def camouflage(still, moving, camouflage_bonus, gun_at_shot,
+               detectability=0, skill_level=0, at_shot_percent=0):
+    """0x1008ff7c0, ordinary descriptor branch, all results are fractions.
+
+    camouflage_bonus must be resolved by the caller; equipped camouflage can
+    select a different value through the runtime service at vtable+0x68/+0x30.
+    """
+    skill = mul(skill_level, 0.03)
+    stationary = add(add(add(still, camouflage_bonus),
+                         add(detectability, detectability)), skill)
+    mobile = add(add(add(moving, camouflage_bonus), detectability), skill)
+    at_shot = mul(gun_at_shot, add(div(at_shot_percent, -100), 1))
+    return stationary, mobile, mul(stationary, at_shot)
 
 
 def reload_time(base_reload, loader, reload_percent=0):
@@ -106,7 +178,10 @@ def full_aim_time(base_aim, gunner, chassis_rotation, rotation_dispersion,
                   turret_rotation, turret_dispersion, max_speed_mps,
                   movement_dispersion, additive_dispersion_percent=0,
                   aiming_time_percent=0):
-    """0x1008ffd70: raw chassis/turret rotation speeds, m/s for movement.
+    """0x1008ffd70: descriptor chassis/turret speeds, m/s for movement.
+
+    This function does not establish how the runtime descriptor was prepared.
+    Passing driver/virtuoso-adjusted chassis rotation is a separate hypothesis.
 
     The logarithm is evaluated as float32(log(float32_argument)); libc logf
     can differ at the final bit across platforms. No claim of full emulation.
@@ -135,9 +210,10 @@ def leopard_example():
     rotation = hull_rotation(54, 1, 1, 1, 1, 0.7, terrain[1])
     aim = full_aim_time(2.3, crew["gunner"], 54, 0.1, 36, 0.05,
                         div(65, 3.6), 0.1)
-    dispersion = div(mul(div(0.3, 100), 100), crew["gunner"])
+    dispersion = stationary_dispersion(0.3, crew["gunner"])
     values = {"reload": (reload, 2), "dpm": (dpm, 0),
               "full_aim": (aim, 1), "hull_rotation": (rotation, 2),
+              "turret_rotation": (turret_rotation(36, crew["gunner"]), 2),
               "dispersion": (dispersion, 3)}
     for name, value in zip(("firm", "medium", "soft"), terrain):
         values["permeability_" + name] = (mul(div(1, value), 100), 0)
@@ -147,5 +223,35 @@ def leopard_example():
         for name, (value, digits) in values.items()}}
 
 
+def control_examples():
+    crew = crew_efficiency()
+    # The first member of Grille 15 is commander + loader.
+    grille = crew_efficiency(members=[("commander", "loader"), ("gunner",),
+                                      ("driver",), ("radioman",)])
+    reloads = {name: f"{ui_round(reload_time(base, loader, -7), 2):.2f}"
+               for name, base, loader in [("IS-7", 12, crew["loader"]),
+                                          ("Grille 15", 11.3, grille["loader"])]}
+    hypothesis_rotation = mul(mul(54, crew["driver"]), add(mul(7, 0.01), 1))
+    aim = []
+    for mobility in ("recycledEngineSpeed", "improvedControls"):
+        for stabilization in (0, -15):
+            args = (2.3, crew["gunner"], hypothesis_rotation, 0.1,
+                    36, 0.05, div(65, 3.6), 0.1, stabilization)
+            value = full_aim_time(*args)
+            aim.append({"mobility": mobility, "stabilizer": stabilization == -15,
+                        "raw_float32": value, "ui": f"{ui_round(value, 1):.1f}"})
+    # Synthetic descriptors isolate the native cycle arithmetic; these are
+    # not claims that a particular vehicle has this equipment or gun.
+    multi = {"clip": shots_per_minute(20, 1, clip_count=3, clip_interval=2),
+             "burst": shots_per_minute(10, 1, burst_count=2, burst_interval=0.5),
+             "clip_and_burst": shots_per_minute(20, 1, burst_count=2,
+                                                clip_count=4, burst_interval=0.5,
+                                                clip_interval=2)}
+    return {"reload_controls": reloads,
+            "full_aim_HYPOTHESIS_aiming_time_percent_0": aim,
+            "synthetic_multishot_rpm": multi}
+
+
 if __name__ == "__main__":
-    print(json.dumps(leopard_example(), indent=2))
+    print(json.dumps({"leopard_isolated_modifiers": leopard_example(),
+                      **control_examples()}, indent=2))
