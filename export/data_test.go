@@ -1,7 +1,10 @@
 package export
 
 import (
+	"bytes"
+	"compress/zlib"
 	"encoding/json"
+	"fmt"
 	ka "github.com/thecoooler/blitz-client/internal/katest"
 	"os"
 	"path/filepath"
@@ -11,6 +14,51 @@ import (
 
 	"go.yaml.in/yaml/v3"
 )
+
+func TestCrewSkillsExport(t *testing.T) {
+	for _, withConfig := range []bool{false, true} {
+		t.Run(fmt.Sprint(withConfig), func(t *testing.T) {
+			f, o := fullDataFixture(t)
+			o.Include = []string{"data"}
+			// The downloaded DVPL definition must override the installed resource.
+			f.write("game/Data/XML/item_defs/tankmen/avatar.xml", `<root><skills><old/></skills></root>`)
+			f.packed("packs/XML/item_defs/tankmen/avatar.xml.dvpl", `<root><skillsByClasses><heavyTank>desperado</heavyTank></skillsByClasses><skills><desperado><userString>#name</userString><type>continuous</type><vehicleHealthFraction>0.15</vehicleHealthFraction><gunReloadTimeFactorPerLevel>0.01</gunReloadTimeFactorPerLevel></desperado><sniper><chancePerLevel>0.02</chancePerLevel></sniper></skills></root>`, 1)
+			if withConfig {
+				var payload bytes.Buffer
+				writer := zlib.NewWriter(&payload)
+				if _, err := writer.Write([]byte("(dS'gradeUpSkillCost'\n(lI25000\naI50000\nas.")); err != nil {
+					t.Fatal(err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				f.write("server_config.dat", payload.String())
+				o.ServerConfig = f.path("server_config.dat")
+			}
+			if _, err := ExportClient(o); err != nil {
+				t.Fatal(err)
+			}
+			s, err := ReadClientExport(o.OutputDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(s.CrewSkills) != 2 || s.CrewSkills[0].ID != "desperado" || s.CrewSkills[1].ID != "sniper" {
+				t.Fatalf("skills/order: %+v", s.CrewSkills)
+			}
+			skill := s.CrewSkills[0]
+			if skill.UserString != "#name" || skill.TankClass != "heavyTank" || skill.Type != "continuous" || skill.Parameters["vehicleHealthFraction"] != json.Number("0.15") {
+				t.Fatalf("skill fields: %+v", skill)
+			}
+			if withConfig {
+				if s.CrewSkillTraining == nil || s.CrewSkillTraining.MaxLevel != 2 || len(skill.Levels) != 2 || skill.Levels[1].XP != 50000 || skill.Levels[1].Parameters["gunReloadTimeFactorPerLevel"] != 0.02 {
+					t.Fatalf("training: %+v, skill: %+v", s.CrewSkillTraining, skill)
+				}
+			} else if s.CrewSkillTraining != nil || skill.Levels != nil {
+				t.Fatal("invented training without server config")
+			}
+		})
+	}
+}
 
 func fullDataFixture(t *testing.T) (*filesFixture, ClientExportOptions) {
 	f := newFilesFixture(t)
@@ -190,11 +238,19 @@ func TestExportSectionSelection(t *testing.T) {
 }
 
 func TestExportFailures(t *testing.T) {
-	for _, scenario := range []string{"missing", "duplicate", "include", "overlap"} {
+	for _, scenario := range []string{"missing", "duplicate", "include", "overlap", "crew-classes", "server-config", "server-config-section"} {
 		t.Run(scenario, func(t *testing.T) {
 			f, o := fullDataFixture(t)
 			o.Include = []string{"data"}
 			switch scenario {
+			case "crew-classes":
+				f.write("game/Data/XML/item_defs/tankmen/avatar.xml", `<root><skillsByClasses><heavyTank>sniper</heavyTank><lightTank>sniper</lightTank></skillsByClasses><skills><sniper/></skills></root>`)
+			case "server-config":
+				o.ServerConfig = f.path("broken.dat")
+				f.write("broken.dat", "invalid")
+			case "server-config-section":
+				o.Include = []string{"icons"}
+				o.ServerConfig = f.path("missing.dat")
 			case "missing":
 				if err := os.Remove(f.path("game/Data/XML/item_defs/vehicles/ussr/Tank.xml")); err != nil {
 					t.Fatal(err)

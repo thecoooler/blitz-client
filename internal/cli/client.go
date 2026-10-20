@@ -205,7 +205,7 @@ func (a *app) runClientExport(args []string) (bool, error) {
 	hasInclude := false
 	for index := 0; index < len(args); index++ {
 		switch arg := args[index]; arg {
-		case "--game-dir", "--output-dir", "--cache-dir", "--include", "--max-texture-size", "--texture-format", "--webp-quality":
+		case "--game-dir", "--output-dir", "--cache-dir", "--server-config", "--include", "--max-texture-size", "--texture-format", "--webp-quality":
 			value, err := optionValue(args, &index, arg+" requires a value")
 			if err != nil {
 				return false, err
@@ -220,6 +220,8 @@ func (a *app) runClientExport(args []string) (bool, error) {
 				o.OutputDir = value
 			case "--cache-dir":
 				o.CacheDir = value
+			case "--server-config":
+				o.ServerConfig = value
 			case "--include":
 				if !hasInclude {
 					o.Include = nil

@@ -78,6 +78,8 @@ Snapshot = {
   equipment?: { devices: XMLValue, slots: XMLValue },
   provisions?: { [mode: string]: XMLValue },
   settings?: { [name: string]: XMLValue | YAMLValue },
+  crewSkills?: CrewSkill[],
+  crewSkillTraining?: CrewSkillTraining,
   issues: { tank: string, section: "icons" | "models", message: string }[]
 }
 ```
@@ -236,6 +238,54 @@ and provisions are excluded here to avoid duplicate entities. Source IDs tables
 and nextAvailableId fields are retained where present. `maps` is the complete
 maps.yaml/maps.yml object if installed (maps.yaml wins); no second map schema is
 produced. Only ru localization is currently selected by `data`.
+
+## Crew skills and training
+
+The `data` section includes `crewSkills` from the installed
+`XML/item_defs/tankmen/avatar.xml`, using the same Data/packs overlay. Missing
+avatar.xml or an empty skill list omits `crewSkills`. Invalid installed XML or a
+skill assigned to multiple training classes fails the export. Icons-only and
+models-only exports do not read crew definitions.
+
+Skills retain XML order. Each record has `id` (the XML element name), `tankClass`
+(the class in `skillsByClasses` used for training), `type`, `parameters`, and
+`levels`. `userString`, `description`, `tip`, and `features` retain localization
+keys from `userString`, `effectDescription`, `tipDescription`, and
+`featuresDescription`; resolve these through `localization.ru`. Missing text
+fields are empty strings. The training class does not restrict where a learned
+skill takes effect. Skill icons are not included in this format.
+
+`parameters` contains all non-presentation fields with their original XML names.
+Unlike the generic XMLValue representation, this typed skill section converts
+finite numbers and booleans to JSON numbers and booleans. Nested objects, text,
+and repeated fields are preserved. Fixed effects and activation conditions stay
+in `parameters`; the exporter does not infer final vehicle statistics.
+
+To include training levels and XP costs, supply an explicit local server cache:
+
+```sh
+go run ./cmd/blitz-client client export --include data,icons \
+  --output-dir /tmp/blitz-export \
+  --server-config /path/to/server_config_REGION_ACCOUNT.dat
+```
+
+`--server-config` requires the `data` section. The file is a zlib-compressed Python
+pickle decoded in Go without executing Python globals. Only `gradeUpSkillCost`
+and `avatarSkillsEconomics` are exported; account progress is not read. On macOS,
+these caches are under
+`~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache`.
+
+`crewSkillTraining` contains `maxLevel` (the length of `gradeUpSkillCost`), the
+original `gradeUpSkillCost` list and `avatarSkillsEconomics`, whose numeric mode
+IDs become string object keys. Each skill's `levels` contains levels 1 through
+`maxLevel`, individual (not cumulative) XP prices, and `parameters` computed only
+for numeric `*PerLevel` fields as coefficient × level. These are raw bonuses or
+chances, not final vehicle multipliers.
+
+Without `--server-config`, `crewSkillTraining` is omitted and `levels` is null:
+maximum levels and XP prices are not specified in avatar.xml. Account-specific
+availability, server feature switches and missing training prerequisites are not
+inferred. Invalid server caches fail the export and remove partial output.
 
 ## Media, resources and consumers
 

@@ -18,6 +18,8 @@ type ClientExportOptions struct {
 	OutputDir string
 	CacheDir  string
 	NoCache   bool
+	// ServerConfig optionally supplies crew skill training costs from a local cache.
+	ServerConfig string
 	// Include is data, icons, models, or all. Empty means all.
 	Include      []string
 	ModelOptions TankExportOptions
@@ -80,6 +82,9 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	}
 	if o.NoCache && o.CacheDir != "" {
 		return nil, blitz.NewError("USAGE", "--cache-dir and --no-cache cannot be combined")
+	}
+	if o.ServerConfig != "" && !slices.Contains(included, "data") {
+		return nil, blitz.NewError("USAGE", "--server-config requires the data section")
 	}
 	if o.OutputDir == "" {
 		return nil, blitz.NewError("USAGE", "output directory is required")
@@ -149,6 +154,14 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	snapshot, err := extractSnapshot(files, included, out)
 	if err != nil {
 		return nil, err
+	}
+	if o.ServerConfig != "" {
+		training, err := client.ReadCrewSkillTraining(o.ServerConfig)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.CrewSkillTraining = training
+		client.ApplyCrewSkillTraining(snapshot.CrewSkills, training)
 	}
 	if slices.Contains(included, "models") {
 		if err := exportModels(snapshot, filesResolver(files), filepath.Join(out, "assets/tanks"), &o.ModelOptions); err != nil {

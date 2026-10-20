@@ -20,18 +20,20 @@ import (
 // Snapshot is the one offline interchange format for data and media consumers.
 // Omitted sections were not requested; included empty sections have empty containers.
 type Snapshot struct {
-	Format       string                    `json:"format"`
-	Version      int                       `json:"version"`
-	Included     []string                  `json:"included"`
-	Nations      []string                  `json:"nations"`
-	Tanks        []SnapshotTank            `json:"tanks"`
-	Localization map[string]any            `json:"localization,omitempty"`
-	Maps         any                       `json:"maps,omitempty"`
-	Components   map[string]map[string]any `json:"components,omitempty"`
-	Equipment    any                       `json:"equipment,omitempty"`
-	Provisions   map[string]any            `json:"provisions,omitempty"`
-	Settings     map[string]any            `json:"settings,omitempty"`
-	Issues       []ExportIssue             `json:"issues"`
+	Format            string                    `json:"format"`
+	Version           int                       `json:"version"`
+	Included          []string                  `json:"included"`
+	Nations           []string                  `json:"nations"`
+	Tanks             []SnapshotTank            `json:"tanks"`
+	Localization      map[string]any            `json:"localization,omitempty"`
+	Maps              any                       `json:"maps,omitempty"`
+	Components        map[string]map[string]any `json:"components,omitempty"`
+	Equipment         any                       `json:"equipment,omitempty"`
+	Provisions        map[string]any            `json:"provisions,omitempty"`
+	Settings          map[string]any            `json:"settings,omitempty"`
+	CrewSkills        []client.ClientCrewSkill  `json:"crewSkills,omitempty"`
+	CrewSkillTraining *client.CrewSkillTraining `json:"crewSkillTraining,omitempty"`
+	Issues            []ExportIssue             `json:"issues"`
 }
 
 // SnapshotTank keeps all properties and media references of one vehicle together.
@@ -294,6 +296,16 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 		return nil, err
 	}
 	s.Localization = map[string]any{"ru": ru}
+	if r.has("XML/item_defs/tankmen/avatar.xml") {
+		root, err := r.xml("XML/item_defs/tankmen/avatar.xml")
+		if err != nil {
+			return nil, err
+		}
+		s.CrewSkills, err = client.ParseCrewSkills(root)
+		if err != nil {
+			return nil, err
+		}
+	}
 	for _, name := range []string{"maps.yaml", "maps.yml"} {
 		if _, ok := files[name]; ok {
 			s.Maps, err = r.document(name)

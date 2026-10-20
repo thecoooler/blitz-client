@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"compress/zlib"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +17,7 @@ func TestDataExportCLI(t *testing.T) {
 		"available_nations.yaml":                                  "available_nations:\n  - ussr\n",
 		"maps.yaml":                                               "maps:\n    test:\n        id: 1\n        frame: 0\n",
 		"Strings/ru.yaml":                                         "name: Танк",
+		"XML/item_defs/tankmen/avatar.xml":                        `<root><skillsByClasses><heavyTank>desperado</heavyTank></skillsByClasses><skills><desperado><userString>name</userString><gunReloadTimeFactorPerLevel>0.01</gunReloadTimeFactorPerLevel></desperado></skills></root>`,
 		"XML/item_defs/vehicles/ussr/list.xml":                    `<root><Tank><id>0</id><userString>name</userString><price>100<gold/></price><enrichmentPermanentCost>0</enrichmentPermanentCost><tags>heavyTank</tags><level>1</level><configurationModes>production</configurationModes></Tank></root>`,
 		"XML/item_defs/vehicles/ussr/Tank.xml":                    `<root><hull/></root>`,
 		"XML/item_defs/vehicles/ussr/components/guns.xml":         `<root><shared/></root>`,
@@ -33,7 +37,19 @@ func TestDataExportCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r := run(t, nil, "--json", "client", "export", "--game-dir", game, "--output-dir", out, "--no-cache", "--include", "data", "--include", "icons", "--no-pbr")
+	var config bytes.Buffer
+	writer := zlib.NewWriter(&config)
+	if _, err := writer.Write([]byte("(dS'gradeUpSkillCost'\n(lI25000\nas.")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "server_config.dat")
+	if err := os.WriteFile(configPath, config.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := run(t, nil, "--json", "client", "export", "--game-dir", game, "--output-dir", out, "--no-cache", "--include", "data", "--include", "icons", "--no-pbr", "--server-config", configPath)
 	if r.code != 0 {
 		t.Fatalf("%s %s", r.stdout, r.stderr)
 	}
@@ -45,6 +61,23 @@ func TestDataExportCLI(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(out, "data.json")); err != nil {
 		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		CrewSkills []struct {
+			ID     string
+			Levels []struct{ XP int64 }
+		}
+		CrewSkillTraining struct{ MaxLevel int }
+	}
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.CrewSkills) != 1 || snapshot.CrewSkills[0].ID != "desperado" || len(snapshot.CrewSkills[0].Levels) != 1 || snapshot.CrewSkills[0].Levels[0].XP != 25000 || snapshot.CrewSkillTraining.MaxLevel != 1 {
+		t.Fatalf("crew skills/config flag lost: %+v", snapshot)
 	}
 	for _, args := range [][]string{{"--data-only"}, {"--no-cache", "--cache-dir", root}, {"--include", "unknown"}, {"--include", "all,data"}, {"--skip-images"}} {
 		r := run(t, nil, append([]string{"client", "export"}, args...)...)

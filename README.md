@@ -97,7 +97,11 @@ blitz-client client export --output-dir "/path/to/export-models" --include model
 `client export` is the only game-data export command. It writes one versioned
 `data.json`, with all properties and media references of each tank in one record.
 Shared components, equipment, presets, provisions and localization live once in
-that same file. Images and model payloads are external binary assets referenced
+that same file. Crew skill definitions, effect parameters and activation conditions
+are included by `data`; localization fields retain their source keys. Supply
+`--server-config /path/to/server_config_*.dat` to add training levels, XP prices
+and acceleration economics from a local server cache. Without it, skill `levels`
+are null. Images and model payloads are external binary assets referenced
 by those records. No alternate `tanks.json`, `maps.json`, model catalog or raw
 source-document copies are produced. Consumers use the same schema for every
 selection; `included` declares the requested sections.
