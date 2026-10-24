@@ -64,6 +64,10 @@ type ClientExportReport struct {
 	Tanks    int           `json:"tanks"`
 	Models   int           `json:"models"`
 	Issues   []ExportIssue `json:"issues"`
+	// IconExport, ItemsFile and MissingItemIcons are set when icons are included.
+	IconExport       *IconExportReport `json:"iconExport,omitempty"`
+	ItemsFile        string            `json:"itemsFile,omitempty"`
+	MissingItemIcons []string          `json:"missingItemIcons,omitempty"`
 }
 
 type ExportIssue struct {
@@ -155,6 +159,14 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	if err != nil {
 		return nil, err
 	}
+	var iconReport *IconExportReport
+	var itemsFile string
+	var missingItemIcons []string
+	if slices.Contains(included, "icons") {
+		if iconReport, itemsFile, missingItemIcons, err = exportItemIcons(resourceDir, out); err != nil {
+			return nil, err
+		}
+	}
 	if o.ServerConfig != "" {
 		training, err := client.ReadCrewSkillTraining(o.ServerConfig)
 		if err != nil {
@@ -181,7 +193,31 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 			count++
 		}
 	}
-	return &ClientExportReport{File: path, Included: included, Tanks: len(snapshot.Tanks), Models: count, Issues: snapshot.Issues}, nil
+	return &ClientExportReport{File: path, Included: included, Tanks: len(snapshot.Tanks), Models: count, Issues: snapshot.Issues, IconExport: iconReport, ItemsFile: itemsFile, MissingItemIcons: missingItemIcons}, nil
+}
+
+// exportItemIcons writes the item icon sets, their catalog and items.json.
+// The item definitions and UI sprite mappings are read from the client's Data
+// directory, like the icon resources themselves.
+func exportItemIcons(resourceDir, out string) (*IconExportReport, string, []string, error) {
+	items, err := client.ReadClientItems(resourceDir)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	sprites, err := client.ReadItemIconSprites(resourceDir)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	report, index, err := exportIcons(resourceDir, out, existingIconSets(resourceDir, iconSets), itemIconReferences(items, sprites))
+	if err != nil {
+		return nil, "", nil, err
+	}
+	linked, missing := linkItemIcons(items, sprites, index)
+	itemsFile := filepath.Join(out, "items.json")
+	if err := writeJSON(itemsFile, linked, false); err != nil {
+		return nil, "", nil, err
+	}
+	return report, itemsFile, missing, nil
 }
 
 // exportModels attaches converted showroom models. Per-tank failures become

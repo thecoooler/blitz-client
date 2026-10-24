@@ -39,6 +39,24 @@ var iconSets = []iconSet{
 	{"crew-skills", []string{"Gfx/UI/CrewSkillIcons"}},
 }
 
+// existingIconSets drops source directories missing from the client and sets
+// left without any sources, so uninstalled optional icon folders are not fatal.
+func existingIconSets(resourceDir string, sets []iconSet) []iconSet {
+	out := make([]iconSet, 0, len(sets))
+	for _, set := range sets {
+		var sources []string
+		for _, source := range set.sources {
+			if isDir(filepath.Join(resourceDir, filepath.FromSlash(source))) {
+				sources = append(sources, source)
+			}
+		}
+		if len(sources) > 0 {
+			out = append(out, iconSet{id: set.id, sources: sources})
+		}
+	}
+	return out
+}
+
 const iconCatalogFormatVersion = 1
 
 // IconCatalog is written to assets/icons/catalog.json.

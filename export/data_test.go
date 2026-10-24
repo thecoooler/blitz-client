@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	ka "github.com/thecoooler/blitz-client/internal/katest"
+	"image/color"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -91,7 +92,7 @@ func TestHangarParametersExport(t *testing.T) {
 
 func fullDataFixture(t *testing.T) (*filesFixture, ClientExportOptions) {
 	f := newFilesFixture(t)
-	f.write("game/Data/available_nations.yaml", "available_nations: [ussr, usa]\n")
+	f.write("game/Data/available_nations.yaml", "available_nations:\n  - ussr\n  - usa\n")
 	f.packed("game/Data/Strings/ru.yaml.dvpl", "\"#name\": \"Танк\"\n", 1)
 	for _, nation := range []string{"ussr", "usa"} {
 		base := "game/Data/XML/item_defs/vehicles/" + nation + "/"
@@ -103,6 +104,13 @@ func fullDataFixture(t *testing.T) (*filesFixture, ClientExportOptions) {
 		f.packed("packs/Gfx/"+nation+".packed.webp.dvpl", "icon "+nation, 1)
 	}
 	common := "game/Data/XML/item_defs/vehicles/common/"
+	f.write(common+"consumables/common.xml", `<root><RepairKit><id>1</id><userString>#kit</userString><icon>kit</icon></RepairKit></root>`)
+	f.write("game/Data/Gfx/UI/InventoryIcons/Big/Consumables/kit.txt", "1\nkit-atlas.png\n2 2\n1\n0 0 1 1 1 1 0 frame0\n")
+	f.write("game/Data/Gfx/UI/InventoryIcons/Big/Consumables/kit-atlas.png", pngBytes(t, 2, 2, func(x, y int) color.NRGBA {
+		return color.NRGBA{uint8(x), uint8(y), 3, 255}
+	}))
+	f.write("game/Data/UI/Styles/Lobby/Inventory/InventoryBigStyles.style",
+		`.equipment_item.kit #icon { bg-sprite: "~res:/Gfx/UI/InventoryIcons/Big/Consumables/kit.txt"; }`)
 	f.write(common+"optional_devices.xml", `<root><nextAvailableId>2</nextAvailableId><Rammer><script><reloadFactor>0.9</reloadFactor></script></Rammer></root>`)
 	f.write(common+"optional_device_slots.xml", `<root><presets><default><slot1>Rammer Armor</slot1><slot2/><slot3/><slot4/><slot5/><slot6/><slot7/><slot8/><slot9/></default></presets></root>`)
 	f.write(common+"provisions/list.xml", `<root><items path="common.xml"/><items path="mode.xml"/></root>`)
@@ -191,9 +199,22 @@ func TestUnifiedExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if entry.Name() != "data.json" && entry.Name() != "images" {
+		switch entry.Name() {
+		case "data.json", "images", "items.json", "assets":
+		default:
 			t.Fatalf("duplicate/fragmented output: %s", entry.Name())
 		}
+	}
+	if report.ItemsFile == "" || report.IconExport == nil || report.IconExport.IconCount != 1 {
+		t.Fatalf("item icon export missing: %+v", report)
+	}
+	var items ItemsFile
+	readDataJSON(t, o.OutputDir, "items.json", &items)
+	if len(items.Consumables) != 1 || items.Consumables[0].Icon == nil || *items.Consumables[0].Icon != "assets/icons/consumables/kit.png" {
+		t.Fatalf("item icon link lost: %+v", items.Consumables)
+	}
+	if _, err := os.Stat(filepath.Join(o.OutputDir, *items.Consumables[0].Icon)); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := ExportClient(o); err == nil {
 		t.Fatal("nonempty output accepted")

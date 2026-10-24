@@ -91,7 +91,7 @@ func TestUnifiedExportDefaultAndRemovedCommands(t *testing.T) {
 	root := t.TempDir()
 	game := filepath.Join(root, "Data")
 	files := map[string]string{
-		"available_nations.yaml":                                  "available_nations: [ussr]",
+		"available_nations.yaml":                                  "available_nations:\n  - ussr\n",
 		"XML/item_defs/vehicles/ussr/list.xml":                    "<root/>",
 		"XML/item_defs/vehicles/ussr/components/guns.xml":         "<root><shared/></root>",
 		"XML/item_defs/vehicles/ussr/components/shells.xml":       "<root/>",

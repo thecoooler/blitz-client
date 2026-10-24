@@ -34,8 +34,11 @@ The output directory contains `data.json` plus referenced media, if requested:
 ```text
 export/
   data.json
+  items.json
   images/tanks/<nation>/<techName>/big.webp
   images/tanks/<nation>/<techName>/small.webp
+  assets/icons/catalog.json
+  assets/icons/<set>/<icon>.png
   assets/tanks/<nation>/<techName>/model.json[.br]
   assets/tanks/<nation>/<techName>/model.bin[.br]
   assets/tanks/<nation>/<techName>/model.pbr.bin[.br]
@@ -45,7 +48,10 @@ export/
 ```
 
 No separate manifest, maps/tanks/parameters/configuration/component files, model
-catalog or duplicated raw documents are written. A tank record contains its own
+catalog or duplicated raw documents are written. `items.json` is the normalized
+index of shells, consumables, provisions, equipment and crew skills that links
+each item to its exported icon; `assets/icons/catalog.json` describes the icon
+sets and their source resources. A tank record contains its own
 metadata, parameters, configuration and media references. Shared definitions live
 once under `components`, not as resolved copies inside every turret. Equipment,
 provisions and localization also have one authoritative home. Model files contain
@@ -261,7 +267,8 @@ Skills retain XML order. Each record has `id` (the XML element name), `tankClass
 keys from `userString`, `effectDescription`, `tipDescription`, and
 `featuresDescription`; resolve these through `localization.ru`. Missing text
 fields are empty strings. The training class does not restrict where a learned
-skill takes effect. Skill icons are not included in this format.
+skill takes effect. With the `icons` section, skill icons are exported into
+`assets/icons/crew-skills` and linked from `items.json`.
 
 `parameters` contains all non-presentation fields with their original XML names.
 Unlike the generic XMLValue representation, this typed skill section converts
@@ -303,6 +310,17 @@ Icon sources come from parameters.resourcesPath.bigIconPath/smallIconPath.
 transcoded/resized and retain their real extension. Icons never select models,
 collision meshes, textures or photos. Map atlas cropping/preview images are outside
 v1. Missing icons are null plus an issue when icons were requested.
+
+The same `icons` section renders item icons as PNG into `assets/icons/<set>`:
+`shells`, `consumables`, `provisions`, `equipment` and `crew-skills`. Sprite
+descriptors and standalone images in those client directories are rendered at
+their full canvas; `@2x` resources win when both resolutions exist, and atlases
+referenced by descriptors are not exported as icons. UI sprite mappings add
+icons referenced from other directories. Item icon sets missing from the client
+are skipped. `assets/icons/catalog.json` lists every icon with its size,
+resolution scale and source resource; `items.json` uses those paths. Icons
+without a found sprite are `null` and reported in the export command's
+`missingItemIcons`.
 
 Models retain existing geometry, PBR and armor payload schemas. A viewer enumerates
 `tanks` and selects records with `model`, loads `tank.model.model`, and resolves its

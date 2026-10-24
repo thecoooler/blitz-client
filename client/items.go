@@ -99,6 +99,17 @@ func (items *ClientItems) IconKeys(kind ItemKind) []string {
 
 const commonItemDefs = "XML/item_defs/vehicles/common/"
 
+// ReadClientItems reads the shared item definitions and the Russian
+// localization they refer to, without requiring the vehicle catalog.
+// A missing item list contributes no items.
+func ReadClientItems(dataDir string) (*ClientItems, error) {
+	localized, err := readLocalizedNames(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return readItems(dataDir, localized)
+}
+
 // readItems reads regular items; event-specific item files are not included.
 // A missing item list contributes no items.
 func readItems(dataDir string, localized map[string]string) (*ClientItems, error) {

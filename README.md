@@ -105,9 +105,11 @@ are included by `data`; localization fields retain their source keys. Supply
 `--server-config /path/to/server_config_*.dat` to add training levels, XP prices
 and acceleration economics from a local server cache. Without it, skill `levels`
 are null. Images and model payloads are external binary assets referenced
-by those records. No alternate `tanks.json`, `maps.json`, model catalog or raw
-source-document copies are produced. Consumers use the same schema for every
-selection; `included` declares the requested sections.
+by those records. With `icons`, item icon sprite sets are rendered to
+`assets/icons/` and indexed by `items.json`. No alternate `tanks.json`,
+`maps.json`, model catalog or raw source-document copies are produced. Consumers
+use the same schema for every selection; `included` declares the requested
+sections.
 
 `--include` defaults to `all`, or accepts a comma-separated selection of `data`,
 `icons`, `models`; the option may be repeated. `all` includes PBR model assets and
@@ -141,8 +143,12 @@ repairs and collision armor-zone checks remain specific to their export paths.
 
 The snapshot keeps shared item definitions and crew skills in `data.json`.
 Localization fields retain their source keys, with translations in `localization`.
-The `icons` section adds tank image references to `tanks[].icons`; see
-[Game data export](docs/game-data-export.md) for the schema and asset layout.
+The `icons` section adds tank image references to `tanks[].icons` and writes
+`items.json` with normalized shells, consumables, provisions, equipment and crew
+skills, each linked to its exported PNG. Item icons live under
+`assets/icons/<set>/` beside `assets/icons/catalog.json`, which lists sets,
+sizes, resolution scales and source resources. See
+[Game data export](docs/game-data-export.md) for the schemas and asset layout.
 
 The library's `client.DiscoverClientCatalog` also provides localized item,
 shell type and crew skill summaries through `ClientItems`. These summaries
