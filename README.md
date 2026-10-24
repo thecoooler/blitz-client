@@ -147,8 +147,11 @@ The `icons` section adds tank image references to `tanks[].icons` and writes
 `items.json` with normalized shells, consumables, provisions, equipment and crew
 skills, each linked to its exported PNG. Item icons live under
 `assets/icons/<set>/` beside `assets/icons/catalog.json`, which lists sets,
-sizes, resolution scales and source resources. See
-[Game data export](docs/game-data-export.md) for the schemas and asset layout.
+sizes, resolution scales and source resources. The same section exports every
+country flag variant from `Gfx/Lobby/flags` (`flags`) and the heavy, medium,
+light and tank-destroyer class icons with their pack/XL variants
+(`tank-classes`). See [Game data export](docs/game-data-export.md) for the
+schemas and asset layout.
 
 The library's `client.DiscoverClientCatalog` also provides localized item,
 shell type and crew skill summaries through `ClientItems`. These summaries

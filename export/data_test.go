@@ -111,6 +111,10 @@ func fullDataFixture(t *testing.T) (*filesFixture, ClientExportOptions) {
 	}))
 	f.write("game/Data/UI/Styles/Lobby/Inventory/InventoryBigStyles.style",
 		`.equipment_item.kit #icon { bg-sprite: "~res:/Gfx/UI/InventoryIcons/Big/Consumables/kit.txt"; }`)
+	f.write("game/Data/Gfx/Lobby/flags/flag_carousel_ussr.png", pngBytes(t, 2, 2, atlasPixel))
+	f.write("game/Data/Gfx/Lobby/icons/icon_tank-class_heavy.png", pngBytes(t, 2, 2, atlasPixel))
+	f.write("game/Data/Gfx/Lobby/icons/icon_level_1_pack.png", pngBytes(t, 2, 2, atlasPixel))
+	f.write("game/Data/Gfx/Lobby/icons/tank-tiers/common/heavy-tank_xl.png", pngBytes(t, 2, 2, atlasPixel))
 	f.write(common+"optional_devices.xml", `<root><nextAvailableId>2</nextAvailableId><Rammer><script><reloadFactor>0.9</reloadFactor></script></Rammer></root>`)
 	f.write(common+"optional_device_slots.xml", `<root><presets><default><slot1>Rammer Armor</slot1><slot2/><slot3/><slot4/><slot5/><slot6/><slot7/><slot8/><slot9/></default></presets></root>`)
 	f.write(common+"provisions/list.xml", `<root><items path="common.xml"/><items path="mode.xml"/></root>`)
@@ -205,7 +209,7 @@ func TestUnifiedExport(t *testing.T) {
 			t.Fatalf("duplicate/fragmented output: %s", entry.Name())
 		}
 	}
-	if report.ItemsFile == "" || report.IconExport == nil || report.IconExport.IconCount != 1 {
+	if report.ItemsFile == "" || report.IconExport == nil || report.IconExport.IconCount != 4 {
 		t.Fatalf("item icon export missing: %+v", report)
 	}
 	var items ItemsFile
@@ -215,6 +219,22 @@ func TestUnifiedExport(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(o.OutputDir, *items.Consumables[0].Icon)); err != nil {
 		t.Fatal(err)
+	}
+	catalog := readCatalog(t, filepath.Join(o.OutputDir, "assets/icons/catalog.json"))
+	counts := map[string]int{}
+	for _, set := range catalog.Sets {
+		counts[set.ID] = set.Count
+	}
+	if counts["flags"] != 1 || counts["tank-classes"] != 2 || counts["consumables"] != 1 {
+		t.Fatalf("unexpected icon sets: %v", counts)
+	}
+	for _, name := range []string{"flags/flag_carousel_ussr.png", "tank-classes/icon_tank-class_heavy.png", "tank-classes/heavy-tank_xl.png"} {
+		if _, err := os.Stat(filepath.Join(o.OutputDir, "assets/icons", name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if exists(filepath.Join(o.OutputDir, "assets/icons/tank-classes/icon_level_1_pack.png")) {
+		t.Fatal("big-prefix filter did not exclude tier icons")
 	}
 	if _, err := ExportClient(o); err == nil {
 		t.Fatal("nonempty output accepted")

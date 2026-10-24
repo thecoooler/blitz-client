@@ -322,6 +322,23 @@ resolution scale and source resource; `items.json` uses those paths. Icons
 without a found sprite are `null` and reported in the export command's
 `missingItemIcons`.
 
+Two more sets are exported unconditionally when the directories exist:
+
+- `flags` contains every icon in `Gfx/Lobby/flags`, so all country variants
+  (`carousel`, `event`, `filter`, `flying`, `notification`, `tank-node`,
+  `tank-tree`, `text`, `tutor-tank`) are kept.
+- `tank-classes` collects the `icon_tank-class_*` heavy, medium, light and
+  AT-SPG variants from `Gfx/Lobby/icons` and
+  `Gfx/Lobby/icons/tank-tiers`, plus the `heavy-tank_xl`, `light-tank_xl`,
+  `middle-tank_xl` and `pt-tank_xl` icons from
+  `Gfx/Lobby/icons/tank-tiers/common`. Prefix filters keep tier numbers and
+  other lobby icons stored beside them out of the set.
+
+A sprite with several frames exports its first frame under the icon ID and the
+remaining frames as `<id>-frame1`, `<id>-frame2` … so color and state variants
+are kept without changing the base name. Each frame is a separate catalog
+entry.
+
 Models retain existing geometry, PBR and armor payload schemas. A viewer enumerates
 `tanks` and selects records with `model`, loads `tank.model.model`, and resolves its
 geometry/textures from `tank.model.bundle`. It obtains identity, labels and game

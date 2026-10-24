@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	blitz "github.com/thecoooler/blitz-client"
@@ -25,18 +26,41 @@ import (
 // iconSet is one output folder of icons collected from client directories.
 // Every sprite descriptor and standalone image in a source directory becomes
 // an icon named after its file; atlases referenced by descriptors do not.
+// Prefixes optionally restrict the icon IDs taken from the sources.
 type iconSet struct {
-	id      string
-	sources []string
+	id       string
+	sources  []string
+	prefixes []string
+}
+
+// includes reports whether an icon ID belongs to this set.
+func (s iconSet) includes(id string) bool {
+	if len(s.prefixes) == 0 {
+		return true
+	}
+	for _, prefix := range s.prefixes {
+		if strings.HasPrefix(id, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // iconSets lists the exported groups. Event-specific folders are not included.
+// The class icons are spread over three client directories and share a prefix
+// that excludes the tier numbers and other lobby icons stored beside them.
 var iconSets = []iconSet{
-	{"shells", []string{"Gfx/Shared/tank-supply/ammunition/big"}},
-	{"consumables", []string{"Gfx/UI/InventoryIcons/Big/Consumables"}},
-	{"provisions", []string{"Gfx/UI/InventoryIcons/Big/Provisions"}},
-	{"equipment", []string{"Gfx/UI/InventoryIcons/Big/OptionalDevices", "Gfx/Lobby/tank-supply/optional-devices"}},
-	{"crew-skills", []string{"Gfx/UI/CrewSkillIcons"}},
+	{"shells", []string{"Gfx/Shared/tank-supply/ammunition/big"}, nil},
+	{"consumables", []string{"Gfx/UI/InventoryIcons/Big/Consumables"}, nil},
+	{"provisions", []string{"Gfx/UI/InventoryIcons/Big/Provisions"}, nil},
+	{"equipment", []string{"Gfx/UI/InventoryIcons/Big/OptionalDevices", "Gfx/Lobby/tank-supply/optional-devices"}, nil},
+	{"crew-skills", []string{"Gfx/UI/CrewSkillIcons"}, nil},
+	{"flags", []string{"Gfx/Lobby/flags"}, nil},
+	{"tank-classes", []string{
+		"Gfx/Lobby/icons",
+		"Gfx/Lobby/icons/tank-tiers",
+		"Gfx/Lobby/icons/tank-tiers/common",
+	}, []string{"icon_tank-class_", "heavy-tank_xl", "light-tank_xl", "middle-tank_xl", "pt-tank_xl"}},
 }
 
 // existingIconSets drops source directories missing from the client and sets
@@ -51,7 +75,7 @@ func existingIconSets(resourceDir string, sets []iconSet) []iconSet {
 			}
 		}
 		if len(sources) > 0 {
-			out = append(out, iconSet{id: set.id, sources: sources})
+			out = append(out, iconSet{id: set.id, sources: sources, prefixes: set.prefixes})
 		}
 	}
 	return out
@@ -185,28 +209,40 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 		for reference, id := range referenced {
 			index[set.id][reference] = set.id + "/" + id + ".png"
 		}
-		entry := IconSetEntry{ID: set.id, Sources: set.sources, Count: len(sources), Icons: []IconEntry{}}
+		entry := IconSetEntry{ID: set.id, Sources: set.sources, Icons: []IconEntry{}}
 		for _, source := range sources {
-			icon, encoded, err := renderIcon(resourceDir, source, atlases)
-			if err != nil {
-				return nil, nil, err
+			frames := 1
+			if source.sprite != nil {
+				frames = len(source.sprite.Frames)
 			}
-			icon.File = set.id + "/" + source.id + ".png"
-			file, err := iconPath(outputDir, "assets/icons/"+icon.File)
-			if err != nil {
-				return nil, nil, err
+			for frame := 0; frame < frames; frame++ {
+				icon, encoded, err := renderIcon(resourceDir, source, frame, atlases)
+				if err != nil {
+					return nil, nil, err
+				}
+				// The first frame keeps the file name; additional sprite frames
+				// are separate variants with a stable suffix.
+				if frame > 0 {
+					icon.ID = source.id + "-frame" + strconv.Itoa(frame)
+				}
+				icon.File = set.id + "/" + icon.ID + ".png"
+				file, err := iconPath(outputDir, "assets/icons/"+icon.File)
+				if err != nil {
+					return nil, nil, err
+				}
+				changed, err := writeIfChanged(file, encoded)
+				if err != nil {
+					return nil, nil, err
+				}
+				if changed {
+					report.WrittenCount++
+				} else {
+					report.UnchangedCount++
+				}
+				written[icon.File] = true
+				entry.Icons = append(entry.Icons, icon)
+				entry.Count++
 			}
-			changed, err := writeIfChanged(file, encoded)
-			if err != nil {
-				return nil, nil, err
-			}
-			if changed {
-				report.WrittenCount++
-			} else {
-				report.UnchangedCount++
-			}
-			written[icon.File] = true
-			entry.Icons = append(entry.Icons, icon)
 		}
 		catalog.Count += entry.Count
 		catalog.Sets = append(catalog.Sets, entry)
@@ -256,6 +292,9 @@ func (d *iconDirectories) set(set iconSet, references []string) ([]iconSource, m
 			return nil, nil, err
 		}
 		for _, id := range slices.Sorted(maps.Keys(icons)) {
+			if !set.includes(id) {
+				continue
+			}
 			if err := add(icons[id]); err != nil {
 				return nil, nil, err
 			}
@@ -429,7 +468,7 @@ func iconFileStem(name string) (string, string, bool) {
 	return "", "", false
 }
 
-func renderIcon(resourceDir string, source iconSource, atlases map[string]image.Image) (IconEntry, []byte, error) {
+func renderIcon(resourceDir string, source iconSource, index int, atlases map[string]image.Image) (IconEntry, []byte, error) {
 	icon := IconEntry{ID: source.id, Scale: source.scale, Source: IconSource{Kind: "image", Path: source.relative}}
 	var canvas *image.NRGBA
 	if source.sprite == nil {
@@ -441,11 +480,11 @@ func renderIcon(resourceDir string, source iconSource, atlases map[string]image.
 		draw.Draw(canvas, canvas.Bounds(), img, img.Bounds().Min, draw.Src)
 	} else {
 		descriptor := source.sprite
-		if len(descriptor.Frames) != 1 {
+		if index >= len(descriptor.Frames) {
 			return IconEntry{}, nil, blitz.ErrorAt("ICON_EXPORT_INVALID",
-				fmt.Sprintf("icon sprite must have one frame, found %d", len(descriptor.Frames)), source.file)
+				fmt.Sprintf("icon sprite has no frame %d", index), source.file)
 		}
-		frame := descriptor.Frames[0]
+		frame := descriptor.Frames[index]
 		texture := source.relative
 		if name := descriptor.Textures[frame.Texture]; name != "" {
 			var err error
