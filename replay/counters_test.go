@@ -88,7 +88,7 @@ func TestRejectsUnverifiedVersionsAndMalformedOrUnrelatedPackets(t *testing.T) {
 			t.Fatal(length)
 		}
 	}
-	for _, change := range [][2]int{{4, 13}, {8, 5}, {12, 1}} {
+	for _, change := range [][2]int{{4, 13}, {8, 5}, {12, 255}} {
 		packet := ribbon(42, 5, 540)
 		packet.RawPayload[change[0]] = byte(change[1])
 		if decoder.OnPacket(packet, 1, counterVersion) != nil {
@@ -202,6 +202,9 @@ func TestRealStreamEmitsExactAssistanceAndBlockedValuesBeforeBattleEnd(t *testin
 				version = event.ClientVersion
 			case EventPacket:
 				if update := counters.OnPacket(event.Packet, event.Seq, version); update != nil {
+					if update.Counter == CounterDamageDealt {
+						return nil
+					}
 					if update.Clock >= 182 {
 						t.Fatalf("%+v", update)
 					}
@@ -222,7 +225,7 @@ func TestRealStreamEmitsExactAssistanceAndBlockedValuesBeforeBattleEnd(t *testin
 		t.Fatal(err, version)
 	}
 	got := counters.Counters()
-	if *got.AuthorNickname != "iCooLER" || *got.DamageAssisted != 1920 || *got.DamageBlocked != 540 {
+	if *got.AuthorNickname != "iCooLER" || *got.DamageAssisted != 1920 || *got.DamageBlocked != 540 || got.DamageDealt == nil || *got.DamageDealt != 2066 {
 		t.Fatalf("%+v", got)
 	}
 	if !slicesEqual(assisted, []uint32{706, 1083, 1499, 1920}) || !slicesEqual(blocked, []uint32{540}) {
@@ -240,4 +243,22 @@ func slicesEqual(a, b []uint32) bool {
 		}
 	}
 	return true
+}
+
+func TestDamageCounterIsCumulativeAndAuthorOnly(t *testing.T) {
+	decoder := &BattleCounterDecoder{}
+	decoder.OnPacket(basePlayer(t, 42), 0, counterVersion)
+	if decoder.OnPacket(ribbon(99, 1, 9999), 1, counterVersion) != nil {
+		t.Fatal("another author's damage accepted")
+	}
+	for i, value := range []uint16{100, 700, 700, 650} {
+		update := decoder.OnPacket(ribbon(42, 1, value), i+2, counterVersion)
+		if update == nil || update.Counter != CounterDamageDealt || update.Value != uint32(value) || *decoder.Counters().DamageDealt != uint32(value) {
+			t.Fatalf("counter %d: %+v", value, update)
+		}
+	}
+	decoder.Reset()
+	if decoder.Counters().DamageDealt != nil {
+		t.Fatal("reset retained damage")
+	}
 }

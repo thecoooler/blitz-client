@@ -104,6 +104,35 @@ func TestUpdateArenaDecodesPlayersAndSkipsUnknownProtobufFields(t *testing.T) {
 	}
 }
 
+func TestWindows26101RosterMethod(t *testing.T) {
+	protobuf := []byte("\x0a\x0c\x0a\x0a\x1a\x04Test\x20\x01\x38\x2a")
+	raw := make([]byte, 4)
+	raw = binary.LittleEndian.AppendUint32(raw, 55)
+	raw = binary.LittleEndian.AppendUint32(raw, uint32(len(protobuf)+2))
+	raw = append(raw, 1, byte(len(protobuf)))
+	raw = append(raw, protobuf...)
+	method, err := NewEntityMethodForVersion(raw, "26.10.1_ruby")
+	if err != nil || method.UpdateArena == nil || method.UpdateArena.Players == nil {
+		t.Fatalf("Windows roster method not decoded: %+v %v", method, err)
+	}
+	players := method.UpdateArena.Players.Players
+	if len(players) != 1 || players[0].Nickname != "Test" || players[0].AccountID != 42 || players[0].TeamNumber != 1 {
+		t.Fatalf("Windows roster: %+v", players)
+	}
+	p := livePlayers{}
+	if err := p.event(FollowEvent{Event: StreamEvent{Kind: EventPacket, Packet: &Packet{Payload: Payload{Kind: PayloadEntityMethod, EntityMethod: method}}}}); err != nil {
+		t.Fatal(err)
+	}
+	roster, _ := p.snapshot("Test")
+	if roster == nil || len(roster.Allies) != 1 {
+		t.Fatalf("Windows roster did not start battle: %+v", roster)
+	}
+	unknown, err := NewEntityMethodForVersion(raw, "26.11.0_ruby")
+	if err != nil || unknown.UpdateArena != nil {
+		t.Fatalf("unverified version decoded method 55: %+v %v", unknown, err)
+	}
+}
+
 func TestInvalidLengthsAndVarintsReturnErrorsWithoutPanicking(t *testing.T) {
 	prefix := make([]byte, 4)
 	prefix = binary.LittleEndian.AppendUint32(prefix, 47)
@@ -496,5 +525,40 @@ func TestStandaloneMatchesStreamDecoderAndRejectsTruncation(t *testing.T) {
 	os.WriteFile(path, data[:len(data)-1], 0o644)
 	if _, err := AnalyzeReplay(path, Options{}); blitz.AsError(err).Code != "REPLAY_DATA_INVALID" {
 		t.Fatal(err)
+	}
+}
+
+func TestFollowerReleasesRecordingBetweenPolls(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "recording_test.tbreplay")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "data.replay")
+	data := sampleReplay()
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	follower := NewFollower(path)
+	defer follower.Close()
+	first := poll(t, follower)
+	if len(first.events) == 0 {
+		t.Fatal("no initial events")
+	}
+	if follower.stream.file != nil {
+		t.Fatal("poll retained recording handle")
+	}
+	// Reopening must preserve the offset and avoid replaying old packets.
+	if again := poll(t, follower); len(again.events) != 0 {
+		t.Fatal("reopen duplicated events")
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		t.Fatalf("follower blocked recording finalization: %v", err)
+	}
+	removed := poll(t, follower)
+	if len(removed.events) != 1 || removed.events[0].Event.Reason != "file_removed" {
+		t.Fatalf("missing removal reset: %+v", removed.events)
+	}
+	if again := poll(t, follower); len(again.events) != 0 {
+		t.Fatal("removal reset repeated")
 	}
 }

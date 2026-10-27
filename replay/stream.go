@@ -136,7 +136,7 @@ func (d *StreamDecoder) drain(consumed *int, emit func(StreamEvent) error) error
 			return dataInvalid(fmt.Sprintf("non-finite packet clock at offset %d", d.offset))
 		}
 		rawPayload := append([]byte(nil), raw[12:frameLength]...)
-		payload, err := NewPayload(packetType, rawPayload)
+		payload, err := NewPayloadForVersion(packetType, rawPayload, d.ClientVersion())
 		if err != nil {
 			return dataInvalid(fmt.Sprintf("cannot decode packet %d at offset %d: %v", d.seq, d.offset, err))
 		}

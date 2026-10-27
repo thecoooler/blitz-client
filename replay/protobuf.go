@@ -226,11 +226,17 @@ type ArenaPlayers struct {
 
 // ArenaPlayer is one roster entry.
 type ArenaPlayer struct {
-	Nickname      string  `json:"nickname"`
-	TeamNumber    uint32  `json:"team_number"`
-	AccountID     uint32  `json:"account_id"`
-	ClanTag       *string `json:"clan_tag"`
-	PlatoonNumber *uint32 `json:"platoon_number"`
+	// Destroyed is populated in live snapshots from known vehicle HP.
+	Destroyed       bool    `json:"destroyed,omitempty"`
+	VehicleTypeID   uint32  `json:"vehicle_type_id,omitempty"`
+	VehicleLevel    int     `json:"vehicle_level,omitempty"`
+	VehicleName     string  `json:"vehicle_name,omitempty"`
+	VehicleEntityID *uint32 `json:"vehicle_entity_id"`
+	Nickname        string  `json:"nickname"`
+	TeamNumber      uint32  `json:"team_number"`
+	AccountID       uint32  `json:"account_id"`
+	ClanTag         *string `json:"clan_tag"`
+	PlatoonNumber   *uint32 `json:"platoon_number"`
 }
 
 func decodeUpdateArena(data []byte) (*UpdateArena, error) {
@@ -269,6 +275,16 @@ func decodeArenaPlayer(data []byte) (*ArenaPlayer, error) {
 	err := decodeMessage(data, 2, func(tag uint32, wire wireType, r *protoReader) (bool, error) {
 		var err error
 		switch tag {
+		case 1:
+			var value uint32
+			if value, err = r.uint32Field(wire); err == nil {
+				player.VehicleEntityID = &value
+			}
+		case 2:
+			var descriptor []byte
+			if descriptor, err = r.bytesField(wire); err == nil && len(descriptor) >= 2 && descriptor[0]&15 == 1 {
+				player.VehicleTypeID = uint32(binary.LittleEndian.Uint16(descriptor))
+			}
 		case 3:
 			player.Nickname, err = r.stringField(wire)
 		case 4:

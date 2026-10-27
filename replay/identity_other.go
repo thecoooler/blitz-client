@@ -1,18 +1,12 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package replay
 
-import (
-	"os"
-	"syscall"
-)
+import "os"
 
-// fileIdentity uses the creation time where device/inode numbers are unavailable.
-type fileIdentity struct{ created int64 }
+// fileIdentity is unavailable here; replacement is detected by content only.
+type fileIdentity struct{}
 
-func identityOf(info os.FileInfo) fileIdentity {
-	if data, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
-		return fileIdentity{data.CreationTime.Nanoseconds()}
-	}
-	return fileIdentity{}
-}
+func pathIdentity(string, os.FileInfo) (fileIdentity, error) { return fileIdentity{}, nil }
+
+func handleIdentity(*os.File, os.FileInfo) (fileIdentity, error) { return fileIdentity{}, nil }

@@ -29,11 +29,11 @@ func (e *FollowEvent) MarshalJSON() ([]byte, error) {
 	return fields.MarshalJSON()
 }
 
-// Follower polls a growing data.replay. Callers control scheduling,
-// cancellation, and output. Missing files are awaited; replacement or
-// observed truncation starts a new session. Like tail, it expects
-// append-only writes within each session.
-type Follower struct {
+// streamFollower polls a growing data.replay for raw stream events.
+// Callers control scheduling, cancellation, and output. Missing files
+// are awaited; replacement or observed truncation starts a new session.
+// Like tail, it expects append-only writes within each session.
+type streamFollower struct {
 	path       string
 	file       *os.File
 	identity   *fileIdentity
@@ -41,16 +41,15 @@ type Follower struct {
 	anchor     []byte
 	sessionID  uint64
 	decoder    *StreamDecoder
-	telemetry  *TelemetryDecoder
 }
 
-// NewFollower returns a follower for path.
-func NewFollower(path string) *Follower {
-	return &Follower{path: path, sessionID: 1, decoder: &StreamDecoder{}, telemetry: NewTelemetryDecoder()}
+// newStreamFollower returns a raw stream follower for path.
+func newStreamFollower(path string) *streamFollower {
+	return &streamFollower{path: path, sessionID: 1, decoder: &StreamDecoder{}}
 }
 
 // Close releases the open file handle.
-func (f *Follower) Close() error {
+func (f *streamFollower) Close() error {
 	if f.file != nil {
 		err := f.file.Close()
 		f.file = nil
@@ -59,23 +58,29 @@ func (f *Follower) Close() error {
 	return nil
 }
 
-func (f *Follower) reset(reason string, emit func(FollowEvent) error) error {
+func (f *streamFollower) reset(reason string, emit func(FollowEvent) error) error {
 	f.Close()
 	f.identity = nil
 	f.readOffset = 0
 	f.anchor = nil
 	f.sessionID++
 	f.decoder = &StreamDecoder{}
-	f.telemetry = NewTelemetryDecoder()
 	return emit(FollowEvent{SessionID: f.sessionID, Event: StreamEvent{Kind: EventReset, Reason: reason}})
 }
 
 // Poll reads newly appended bytes and returns their count. EOF leaves
 // incomplete packets pending.
-func (f *Follower) Poll(emit func(FollowEvent) error) (int64, error) {
+func (f *streamFollower) Poll(emit func(FollowEvent) error) (int64, error) {
 	info, err := os.Stat(f.path)
+	var identity fileIdentity
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return 0, dataInvalid("live replay path is not a regular file")
+		}
+		identity, err = pathIdentity(f.path, info)
+	}
 	if errors.Is(err, fs.ErrNotExist) {
-		if f.file != nil {
+		if f.identity != nil {
 			if err := f.reset("file_removed", emit); err != nil {
 				return 0, err
 			}
@@ -85,10 +90,6 @@ func (f *Follower) Poll(emit func(FollowEvent) error) (int64, error) {
 	if err != nil {
 		return 0, blitz.IOError("cannot stat live replay", f.path, err)
 	}
-	if !info.Mode().IsRegular() {
-		return 0, dataInvalid("live replay path is not a regular file")
-	}
-	identity := identityOf(info)
 	if f.identity != nil && *f.identity != identity {
 		if err := f.reset("file_replaced", emit); err != nil {
 			return 0, err
@@ -99,7 +100,7 @@ func (f *Follower) Poll(emit func(FollowEvent) error) (int64, error) {
 		}
 	}
 	if f.file == nil {
-		file, err := os.Open(f.path)
+		file, err := openReplay(f.path)
 		if errors.Is(err, fs.ErrNotExist) {
 			return 0, nil
 		}
@@ -111,10 +112,17 @@ func (f *Follower) Poll(emit func(FollowEvent) error) (int64, error) {
 			file.Close()
 			return 0, blitz.IOError("cannot stat live replay handle", f.path, err)
 		}
-		opened := identityOf(handleInfo)
+		opened, err := handleIdentity(file, handleInfo)
+		if err != nil {
+			file.Close()
+			return 0, blitz.IOError("cannot stat live replay handle", f.path, err)
+		}
 		f.identity = &opened
 		f.file = file
 	}
+	// Do not retain a handle between polls: the game finalizes recordings by
+	// renaming/removing files and their containing directory on Windows.
+	defer f.Close()
 	// Detect a truncate-and-regrow between polls, even if the size has
 	// already caught up. Checking the last read bytes is cheap and avoids
 	// silently combining frames from two battles in the usual rewrite case.
@@ -157,22 +165,50 @@ func (f *Follower) Poll(emit func(FollowEvent) error) (int64, error) {
 		f.readOffset += int64(count)
 		remaining -= int64(count)
 		readBytes += int64(count)
-		version := f.decoder.ClientVersion()
 		sessionID := f.sessionID
 		err = f.decoder.Feed(chunk[:count], func(event StreamEvent) error {
-			record := FollowEvent{SessionID: sessionID, Event: event}
-			switch event.Kind {
-			case EventHeader:
-				version = event.ClientVersion
-			case EventPacket:
-				record.Telemetry = f.telemetry.OnPacket(event.Packet, event.Seq, version)
-				record.HasTelemetry = true
-			}
-			return emit(record)
+			return emit(FollowEvent{SessionID: sessionID, Event: event})
 		})
 		if err != nil {
 			return readBytes, err
 		}
 	}
 	return readBytes, nil
+}
+
+// Follower polls a growing data.replay. Callers control scheduling,
+// cancellation, and output. Missing files are awaited; replacement or
+// observed truncation starts a new session. Like tail, it expects
+// append-only writes within each session.
+type Follower struct {
+	stream    *streamFollower
+	telemetry *TelemetryDecoder
+}
+
+// NewFollower returns an enriched reporting follower for path.
+func NewFollower(path string) *Follower {
+	return &Follower{
+		stream:    newStreamFollower(path),
+		telemetry: NewTelemetryDecoder(),
+	}
+}
+
+// Close releases the open file handle.
+func (f *Follower) Close() error {
+	return f.stream.Close()
+}
+
+// Poll reads newly appended bytes, enriches packet events with reporting
+// telemetry, and returns their count. EOF leaves incomplete packets pending.
+func (f *Follower) Poll(emit func(FollowEvent) error) (int64, error) {
+	return f.stream.Poll(func(event FollowEvent) error {
+		switch event.Event.Kind {
+		case EventReset:
+			f.telemetry = NewTelemetryDecoder()
+		case EventPacket:
+			event.Telemetry = f.telemetry.OnPacket(event.Event.Packet, event.Event.Seq, f.stream.decoder.ClientVersion())
+			event.HasTelemetry = true
+		}
+		return emit(event)
+	})
 }

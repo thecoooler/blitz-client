@@ -9,13 +9,16 @@ import (
 )
 
 // BattleCounterClientVersions lists the client versions whose author-only
-// battle counters (EntityMethod 14) have been verified.
-var BattleCounterClientVersions = []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple"}
+// battle counters (EntityMethod 14) are enabled.
+// The Windows layout still needs confirmation against a captured replay.
+var BattleCounterClientVersions = []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple", "26.10.1_ruby"}
 
 // BattleCounters holds the author's cumulative server-reported counters.
 type BattleCounters struct {
 	AuthorNickname *string `json:"author_nickname"`
 	PlayerEntityID *uint32 `json:"player_entity_id"`
+	// DamageDealt is the cumulative direct-hit damage reported by the author.
+	DamageDealt *uint32 `json:"damage_dealt"`
 	// DamageBlocked is nil until a counter update is received; absence does not imply zero.
 	DamageBlocked *uint32 `json:"damage_blocked"`
 	// DamageAssisted combines assistance from spotting or immobilizing opponents.
@@ -26,6 +29,7 @@ type BattleCounters struct {
 type BattleCounterKind string
 
 const (
+	CounterDamageDealt    BattleCounterKind = "damage_dealt"
 	CounterDamageBlocked  BattleCounterKind = "damage_blocked"
 	CounterDamageAssisted BattleCounterKind = "damage_assisted"
 )
@@ -49,7 +53,7 @@ type BattleCounterDecoder struct {
 	counters BattleCounters
 }
 
-// SupportsBattleCounters reports whether counters are verified for a version.
+// SupportsBattleCounters reports whether counters are enabled for a version.
 func SupportsBattleCounters(version string) bool {
 	return slices.Contains(BattleCounterClientVersions, version)
 }
@@ -103,6 +107,8 @@ func (d *BattleCounterDecoder) OnPacket(packet *Packet, packetIndex int, version
 	var counter BattleCounterKind
 	var total **uint32
 	switch raw[12] {
+	case 1:
+		counter, total = CounterDamageDealt, &d.counters.DamageDealt
 	case 5:
 		counter, total = CounterDamageBlocked, &d.counters.DamageBlocked
 	case 17:

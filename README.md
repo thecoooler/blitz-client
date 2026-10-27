@@ -401,6 +401,40 @@ creation. It buffers any incomplete packet at a temporary end of file.
 `meta.json` and `battle_results.dat` were absent from the inspected live
 directory; the completed test replay ZIP contains both alongside `data.replay`.
 
+`replay.LiveReplayWatcher.Poll` also returns detached typed `Battle`, `Map`,
+`Vehicle`, `Result`, and `Counters` snapshots. `Battle.ArenaID` is the arena
+ID from the stream and is encoded as a decimal JSON string to avoid loss of
+64-bit precision. `Battle.ArenaTypeID` is the raw arena type; it is not a map
+name. `LoadMapCatalog` loads localized Russian names from the installed client
+and looks up `ArenaTypeID` as an exact catalog map ID. In the supplied fixture,
+the first stream snapshot has arena type 20, matching the completed metadata
+map ID 20; other layouts and versions have not been independently verified.
+Unmatched IDs and missing or ambiguous translations stay unavailable. The map
+ID may also come from matching metadata or the results mode/map ID. `Map.Name`
+is the internal `mapName` from `meta.json`, accepted only when `arenaUniqueId`
+matches the stream; `Map.DisplayName` is the catalog's localized label. The
+observed live directory above did not contain metadata, so a map name is not
+guaranteed without the catalog. Metadata is re-read when its file identity,
+size, modification time or mode changes, and at least every two seconds even
+if those attributes are unchanged. Missing or incomplete metadata is retried
+on every poll, and recording resets discard the cached metadata. A zero map ID
+is treated as unavailable and does not suppress a matching catalog name.
+`Vehicle.TypeID` comes from the author's roster entry; `LoadVehicleCatalog`
+supplies its optional localized name and level.
+
+`Result` appears only after a results packet matches both the stream arena and
+roster author. Its outcome is relative to the author and can be `unknown` if
+the winning team or the author's team is not established. Idle EOF never
+indicates completion. Counter pointers distinguish unavailable values from
+zero: damage is a live estimate until final results, frags come from the
+matching author's final row, and blocked damage comes from live counters or
+that row. `SpottingDamage` remains unavailable because the verified live
+assistance counter combines spotting and immobilization, and the individual
+result fields have not been independently identified. Existing `Damage` and
+other watcher fields remain available. All values may arrive only after the
+game flushes the corresponding bytes; unsupported client versions cannot
+safely decode the version-gated counters or results.
+
 ### Simulating a growing replay file
 
 A real replay copy is included at `testdata/sample.tbreplay`. The Python
