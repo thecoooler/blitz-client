@@ -15,3 +15,11 @@ func identityOf(info os.FileInfo) fileIdentity {
 	}
 	return fileIdentity{}
 }
+
+func pathIdentity(_ string, info os.FileInfo) (fileIdentity, error) {
+	return identityOf(info), nil
+}
+
+func handleIdentity(_ *os.File, info os.FileInfo) (fileIdentity, error) {
+	return identityOf(info), nil
+}

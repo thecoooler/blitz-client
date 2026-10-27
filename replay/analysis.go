@@ -39,6 +39,7 @@ type Analysis struct {
 	BattleResults any    `json:"battle_results"`
 	Telemetry     any    `json:"telemetry,omitempty"`
 	Data          any    `json:"data,omitempty"`
+	results       *BattleResults
 }
 
 type replayData struct {
@@ -58,7 +59,7 @@ func (d *replayData) value() any {
 // battle results and, when requested, the framed packet stream with the
 // empirically decoded telemetry. Payloads outside the recovered layouts stay raw.
 func AnalyzeReplay(path string, options Options) (*Analysis, error) {
-	file, err := os.Open(path)
+	file, err := openReplay(path)
 	if err != nil {
 		return nil, blitz.IOError("cannot open replay", path, err)
 	}
@@ -106,7 +107,7 @@ func AnalyzeReplay(path string, options Options) (*Analysis, error) {
 			fmt.Sprintf("cannot decode the battle results protobuf: REPLAY_RESULTS_INVALID: %v", err), path)
 	}
 
-	analysis := &Analysis{Source: filepath.Base(path), Meta: meta, BattleResults: jsonx.ToValue(results)}
+	analysis := &Analysis{Source: filepath.Base(path), Meta: meta, BattleResults: jsonx.ToValue(results), results: results}
 	if options.IncludeData {
 		dataBytes, err := readEntry(archive, path, dataEntry)
 		if err != nil {

@@ -358,36 +358,42 @@ func decodeTurboStatistics(value pickle.Value) (*TurboBattlesStatistics, error) 
 
 // decodeBattleResultsDat reads the (arena ID, protobuf bytes) pickle tuple.
 func decodeBattleResultsDat(data []byte) ([]byte, error) {
+	_, blob, err := decodeBattleResultsDatWithArena(data)
+	return blob, err
+}
+
+func decodeBattleResultsDatWithArena(data []byte) (uint64, []byte, error) {
 	value, err := pickle.Decode(data)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	items, err := pySequence(value, "a tuple of size 2")
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if len(items) != 2 {
-		return nil, fmt.Errorf("invalid length %d, expected a tuple of size 2", len(items))
+		return 0, nil, fmt.Errorf("invalid length %d, expected a tuple of size 2", len(items))
 	}
-	if _, err := pyU64(items[0]); err != nil {
-		return nil, err
+	arenaID, err := pyU64(items[0])
+	if err != nil {
+		return 0, nil, err
 	}
 	switch buffer := items[1].(type) {
 	case pickle.Bytes:
-		return []byte(buffer), nil
+		return arenaID, []byte(buffer), nil
 	case string:
-		return []byte(buffer), nil
+		return arenaID, []byte(buffer), nil
 	case *pickle.List, pickle.Tuple:
 		values, _ := pySequence(buffer, "")
 		out := make([]byte, len(values))
 		for index, item := range values {
 			b, err := pyU8(item)
 			if err != nil {
-				return nil, err
+				return 0, nil, err
 			}
 			out[index] = b
 		}
-		return out, nil
+		return arenaID, out, nil
 	}
-	return nil, fmt.Errorf("invalid type: %s, expected byte array", unexpected(items[1]))
+	return 0, nil, fmt.Errorf("invalid type: %s, expected byte array", unexpected(items[1]))
 }

@@ -58,6 +58,11 @@ func payloadInvalid(message string) error { return blitz.NewError("REPLAY_PAYLOA
 
 // NewPayload decodes a payload of the given packet type.
 func NewPayload(packetType uint32, raw []byte) (Payload, error) {
+	return NewPayloadForVersion(packetType, raw, "")
+}
+
+// NewPayloadForVersion selects method IDs for the stream header.
+func NewPayloadForVersion(packetType uint32, raw []byte, version string) (Payload, error) {
 	reader := &payloadReader{remaining: raw}
 	switch packetType {
 	case 0:
@@ -95,7 +100,7 @@ func NewPayload(packetType uint32, raw []byte) (Payload, error) {
 		return Payload{Kind: PayloadBasePlayerCreate, AuthorNickname: nickname, ArenaUniqueID: arenaUniqueID,
 			ArenaTypeID: arenaTypeID, Arguments: arguments}, nil
 	case 8:
-		method, err := NewEntityMethod(raw)
+		method, err := NewEntityMethodForVersion(raw, version)
 		if err != nil {
 			return Payload{}, err
 		}
@@ -105,7 +110,9 @@ func NewPayload(packetType uint32, raw []byte) (Payload, error) {
 }
 
 // NewEntityMethod decodes an EntityMethod payload.
-func NewEntityMethod(raw []byte) (*EntityMethod, error) {
+func NewEntityMethod(raw []byte) (*EntityMethod, error) { return NewEntityMethodForVersion(raw, "") }
+
+func NewEntityMethodForVersion(raw []byte, version string) (*EntityMethod, error) {
 	reader := &payloadReader{remaining: raw}
 	if _, err := reader.u32(); err != nil { // Receiver entity ID.
 		return nil, err
@@ -114,7 +121,12 @@ func NewEntityMethod(raw []byte) (*EntityMethod, error) {
 	if err != nil {
 		return nil, err
 	}
-	if subType != 47 {
+	updateArenaMethod := uint32(47)
+	switch version {
+	case "26.10.0_ruby_apple", "26.10.1_ruby":
+		updateArenaMethod = 55
+	}
+	if subType != updateArenaMethod {
 		return &EntityMethod{SubType: subType}, nil
 	}
 	if _, err := reader.u32(); err != nil { // Method envelope length.
@@ -136,7 +148,7 @@ func NewEntityMethod(raw []byte) (*EntityMethod, error) {
 	if err != nil {
 		return nil, payloadInvalid(fmt.Sprintf("cannot decode UpdateArena protobuf: %v", err))
 	}
-	return &EntityMethod{UpdateArena: arena, FieldNumber: fieldNumber, SubType: 47}, nil
+	return &EntityMethod{UpdateArena: arena, FieldNumber: fieldNumber, SubType: subType}, nil
 }
 
 // payloadReader reads borrowed slices so length fields cannot cause unbounded
