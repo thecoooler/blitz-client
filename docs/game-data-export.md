@@ -355,6 +355,62 @@ snapshot, err := export.ReadClientExport("/path/to/export")
 // tank.Model links to binary assets if models were selected.
 ```
 
+`ReadClientExport` keeps nested game data as untyped values and does not
+validate it. For a data-only export, the strict reader validates every section
+against typed Go structs before anything else uses it:
+
+```go
+snapshot, err := export.ReadStrictDataExport("/path/to/export") // or DecodeStrictDataExport(r)
+if err != nil {
+	return err // unknown field, wrong shape, duplicate key, trailing data, ...
+}
+for _, tank := range snapshot.Tanks {
+	params, ok := tank.Parameters.Get()
+	if !ok {
+		continue // absent or null
+	}
+	if chassis, ok := params.Chassis.Get(); ok {
+		scale, _ := chassis.TextureScale.Get() // export.StrictNumber, original spelling
+		_ = scale
+	}
+}
+```
+
+Strict reader guarantees:
+
+- Every value in `tanks[].metadata/parameters/configuration`, `localization`,
+  `maps`, `components`, `equipment`, `provisions`, all 23 `settings` documents,
+  `hangarParameters`, `crewSkills` and `issues` is decoded into a named type.
+  The data sections hold no `any`, `map[string]any` or `json.RawMessage` values.
+  Dictionaries keyed by game identifiers are `map[string]Optional[T]` with typed `T`.
+- `Optional[T]` distinguishes an absent field (`!Present()`), explicit `null`
+  (`Null()`) and a value (`Get()`). Encoding writes back exactly that state.
+- Numbers are `StrictNumber`/`StrictInteger` (string-backed, original spelling,
+  for example `9007199254740993`); nothing is routed through `float64`. XML text
+  stays `string`, as in the exporter.
+- XML elements observed in several shapes are explicit unions:
+  `XMLScalarObject`, `XMLScalarList`, `XMLObjectList`, `XMLScalarObjectList`.
+  Exactly one variant is set.
+- Arrays, including configuration selection lists, keep their order.
+- Unknown fields, unknown settings documents, duplicate keys, case-mismatched
+  keys and trailing JSON are errors. A new game version that adds fields fails
+  loudly instead of losing data; the schema must then be extended.
+- `json.Marshal(snapshot)` reproduces `data.json` as an equal JSON value.
+
+Limits: the schema describes the shapes observed in the current client, not
+game semantics or cross-references. `crewSkillTraining` (from `--server-config`)
+and media (`icons`, `model`, or `included` other than `data`) are rejected by the
+strict reader because no schema exists for them. `DecodePartialClientExport` /
+`ReadPartialClientExport` accept them as raw JSON and list such parts in
+`UnvalidatedSections`. The module requires Go 1.23.
+
+The schema tests validate a real export when `BLITZ_EXPORT_DATA` points to its
+`data.json`:
+
+```sh
+BLITZ_EXPORT_DATA=/path/to/export/data.json go test ./export -run 'FullExport|CurrentExport'
+```
+
 `--game-dir` accepts an install or Data directory. Plain and DVPL resources share
 the existing reader. Within a root, plain files win over DVPL siblings; packs
 wins over Data by unpacked relative path. Default packs is used when it exists;

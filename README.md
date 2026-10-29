@@ -127,6 +127,8 @@ Encoding options apply only to model conversion:
 
 The full contract and consumer examples are in [Game data export](docs/game-data-export.md).
 Go consumers can call `export.ReadClientExport(directory)` to load any selection.
+`export.ReadStrictDataExport(directory)` validates a data-only export against typed
+structs, keeping exact numbers, absent vs. null fields and array order.
 The viewer implementation is outside this repository; it must read `tanks[].model`
 from `data.json` instead of the removed `assets/tanks/catalog.json`. Binary model
 and armor schemas are unchanged. Site projects are not modified by this change.
