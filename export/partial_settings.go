@@ -10,112 +10,70 @@ import (
 // documents as raw JSON. Other keys are source document names, not validated
 // fields. UnvalidatedDocuments lists them deterministically.
 type PartialSettings struct {
-	Vehicle                 Optional[StrictVehicleSettings]
-	Camouflages             Optional[SettingCamouflages]
-	PlayerEmblems           Optional[SettingPlayerEmblems]
-	Roles                   Optional[SettingRoles]
-	ChassisEffects          Optional[StrictChassisEffects]
-	GunEffects              Optional[map[string]Optional[StrictGunEffect]]
-	ShotEffects             Optional[map[string]Optional[StrictShotEffect]]
-	VehicleEffects          Optional[map[string]Optional[StrictVehicleEffect]]
-	CombatRoles             Optional[map[string]Optional[SettingCombatRole]]
-	ConsumablesBattleroyale Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesBossmode     Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesCommon       Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesGravitizing  Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesHellgames    Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesLunar        Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesMadgames     Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesPrototypes   Optional[map[string]Optional[StrictConsumable]]
-	ConsumablesList         Optional[SettingConsumablesList]
-	ConsumablesDefault      Optional[map[string]Optional[[]Optional[string]]]
-	HitMarks                Optional[map[string]Optional[SettingHitMark]]
-	Horns                   Optional[map[string]Optional[SettingHorn]]
-	Nations                 Optional[map[string]Optional[SettingNation]]
-	StuffPackages           Optional[map[string]Optional[SettingStuffPackage]]
-	Other                   map[string]json.RawMessage
+	Vehicle                 Optional[StrictVehicleSettings]                    `json:"vehicle,omitzero"`
+	Camouflages             Optional[SettingCamouflages]                       `json:"camouflages,omitzero"`
+	PlayerEmblems           Optional[SettingPlayerEmblems]                     `json:"player_emblems,omitzero"`
+	Roles                   Optional[SettingRoles]                             `json:"roles,omitzero"`
+	ChassisEffects          Optional[StrictChassisEffects]                     `json:"chassis_effects,omitzero"`
+	GunEffects              Optional[map[string]Optional[StrictGunEffect]]     `json:"gun_effects,omitzero"`
+	ShotEffects             Optional[map[string]Optional[StrictShotEffect]]    `json:"shot_effects,omitzero"`
+	VehicleEffects          Optional[map[string]Optional[StrictVehicleEffect]] `json:"vehicle_effects,omitzero"`
+	CombatRoles             Optional[map[string]Optional[SettingCombatRole]]   `json:"combat_roles,omitzero"`
+	ConsumablesBattleroyale Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/battleroyale,omitzero"`
+	ConsumablesBossmode     Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/bossmode,omitzero"`
+	ConsumablesCommon       Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/common,omitzero"`
+	ConsumablesGravitizing  Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/gravitizing,omitzero"`
+	ConsumablesHellgames    Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/hellgames,omitzero"`
+	ConsumablesLunar        Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/lunar,omitzero"`
+	ConsumablesMadgames     Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/madgames,omitzero"`
+	ConsumablesPrototypes   Optional[map[string]Optional[StrictConsumable]]    `json:"consumables/prototypes,omitzero"`
+	ConsumablesList         Optional[SettingConsumablesList]                   `json:"consumables/list,omitzero"`
+	ConsumablesDefault      Optional[map[string]Optional[[]Optional[string]]]  `json:"consumablesDefault,omitzero"`
+	HitMarks                Optional[map[string]Optional[SettingHitMark]]      `json:"hit_marks,omitzero"`
+	Horns                   Optional[map[string]Optional[SettingHorn]]         `json:"horns,omitzero"`
+	Nations                 Optional[map[string]Optional[SettingNation]]       `json:"nations,omitzero"`
+	StuffPackages           Optional[map[string]Optional[SettingStuffPackage]] `json:"stuff_packages,omitzero"`
+	Other                   map[string]json.RawMessage                         `json:"-"`
 }
 
 type SettingCombatRole struct {
-	DefaultAbilities Optional[[]Optional[string]] `json:"default_abilities,omitempty"`
-	ID               Optional[StrictNumber]       `json:"id,omitempty"`
+	DefaultAbilities Optional[[]Optional[string]] `json:"default_abilities,omitzero"`
+	ID               Optional[StrictNumber]       `json:"id,omitzero"`
 }
 type SettingConsumablesList struct {
-	Items           Optional[[]Optional[SettingInclude]] `json:"items,omitempty"`
-	NextAvailableID Optional[string]                     `json:"nextAvailableId,omitempty"`
+	Items           Optional[[]Optional[SettingInclude]] `json:"items,omitzero"`
+	NextAvailableID Optional[XMLInteger]                 `json:"nextAvailableId,omitzero"`
 }
 type SettingInclude struct {
-	Path Optional[string] `json:"@path,omitempty"`
+	Path Optional[string] `json:"@path,omitzero"`
 }
 type SettingHitMark struct {
-	ModelSizes  Optional[string] `json:"modelSizes,omitempty"`
-	Priority    Optional[string] `json:"priority,omitempty"`
-	TextureName Optional[string] `json:"texName,omitempty"`
+	ModelSizes  Optional[XMLNumberVector] `json:"modelSizes,omitzero"`
+	Priority    Optional[XMLInteger]      `json:"priority,omitzero"`
+	TextureName Optional[string]          `json:"texName,omitzero"`
 }
 type SettingHorn struct {
-	Distance    Optional[string] `json:"distance,omitempty"`
-	Gold        Optional[string] `json:"gold,omitempty"`
-	ID          Optional[string] `json:"id,omitempty"`
-	MaxDuration Optional[string] `json:"maxDuration,omitempty"`
-	Mode        Optional[string] `json:"mode,omitempty"`
-	Sound       Optional[string] `json:"sound,omitempty"`
-	UserString  Optional[string] `json:"userString,omitempty"`
-	VehicleTags Optional[string] `json:"vehicleTags,omitempty"`
+	Distance    Optional[XMLNumber]          `json:"distance,omitzero"`
+	Gold        Optional[XMLInteger]         `json:"gold,omitzero"`
+	ID          Optional[XMLInteger]         `json:"id,omitzero"`
+	MaxDuration Optional[XMLInteger]         `json:"maxDuration,omitzero"`
+	Mode        Optional[string]             `json:"mode,omitzero"`
+	Sound       Optional[string]             `json:"sound,omitzero"`
+	UserString  Optional[XMLLocalizationKey] `json:"userString,omitzero"`
+	VehicleTags Optional[string]             `json:"vehicleTags,omitzero"`
 }
 type SettingNation struct {
-	ID Optional[string] `json:"id,omitempty"`
+	ID Optional[XMLInteger] `json:"id,omitzero"`
 }
 type SettingStuffPackage struct {
-	Content     Optional[string] `json:"content,omitempty"`
-	Description Optional[string] `json:"description,omitempty"`
-	Effect      Optional[string] `json:"effect,omitempty"`
-	ID          Optional[string] `json:"id,omitempty"`
-	Image       Optional[string] `json:"image,omitempty"`
-	Title       Optional[string] `json:"title,omitempty"`
+	Content     Optional[string]     `json:"content,omitzero"`
+	Description Optional[string]     `json:"description,omitzero"`
+	Effect      Optional[string]     `json:"effect,omitzero"`
+	ID          Optional[XMLInteger] `json:"id,omitzero"`
+	Image       Optional[string]     `json:"image,omitzero"`
+	Title       Optional[string]     `json:"title,omitzero"`
 }
 
-func (s *PartialSettings) UnmarshalJSON(data []byte) error {
-	var entries map[string]json.RawMessage
-	if err := decodeStrictJSON(data, &entries); err != nil {
-		return err
-	}
-	if entries == nil {
-		return fmt.Errorf("settings must be an object")
-	}
-	var v PartialSettings
-	known := map[string]any{
-		"vehicle":                  &v.Vehicle,
-		"camouflages":              &v.Camouflages,
-		"player_emblems":           &v.PlayerEmblems,
-		"roles":                    &v.Roles,
-		"chassis_effects":          &v.ChassisEffects,
-		"gun_effects":              &v.GunEffects,
-		"shot_effects":             &v.ShotEffects,
-		"vehicle_effects":          &v.VehicleEffects,
-		"consumables/battleroyale": &v.ConsumablesBattleroyale,
-		"consumables/bossmode":     &v.ConsumablesBossmode,
-		"consumables/common":       &v.ConsumablesCommon,
-		"consumables/gravitizing":  &v.ConsumablesGravitizing,
-		"consumables/hellgames":    &v.ConsumablesHellgames,
-		"consumables/lunar":        &v.ConsumablesLunar,
-		"consumables/madgames":     &v.ConsumablesMadgames,
-		"consumables/prototypes":   &v.ConsumablesPrototypes,
-		"combat_roles":             &v.CombatRoles, "consumables/list": &v.ConsumablesList,
-		"consumablesDefault": &v.ConsumablesDefault, "hit_marks": &v.HitMarks,
-		"horns": &v.Horns, "nations": &v.Nations, "stuff_packages": &v.StuffPackages,
-	}
-	for name, target := range known {
-		if raw, ok := entries[name]; ok {
-			if err := decodeStrictJSON(raw, target); err != nil {
-				return fmt.Errorf("settings.%s: %w", name, err)
-			}
-			delete(entries, name)
-		}
-	}
-	v.Other = entries
-	*s = v
-	return nil
-}
 func (s PartialSettings) MarshalJSON() ([]byte, error) {
 	entries := make(map[string]json.RawMessage, len(s.Other)+7)
 	for k, v := range s.Other {

@@ -1,70 +1,43 @@
 package export
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 )
 
 // StrictVehicleSettings models the observed settings.vehicle XML document.
 // The extra and material names are dynamic keys; XML scalars remain strings.
 type StrictVehicleSettings struct {
-	Balance               Optional[StrictVehicleSettingsBalance]               `json:"balance,omitempty"`
-	DefaultVehicleEffects Optional[StrictVehicleDefaultEffects]                `json:"defaultVehicleEffects,omitempty"`
-	DeviceExtras          Optional[StrictVehicleDeviceExtras]                  `json:"deviceExtras,omitempty"`
-	Extras                Optional[map[string]Optional[StrictVehicleExtra]]    `json:"extras,omitempty"`
-	LodLevels             Optional[StrictVehicleLodLevels]                     `json:"lodLevels,omitempty"`
-	Materials             Optional[map[string]Optional[StrictVehicleMaterial]] `json:"materials,omitempty"`
-	MiscParams            Optional[StrictVehicleMiscParams]                    `json:"miscParams,omitempty"`
-}
-
-func (v *StrictVehicleSettings) UnmarshalJSON(data []byte) error {
-	b := bytes.TrimSpace(data)
-	if len(b) == 0 || b[0] != '{' {
-		return fmt.Errorf("vehicle settings must be an object")
-	}
-	type alias StrictVehicleSettings
-	var x alias
-	if err := decodeStrictJSON(data, &x); err != nil {
-		return err
-	}
-	*v = StrictVehicleSettings(x)
-	return nil
+	Balance               Optional[StrictVehicleSettingsBalance]               `json:"balance,omitzero"`
+	DefaultVehicleEffects Optional[StrictVehicleDefaultEffects]                `json:"defaultVehicleEffects,omitzero"`
+	DeviceExtras          Optional[StrictVehicleDeviceExtras]                  `json:"deviceExtras,omitzero"`
+	Extras                Optional[map[string]Optional[StrictVehicleExtra]]    `json:"extras,omitzero"`
+	LodLevels             Optional[StrictVehicleLodLevels]                     `json:"lodLevels,omitzero"`
+	Materials             Optional[map[string]Optional[StrictVehicleMaterial]] `json:"materials,omitzero"`
+	MiscParams            Optional[StrictVehicleMiscParams]                    `json:"miscParams,omitzero"`
 }
 
 type StrictVehicleSettingsBalance struct {
-	ByComponentLevels        Optional[string]                      `json:"byComponentLevels,omitempty"`
-	ByVehicleClasses         Optional[map[string]Optional[string]] `json:"byVehicleClasses,omitempty"`
-	ByVehicleModule          Optional[string]                      `json:"byVehicleModule,omitempty"`
-	ModulesWeightMultipliers Optional[StrictVehicleModuleWeights]  `json:"modulesWeightMultipliers,omitempty"`
+	ByComponentLevels        Optional[XMLNumberVector]                `json:"byComponentLevels,omitzero"`
+	ByVehicleClasses         Optional[map[string]Optional[XMLNumber]] `json:"byVehicleClasses,omitzero"`
+	ByVehicleModule          Optional[string]                         `json:"byVehicleModule,omitzero"`
+	ModulesWeightMultipliers Optional[StrictVehicleModuleWeights]     `json:"modulesWeightMultipliers,omitzero"`
 }
 type StrictVehicleModuleWeights struct {
-	Chassis Optional[StrictVehicleModuleWeightChassis] `json:"chassis,omitempty"`
-	Engine  Optional[string]                           `json:"engine,omitempty"`
-	Gun     Optional[string]                           `json:"gun,omitempty"`
-	Turret  Optional[string]                           `json:"turret,omitempty"`
-	Vehicle Optional[string]                           `json:"vehicle,omitempty"`
+	Chassis Optional[StrictVehicleModuleWeightChassis] `json:"chassis,omitzero"`
+	Engine  Optional[XMLNumber]                        `json:"engine,omitzero"`
+	Gun     Optional[XMLNumber]                        `json:"gun,omitzero"`
+	Turret  Optional[XMLNumber]                        `json:"turret,omitzero"`
+	Vehicle Optional[XMLNumber]                        `json:"vehicle,omitzero"`
 }
 type StrictVehicleModuleWeightChassis struct {
-	Items Optional[StrictVehicleEmptyItems] `json:"#items,omitempty"`
-	Text  Optional[string]                  `json:"#text,omitempty"`
+	Items Optional[StrictVehicleEmptyItems] `json:"#items,omitzero"`
+	Text  Optional[XMLNumber]               `json:"#text,omitzero"`
 }
 
 // StrictVehicleEmptyItems describes the empty #items array observed here;
 // nonempty arrays are rejected until their actual entry shapes are known.
 type StrictVehicleEmptyItems []struct{}
 
-func (v *StrictVehicleEmptyItems) UnmarshalJSON(data []byte) error {
-	var entries []json.RawMessage
-	if err := decodeStrictJSON(data, &entries); err != nil {
-		return err
-	}
-	if entries == nil || len(entries) != 0 {
-		return fmt.Errorf("expected empty #items array")
-	}
-	*v = StrictVehicleEmptyItems{}
-	return nil
-}
 func (v StrictVehicleEmptyItems) MarshalJSON() ([]byte, error) {
 	if v == nil || len(v) != 0 {
 		return nil, fmt.Errorf("expected empty #items array")
@@ -73,75 +46,75 @@ func (v StrictVehicleEmptyItems) MarshalJSON() ([]byte, error) {
 }
 
 type StrictVehicleDefaultEffects struct {
-	CollisionVehicle     Optional[string] `json:"collisionVehicle,omitempty"`
-	Destruction          Optional[string] `json:"destruction,omitempty"`
-	Explosion            Optional[string] `json:"explosion,omitempty"`
-	Flaming              Optional[string] `json:"flaming,omitempty"`
-	GroundCollisionHeavy Optional[string] `json:"groundCollisionHeavy,omitempty"`
-	GroundCollisionLight Optional[string] `json:"groundCollisionLight,omitempty"`
-	MetalCollisionHeavy  Optional[string] `json:"metalCollisionHeavy,omitempty"`
-	MetalCollisionLight  Optional[string] `json:"metalCollisionLight,omitempty"`
-	SandCollisionHeavy   Optional[string] `json:"sandCollisionHeavy,omitempty"`
-	SandCollisionLight   Optional[string] `json:"sandCollisionLight,omitempty"`
-	SnowCollisionHeavy   Optional[string] `json:"snowCollisionHeavy,omitempty"`
-	SnowCollisionLight   Optional[string] `json:"snowCollisionLight,omitempty"`
-	StoneCollisionHeavy  Optional[string] `json:"stoneCollisionHeavy,omitempty"`
-	StoneCollisionLight  Optional[string] `json:"stoneCollisionLight,omitempty"`
-	WaterCollisionHeavy  Optional[string] `json:"waterCollisionHeavy,omitempty"`
-	WaterCollisionLight  Optional[string] `json:"waterCollisionLight,omitempty"`
-	WoodCollisionHeavy   Optional[string] `json:"woodCollisionHeavy,omitempty"`
-	WoodCollisionLight   Optional[string] `json:"woodCollisionLight,omitempty"`
+	CollisionVehicle     Optional[string] `json:"collisionVehicle,omitzero"`
+	Destruction          Optional[string] `json:"destruction,omitzero"`
+	Explosion            Optional[string] `json:"explosion,omitzero"`
+	Flaming              Optional[string] `json:"flaming,omitzero"`
+	GroundCollisionHeavy Optional[string] `json:"groundCollisionHeavy,omitzero"`
+	GroundCollisionLight Optional[string] `json:"groundCollisionLight,omitzero"`
+	MetalCollisionHeavy  Optional[string] `json:"metalCollisionHeavy,omitzero"`
+	MetalCollisionLight  Optional[string] `json:"metalCollisionLight,omitzero"`
+	SandCollisionHeavy   Optional[string] `json:"sandCollisionHeavy,omitzero"`
+	SandCollisionLight   Optional[string] `json:"sandCollisionLight,omitzero"`
+	SnowCollisionHeavy   Optional[string] `json:"snowCollisionHeavy,omitzero"`
+	SnowCollisionLight   Optional[string] `json:"snowCollisionLight,omitzero"`
+	StoneCollisionHeavy  Optional[string] `json:"stoneCollisionHeavy,omitzero"`
+	StoneCollisionLight  Optional[string] `json:"stoneCollisionLight,omitzero"`
+	WaterCollisionHeavy  Optional[string] `json:"waterCollisionHeavy,omitzero"`
+	WaterCollisionLight  Optional[string] `json:"waterCollisionLight,omitzero"`
+	WoodCollisionHeavy   Optional[string] `json:"woodCollisionHeavy,omitzero"`
+	WoodCollisionLight   Optional[string] `json:"woodCollisionLight,omitzero"`
 }
 type StrictVehicleDeviceExtras struct {
-	Devices Optional[map[string]Optional[string]] `json:"devices,omitempty"`
-	Tankmen Optional[map[string]Optional[string]] `json:"tankmen,omitempty"`
+	Devices Optional[map[string]Optional[string]] `json:"devices,omitzero"`
+	Tankmen Optional[map[string]Optional[string]] `json:"tankmen,omitzero"`
 }
 type StrictVehicleExtra struct {
-	Text             Optional[string]                      `json:"#text,omitempty"`
-	Index            Optional[string]                      `json:"@index,omitempty"`
-	Delay            Optional[string]                      `json:"delay,omitempty"`
-	DeviceUserString Optional[string]                      `json:"deviceUserString,omitempty"`
-	IndexInRole      Optional[string]                      `json:"indexInRole,omitempty"`
-	IsLeft           Optional[string]                      `json:"isLeft,omitempty"`
-	Sounds           Optional[map[string]Optional[string]] `json:"sounds,omitempty"`
-	TankmanRole      Optional[string]                      `json:"tankmanRole,omitempty"`
+	Text             Optional[string]                      `json:"#text,omitzero"`
+	Index            Optional[XMLInteger]                  `json:"@index,omitzero"`
+	Delay            Optional[XMLNumber]                   `json:"delay,omitzero"`
+	DeviceUserString Optional[XMLLocalizationKey]          `json:"deviceUserString,omitzero"`
+	IndexInRole      Optional[XMLInteger]                  `json:"indexInRole,omitzero"`
+	IsLeft           Optional[XMLBool]                     `json:"isLeft,omitzero"`
+	Sounds           Optional[map[string]Optional[string]] `json:"sounds,omitzero"`
+	TankmanRole      Optional[string]                      `json:"tankmanRole,omitzero"`
 }
 type StrictVehicleLodLevels struct {
-	Far    Optional[string] `json:"FAR,omitempty"`
-	Medium Optional[string] `json:"MEDIUM,omitempty"`
-	Near   Optional[string] `json:"NEAR,omitempty"`
+	Far    Optional[XMLInteger] `json:"FAR,omitzero"`
+	Medium Optional[XMLInteger] `json:"MEDIUM,omitzero"`
+	Near   Optional[XMLInteger] `json:"NEAR,omitzero"`
 }
 type StrictVehicleMaterial struct {
-	Armor                        Optional[string]                `json:"armor,omitempty"`
-	ChanceToHitByExplosion       Optional[XMLScalarList[string]] `json:"chanceToHitByExplosion,omitempty"`
-	ChanceToHitByProjectile      Optional[string]                `json:"chanceToHitByProjectile,omitempty"`
-	CollideOnceOnly              Optional[string]                `json:"collideOnceOnly,omitempty"`
-	ContinueTraceIfNoHit         Optional[string]                `json:"continueTraceIfNoHit,omitempty"`
-	DamageKind                   Optional[string]                `json:"damageKind,omitempty"`
-	Extra                        Optional[string]                `json:"extra,omitempty"`
-	Incombustible                Optional[string]                `json:"incombustible,omitempty"`
-	IncreasedVulnerabilityFactor Optional[string]                `json:"increasedVulnerabilityFactor,omitempty"`
-	MayRicochet                  Optional[string]                `json:"mayRicochet,omitempty"`
-	UseAntifragmentationLining   Optional[string]                `json:"useAntifragmentationLining,omitempty"`
-	UseArmorHomogenization       Optional[string]                `json:"useArmorHomogenization,omitempty"`
-	UseHitAngle                  Optional[string]                `json:"useHitAngle,omitempty"`
-	VehicleDamageFactor          Optional[string]                `json:"vehicleDamageFactor,omitempty"`
+	Armor                        Optional[XMLInteger]                          `json:"armor,omitzero"`
+	ChanceToHitByExplosion       Optional[XMLScalarList[XMLNumber, XMLNumber]] `json:"chanceToHitByExplosion,omitzero"`
+	ChanceToHitByProjectile      Optional[XMLNumber]                           `json:"chanceToHitByProjectile,omitzero"`
+	CollideOnceOnly              Optional[XMLBool]                             `json:"collideOnceOnly,omitzero"`
+	ContinueTraceIfNoHit         Optional[XMLBool]                             `json:"continueTraceIfNoHit,omitzero"`
+	DamageKind                   Optional[string]                              `json:"damageKind,omitzero"`
+	Extra                        Optional[string]                              `json:"extra,omitzero"`
+	Incombustible                Optional[string]                              `json:"incombustible,omitzero"`
+	IncreasedVulnerabilityFactor Optional[XMLNumber]                           `json:"increasedVulnerabilityFactor,omitzero"`
+	MayRicochet                  Optional[XMLBool]                             `json:"mayRicochet,omitzero"`
+	UseAntifragmentationLining   Optional[XMLBool]                             `json:"useAntifragmentationLining,omitzero"`
+	UseArmorHomogenization       Optional[XMLBool]                             `json:"useArmorHomogenization,omitzero"`
+	UseHitAngle                  Optional[XMLBool]                             `json:"useHitAngle,omitzero"`
+	VehicleDamageFactor          Optional[XMLNumber]                           `json:"vehicleDamageFactor,omitzero"`
 }
 type StrictVehicleMiscParams struct {
-	CollisionEffectVelocities Optional[StrictVehicleCollisionEffectVelocities] `json:"collisionEffectVelocities,omitempty"`
-	HighExplosiveLargeCaliber Optional[string]                                 `json:"highExplosiveLargeCaliber,omitempty"`
-	HornCooldown              Optional[StrictVehicleHornCooldown]              `json:"hornCooldown,omitempty"`
-	MinFireStartingDamage     Optional[string]                                 `json:"minFireStartingDamage,omitempty"`
-	ProjectileSpeedFactor     Optional[string]                                 `json:"projectileSpeedFactor,omitempty"`
+	CollisionEffectVelocities Optional[StrictVehicleCollisionEffectVelocities] `json:"collisionEffectVelocities,omitzero"`
+	HighExplosiveLargeCaliber Optional[XMLNumber]                              `json:"highExplosiveLargeCaliber,omitzero"`
+	HornCooldown              Optional[StrictVehicleHornCooldown]              `json:"hornCooldown,omitzero"`
+	MinFireStartingDamage     Optional[XMLInteger]                             `json:"minFireStartingDamage,omitzero"`
+	ProjectileSpeedFactor     Optional[XMLNumber]                              `json:"projectileSpeedFactor,omitzero"`
 }
 type StrictVehicleCollisionEffectVelocities struct {
-	Hull         Optional[string] `json:"hull,omitempty"`
-	Ramming      Optional[string] `json:"ramming,omitempty"`
-	Track        Optional[string] `json:"track,omitempty"`
-	WaterContact Optional[string] `json:"waterContact,omitempty"`
+	Hull         Optional[XMLNumberVector] `json:"hull,omitzero"`
+	Ramming      Optional[XMLNumber]       `json:"ramming,omitzero"`
+	Track        Optional[XMLNumberVector] `json:"track,omitzero"`
+	WaterContact Optional[XMLNumberVector] `json:"waterContact,omitzero"`
 }
 type StrictVehicleHornCooldown struct {
-	ClientWindowExpansion Optional[string] `json:"clientWindowExpansion,omitempty"`
-	MaxSignals            Optional[string] `json:"maxSignals,omitempty"`
-	Window                Optional[string] `json:"window,omitempty"`
+	ClientWindowExpansion Optional[XMLInteger] `json:"clientWindowExpansion,omitzero"`
+	MaxSignals            Optional[XMLInteger] `json:"maxSignals,omitzero"`
+	Window                Optional[XMLInteger] `json:"window,omitzero"`
 }

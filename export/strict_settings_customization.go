@@ -3,109 +3,109 @@ package export
 // SettingCamouflages describes the observed camouflages settings document.
 // Names of camouflages, groups and invisibility categories are source keys.
 type SettingCamouflages struct {
-	Camouflages                      Optional[map[string]Optional[SettingCamouflage]]      `json:"camouflages,omitempty"`
-	Groups                           Optional[map[string]Optional[SettingCamouflageGroup]] `json:"groups,omitempty"`
-	Invisibility                     Optional[SettingCamouflageInvisibility]               `json:"invisibility,omitempty"`
-	NextAvailableID                  Optional[string]                                      `json:"nextAvailableId,omitempty"`
-	NextAvailableIDForDynamicContent Optional[string]                                      `json:"nextAvailableIdForDynamicContent,omitempty"`
+	Camouflages                      Optional[map[string]Optional[SettingCamouflage]]      `json:"camouflages,omitzero"`
+	Groups                           Optional[map[string]Optional[SettingCamouflageGroup]] `json:"groups,omitzero"`
+	Invisibility                     Optional[SettingCamouflageInvisibility]               `json:"invisibility,omitzero"`
+	NextAvailableID                  Optional[XMLInteger]                                  `json:"nextAvailableId,omitzero"`
+	NextAvailableIDForDynamicContent Optional[XMLInteger]                                  `json:"nextAvailableIdForDynamicContent,omitzero"`
 }
 type SettingCamouflage struct {
-	Category           Optional[string]                  `json:"category,omitempty"`
-	Description        Optional[string]                  `json:"description,omitempty"`
-	Group              Optional[string]                  `json:"group,omitempty"`
-	Icon               Optional[string]                  `json:"icon,omitempty"`
-	ID                 Optional[string]                  `json:"id,omitempty"`
-	Kind               Optional[string]                  `json:"kind,omitempty"`
-	NotInShop          Optional[string]                  `json:"notInShop,omitempty"`
-	Script             Optional[XMLScalarList[string]]   `json:"script,omitempty"`
-	Tags               Optional[string]                  `json:"tags,omitempty"`
-	UnlockClanLevel    Optional[string]                  `json:"unlockClanLevel,omitempty"`
-	UnlockCostCategory Optional[XMLScalarList[string]]   `json:"unlockCostCategory,omitempty"`
-	UnlockPremium      Optional[StrictNull]              `json:"unlockPremium,omitempty"`
-	UnlockQuest        Optional[StrictNull]              `json:"unlockQuest,omitempty"`
-	UnlockShopBundle   Optional[StrictNull]              `json:"unlockShopBundle,omitempty"`
-	UnlockTankRank     Optional[string]                  `json:"unlockTankRank,omitempty"`
-	UserString         Optional[string]                  `json:"userString,omitempty"`
-	VehicleFilter      Optional[SettingCamouflageFilter] `json:"vehicleFilter,omitempty"`
+	Category           Optional[string]                        `json:"category,omitzero"`
+	Description        Optional[XMLLocalizationKey]            `json:"description,omitzero"`
+	Group              Optional[string]                        `json:"group,omitzero"`
+	Icon               Optional[string]                        `json:"icon,omitzero"`
+	ID                 Optional[XMLInteger]                    `json:"id,omitzero"`
+	Kind               Optional[string]                        `json:"kind,omitzero"`
+	NotInShop          Optional[XMLBool]                       `json:"notInShop,omitzero"`
+	Script             Optional[XMLScalarList[string, string]] `json:"script,omitzero"`
+	Tags               Optional[string]                        `json:"tags,omitzero"`
+	UnlockClanLevel    Optional[XMLInteger]                    `json:"unlockClanLevel,omitzero"`
+	UnlockCostCategory Optional[XMLScalarList[string, string]] `json:"unlockCostCategory,omitzero"`
+	UnlockPremium      Optional[StrictNull]                    `json:"unlockPremium,omitzero"`
+	UnlockQuest        Optional[StrictNull]                    `json:"unlockQuest,omitzero"`
+	UnlockShopBundle   Optional[StrictNull]                    `json:"unlockShopBundle,omitzero"`
+	UnlockTankRank     Optional[XMLInteger]                    `json:"unlockTankRank,omitzero"`
+	UserString         Optional[XMLLocalizationKey]            `json:"userString,omitzero"`
+	VehicleFilter      Optional[SettingCamouflageFilter]       `json:"vehicleFilter,omitzero"`
 }
 type SettingCamouflageGroup struct {
-	Rarity     Optional[string] `json:"rarity,omitempty"`
-	UserString Optional[string] `json:"userString,omitempty"`
+	Rarity     Optional[XMLInteger] `json:"rarity,omitzero"`
+	UserString Optional[string]     `json:"userString,omitzero"`
 }
 type SettingCamouflageInvisibility struct {
-	Categories Optional[map[string]Optional[SettingCamouflageCategory]] `json:"categories,omitempty"`
+	Categories Optional[map[string]Optional[SettingCamouflageCategory]] `json:"categories,omitzero"`
 }
 type SettingCamouflageCategory struct {
-	ATSPG      Optional[string] `json:"AT-SPG,omitempty"`
-	HeavyTank  Optional[string] `json:"heavyTank,omitempty"`
-	LightTank  Optional[string] `json:"lightTank,omitempty"`
-	MediumTank Optional[string] `json:"mediumTank,omitempty"`
+	ATSPG      Optional[XMLNumber] `json:"AT-SPG,omitzero"`
+	HeavyTank  Optional[XMLNumber] `json:"heavyTank,omitzero"`
+	LightTank  Optional[XMLNumber] `json:"lightTank,omitzero"`
+	MediumTank Optional[XMLNumber] `json:"mediumTank,omitzero"`
 }
 type SettingCamouflageFilter struct {
-	Exclude Optional[SettingCamouflageFilterPart]                                             `json:"exclude,omitempty"`
-	Include Optional[XMLObjectList[SettingCamouflageFilterPart, SettingCamouflageFilterPart]] `json:"include,omitempty"`
+	Exclude Optional[SettingCamouflageFilterPart]                                             `json:"exclude,omitzero"`
+	Include Optional[XMLObjectList[SettingCamouflageFilterPart, SettingCamouflageFilterPart]] `json:"include,omitzero"`
 }
 type SettingCamouflageFilterPart struct {
-	Nations Optional[string]                         `json:"nations,omitempty"`
-	Vehicle Optional[SettingCamouflageFilterVehicle] `json:"vehicle,omitempty"`
+	Nations Optional[string]                         `json:"nations,omitzero"`
+	Vehicle Optional[SettingCamouflageFilterVehicle] `json:"vehicle,omitzero"`
 }
 type SettingCamouflageFilterVehicle struct {
-	Text     Optional[string] `json:"#text,omitempty"`
-	Name     Optional[string] `json:"name,omitempty"`
-	Tags     Optional[string] `json:"tags,omitempty"`
-	MaxLevel Optional[string] `json:"maxLevel,omitempty"`
-	MinLevel Optional[string] `json:"minLevel,omitempty"`
+	Text     Optional[string]     `json:"#text,omitzero"`
+	Name     Optional[string]     `json:"name,omitzero"`
+	Tags     Optional[string]     `json:"tags,omitzero"`
+	MaxLevel Optional[XMLInteger] `json:"maxLevel,omitzero"`
+	MinLevel Optional[XMLInteger] `json:"minLevel,omitzero"`
 }
 
 // SettingPlayerEmblems is keyed by group; emblem names remain dynamic.
 type SettingPlayerEmblems map[string]Optional[SettingEmblemGroup]
 type SettingEmblemGroup struct {
-	Emblems     Optional[map[string]Optional[XMLObjectList[SettingEmblem, SettingEmblem]]] `json:"emblems,omitempty"`
-	NotInShop   Optional[string]                                                           `json:"notInShop,omitempty"`
-	PriceFactor Optional[string]                                                           `json:"priceFactor,omitempty"`
-	UserString  Optional[string]                                                           `json:"userString,omitempty"`
+	Emblems     Optional[map[string]Optional[XMLObjectList[SettingEmblem, SettingEmblem]]] `json:"emblems,omitzero"`
+	NotInShop   Optional[XMLBool]                                                          `json:"notInShop,omitzero"`
+	PriceFactor Optional[XMLNumber]                                                        `json:"priceFactor,omitzero"`
+	UserString  Optional[XMLLocalizationKey]                                               `json:"userString,omitzero"`
 }
 type SettingEmblem struct {
-	ID         Optional[string] `json:"id,omitempty"`
-	TexName    Optional[string] `json:"texName,omitempty"`
-	UserString Optional[string] `json:"userString,omitempty"`
+	ID         Optional[XMLInteger]         `json:"id,omitzero"`
+	TexName    Optional[string]             `json:"texName,omitzero"`
+	UserString Optional[XMLLocalizationKey] `json:"userString,omitzero"`
 }
 
 // SettingRoles retains the separate level settings and dynamic role names.
 type SettingRoles struct {
-	BossRole       Optional[SettingRole]               `json:"bossRole,omitempty"`
-	GravitonRole   Optional[SettingRole]               `json:"gravitonRole,omitempty"`
-	HealerRole     Optional[SettingRole]               `json:"healerRole,omitempty"`
-	KamikazeRole   Optional[SettingRole]               `json:"kamikazeRole,omitempty"`
-	KillerRole     Optional[SettingRole]               `json:"killerRole,omitempty"`
-	LevelsSettings Optional[SettingRoleLevelsSettings] `json:"levelsSettings,omitempty"`
+	BossRole       Optional[SettingRole]               `json:"bossRole,omitzero"`
+	GravitonRole   Optional[SettingRole]               `json:"gravitonRole,omitzero"`
+	HealerRole     Optional[SettingRole]               `json:"healerRole,omitzero"`
+	KamikazeRole   Optional[SettingRole]               `json:"kamikazeRole,omitzero"`
+	KillerRole     Optional[SettingRole]               `json:"killerRole,omitzero"`
+	LevelsSettings Optional[SettingRoleLevelsSettings] `json:"levelsSettings,omitzero"`
 }
 type SettingRole struct {
-	Boss        Optional[StrictNull]        `json:"boss,omitempty"`
-	Description Optional[string]            `json:"description,omitempty"`
-	Icon        Optional[string]            `json:"icon,omitempty"`
-	ID          Optional[string]            `json:"id,omitempty"`
-	Levels      Optional[SettingRoleLevels] `json:"levels,omitempty"`
-	UserString  Optional[string]            `json:"userString,omitempty"`
+	Boss        Optional[StrictNull]         `json:"boss,omitzero"`
+	Description Optional[XMLLocalizationKey] `json:"description,omitzero"`
+	Icon        Optional[string]             `json:"icon,omitzero"`
+	ID          Optional[XMLInteger]         `json:"id,omitzero"`
+	Levels      Optional[SettingRoleLevels]  `json:"levels,omitzero"`
+	UserString  Optional[XMLLocalizationKey] `json:"userString,omitzero"`
 }
 type SettingRoleLevels struct {
-	Level Optional[[]Optional[SettingRoleLevel]] `json:"level,omitempty"`
+	Level Optional[[]Optional[SettingRoleLevel]] `json:"level,omitzero"`
 }
 type SettingRoleLevel struct {
-	Abilities Optional[SettingRoleAbilities] `json:"abilities,omitempty"`
-	Script    Optional[StrictNull]           `json:"script,omitempty"`
+	Abilities Optional[SettingRoleAbilities] `json:"abilities,omitzero"`
+	Script    Optional[StrictNull]           `json:"script,omitzero"`
 }
 type SettingRoleAbilities struct {
-	Slot Optional[[]Optional[SettingRoleSlot]] `json:"slot,omitempty"`
+	Slot Optional[[]Optional[SettingRoleSlot]] `json:"slot,omitzero"`
 }
 type SettingRoleSlot struct {
-	Text  Optional[string] `json:"#text,omitempty"`
-	Index Optional[string] `json:"@index,omitempty"`
+	Text  Optional[string]     `json:"#text,omitzero"`
+	Index Optional[XMLInteger] `json:"@index,omitzero"`
 }
 type SettingRoleLevelsSettings struct {
-	Level Optional[[]Optional[SettingRoleLevelSetting]] `json:"level,omitempty"`
+	Level Optional[[]Optional[SettingRoleLevelSetting]] `json:"level,omitzero"`
 }
 type SettingRoleLevelSetting struct {
-	LevelNum   Optional[string] `json:"levelNum,omitempty"`
-	RolePoints Optional[string] `json:"rolePoints,omitempty"`
+	LevelNum   Optional[XMLInteger] `json:"levelNum,omitzero"`
+	RolePoints Optional[XMLInteger] `json:"rolePoints,omitzero"`
 }

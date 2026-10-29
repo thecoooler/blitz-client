@@ -61,33 +61,34 @@ func TestStrictMapsRejectWrongShapes(t *testing.T) {
 // Set BLITZ_EXPORT_DATA to an actual --include data export to test all installed
 // map and hangar records without committing game assets to the repository.
 func TestStrictMapsHangarFullExport(t *testing.T) {
-	raw := fullExportData(t)
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"maps", "hangarParameters"} {
-		t.Run(name, func(t *testing.T) {
-			original, ok := envelope[name]
-			if !ok {
-				t.Fatalf("missing %s", name)
-			}
-			var target any
-			if name == "maps" {
-				target = new(StrictMaps)
-			} else {
-				target = new(StrictHangarParameters)
-			}
-			if err := decodeStrictJSON(original, target); err != nil {
-				t.Fatal(err)
-			}
-			encoded, err := json.Marshal(target)
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertJSONEqual(t, original, encoded)
-		})
-	}
+	forEachFullExport(t, func(t *testing.T, raw []byte) {
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"maps", "hangarParameters"} {
+			t.Run(name, func(t *testing.T) {
+				original, ok := envelope[name]
+				if !ok {
+					t.Fatalf("missing %s", name)
+				}
+				var target any
+				if name == "maps" {
+					target = new(StrictMaps)
+				} else {
+					target = new(StrictHangarParameters)
+				}
+				if err := decodeStrictJSON(original, target); err != nil {
+					t.Fatal(err)
+				}
+				encoded, err := json.Marshal(target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertJSONEqual(t, original, encoded)
+			})
+		}
+	})
 }
 
 func assertJSONEqual(t *testing.T, a, b []byte) {

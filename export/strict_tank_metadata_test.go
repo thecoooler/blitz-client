@@ -38,30 +38,31 @@ func TestStrictTankMetadataRejectsBadShapes(t *testing.T) {
 }
 
 func TestStrictTankMetadataFullExport(t *testing.T) {
-	data := fullExportData(t)
-	var snapshot struct {
-		Tanks []struct {
-			Metadata json.RawMessage `json:"metadata"`
-			ID       string          `json:"id"`
-		} `json:"tanks"`
-	}
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Tanks) == 0 {
-		t.Fatal("no tanks")
-	}
-	for _, tank := range snapshot.Tanks {
-		var metadata StrictTankMetadata
-		if err := json.Unmarshal(tank.Metadata, &metadata); err != nil {
-			t.Fatalf("%s: %v", tank.ID, err)
+	forEachFullExport(t, func(t *testing.T, data []byte) {
+		var snapshot struct {
+			Tanks []struct {
+				Metadata json.RawMessage `json:"metadata"`
+				ID       string          `json:"id"`
+			} `json:"tanks"`
 		}
-		out, err := json.Marshal(metadata)
-		if err != nil {
-			t.Fatalf("%s: %v", tank.ID, err)
+		if err := json.Unmarshal(data, &snapshot); err != nil {
+			t.Fatal(err)
 		}
-		assertEquivalentJSON(t, tank.Metadata, out)
-	}
+		if len(snapshot.Tanks) == 0 {
+			t.Fatal("no tanks")
+		}
+		for _, tank := range snapshot.Tanks {
+			var metadata StrictTankMetadata
+			if err := json.Unmarshal(tank.Metadata, &metadata); err != nil {
+				t.Fatalf("%s: %v", tank.ID, err)
+			}
+			out, err := json.Marshal(metadata)
+			if err != nil {
+				t.Fatalf("%s: %v", tank.ID, err)
+			}
+			assertEquivalentJSON(t, tank.Metadata, out)
+		}
+	})
 }
 
 func assertEquivalentJSON(t *testing.T, left, right []byte) {

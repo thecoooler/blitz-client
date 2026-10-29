@@ -2,303 +2,303 @@ package export
 
 // StrictNationComponents describes the seven installed component documents.
 type StrictNationComponents struct {
-	Chassis   Optional[StrictComponentDocument[StrictComponentChassisShared]]   `json:"chassis,omitempty"`
-	Engines   Optional[StrictComponentDocument[StrictComponentEnginesShared]]   `json:"engines,omitempty"`
-	FuelTanks Optional[StrictComponentDocument[StrictComponentFuelTanksShared]] `json:"fuelTanks,omitempty"`
-	Guns      Optional[StrictComponentDocument[StrictComponentGunsShared]]      `json:"guns,omitempty"`
-	Radios    Optional[StrictComponentDocument[StrictComponentRadiosShared]]    `json:"radios,omitempty"`
-	Shells    Optional[StrictShellDocument]                                     `json:"shells,omitempty"`
-	Turrets   Optional[StrictComponentDocument[StrictComponentTurretsShared]]   `json:"turrets,omitempty"`
+	Chassis   Optional[StrictComponentDocument[StrictComponentChassisShared]]   `json:"chassis,omitzero"`
+	Engines   Optional[StrictComponentDocument[StrictComponentEnginesShared]]   `json:"engines,omitzero"`
+	FuelTanks Optional[StrictComponentDocument[StrictComponentFuelTanksShared]] `json:"fuelTanks,omitzero"`
+	Guns      Optional[StrictComponentDocument[StrictComponentGunsShared]]      `json:"guns,omitzero"`
+	Radios    Optional[StrictComponentDocument[StrictComponentRadiosShared]]    `json:"radios,omitzero"`
+	Shells    Optional[StrictShellDocument]                                     `json:"shells,omitzero"`
+	Turrets   Optional[StrictComponentDocument[StrictComponentTurretsShared]]   `json:"turrets,omitzero"`
 }
 
 // StrictComponentDocument retains the shared definitions and their ID table.
 type StrictComponentDocument[T any] struct {
-	Ids             Optional[map[string]Optional[string]] `json:"ids,omitempty"`
-	NextAvailableId Optional[string]                      `json:"nextAvailableId,omitempty"`
-	Shared          Optional[map[string]Optional[T]]      `json:"shared,omitempty"`
+	Ids             Optional[map[string]Optional[XMLInteger]] `json:"ids,omitzero"`
+	NextAvailableId Optional[XMLInteger]                      `json:"nextAvailableId,omitzero"`
+	Shared          Optional[map[string]Optional[T]]          `json:"shared,omitzero"`
 }
 
 type StrictComponentChassisShared struct {
-	Armor                  Optional[StrictComponentChassisSharedArmor]                 `json:"armor,omitempty"`
-	Blitz                  Optional[StrictComponentChassisSharedBlitz]                 `json:"blitz,omitempty"`
-	BrakeForce             Optional[string]                                            `json:"brakeForce,omitempty"`
-	BulkHealthFactor       Optional[string]                                            `json:"bulkHealthFactor,omitempty"`
-	Deprecated             Optional[string]                                            `json:"deprecated,omitempty"`
-	Description            Optional[string]                                            `json:"description,omitempty"`
-	DrivingWheels          Optional[string]                                            `json:"drivingWheels,omitempty"`
-	Effects                Optional[StrictComponentChassisSharedEffects]               `json:"effects,omitempty"`
-	HitTester              Optional[StrictComponentChassisSharedHitTester]             `json:"hitTester,omitempty"`
-	HullPosition           Optional[string]                                            `json:"hullPosition,omitempty"`
-	Level                  Optional[string]                                            `json:"level,omitempty"`
-	MaxClimbAngle          Optional[string]                                            `json:"maxClimbAngle,omitempty"`
-	MaxHealth              Optional[string]                                            `json:"maxHealth,omitempty"`
-	MaxLoad                Optional[string]                                            `json:"maxLoad,omitempty"`
-	MaxRegenHealth         Optional[string]                                            `json:"maxRegenHealth,omitempty"`
-	Models                 Optional[StrictComponentChassisSharedModels]                `json:"models,omitempty"`
-	NavmeshGirth           Optional[string]                                            `json:"navmeshGirth,omitempty"`
-	Price                  Optional[string]                                            `json:"price,omitempty"`
-	RepairCost             Optional[string]                                            `json:"repairCost,omitempty"`
-	RotationIsAroundCenter Optional[string]                                            `json:"rotationIsAroundCenter,omitempty"`
-	RotationSpeed          Optional[string]                                            `json:"rotationSpeed,omitempty"`
-	ShotDispersionFactors  Optional[StrictComponentChassisSharedShotDispersionFactors] `json:"shotDispersionFactors,omitempty"`
-	Sound                  Optional[string]                                            `json:"sound,omitempty"`
-	Tags                   Optional[string]                                            `json:"tags,omitempty"`
-	TerrainResistance      Optional[string]                                            `json:"terrainResistance,omitempty"`
-	TopRightCarryingPoint  Optional[string]                                            `json:"topRightCarryingPoint,omitempty"`
-	Traces                 Optional[StrictComponentChassisSharedTraces]                `json:"traces,omitempty"`
-	Tracks                 Optional[StrictComponentChassisSharedTracks]                `json:"tracks,omitempty"`
-	Unlocks                Optional[StrictComponentChassisSharedUnlocks]               `json:"unlocks,omitempty"`
-	UserString             Optional[string]                                            `json:"userString,omitempty"`
-	Weight                 Optional[string]                                            `json:"weight,omitempty"`
-	Wheels                 Optional[StrictComponentChassisSharedWheels]                `json:"wheels,omitempty"`
+	Armor                  Optional[StrictComponentChassisSharedArmor]                 `json:"armor,omitzero"`
+	Blitz                  Optional[StrictComponentChassisSharedBlitz]                 `json:"blitz,omitzero"`
+	BrakeForce             Optional[XMLInteger]                                        `json:"brakeForce,omitzero"`
+	BulkHealthFactor       Optional[XMLNumber]                                         `json:"bulkHealthFactor,omitzero"`
+	Deprecated             Optional[string]                                            `json:"deprecated,omitzero"`
+	Description            Optional[XMLLocalizationKey]                                `json:"description,omitzero"`
+	DrivingWheels          Optional[string]                                            `json:"drivingWheels,omitzero"`
+	Effects                Optional[StrictComponentChassisSharedEffects]               `json:"effects,omitzero"`
+	HitTester              Optional[StrictComponentChassisSharedHitTester]             `json:"hitTester,omitzero"`
+	HullPosition           Optional[XMLNumberVector]                                   `json:"hullPosition,omitzero"`
+	Level                  Optional[XMLInteger]                                        `json:"level,omitzero"`
+	MaxClimbAngle          Optional[XMLInteger]                                        `json:"maxClimbAngle,omitzero"`
+	MaxHealth              Optional[XMLInteger]                                        `json:"maxHealth,omitzero"`
+	MaxLoad                Optional[XMLInteger]                                        `json:"maxLoad,omitzero"`
+	MaxRegenHealth         Optional[XMLInteger]                                        `json:"maxRegenHealth,omitzero"`
+	Models                 Optional[StrictComponentChassisSharedModels]                `json:"models,omitzero"`
+	NavmeshGirth           Optional[XMLNumber]                                         `json:"navmeshGirth,omitzero"`
+	Price                  Optional[XMLInteger]                                        `json:"price,omitzero"`
+	RepairCost             Optional[XMLNumber]                                         `json:"repairCost,omitzero"`
+	RotationIsAroundCenter Optional[XMLBool]                                           `json:"rotationIsAroundCenter,omitzero"`
+	RotationSpeed          Optional[XMLInteger]                                        `json:"rotationSpeed,omitzero"`
+	ShotDispersionFactors  Optional[StrictComponentChassisSharedShotDispersionFactors] `json:"shotDispersionFactors,omitzero"`
+	Sound                  Optional[string]                                            `json:"sound,omitzero"`
+	Tags                   Optional[string]                                            `json:"tags,omitzero"`
+	TerrainResistance      Optional[XMLNumberVector]                                   `json:"terrainResistance,omitzero"`
+	TopRightCarryingPoint  Optional[XMLNumberVector]                                   `json:"topRightCarryingPoint,omitzero"`
+	Traces                 Optional[StrictComponentChassisSharedTraces]                `json:"traces,omitzero"`
+	Tracks                 Optional[StrictComponentChassisSharedTracks]                `json:"tracks,omitzero"`
+	Unlocks                Optional[StrictComponentChassisSharedUnlocks]               `json:"unlocks,omitzero"`
+	UserString             Optional[XMLLocalizationKey]                                `json:"userString,omitzero"`
+	Weight                 Optional[XMLInteger]                                        `json:"weight,omitzero"`
+	Wheels                 Optional[StrictComponentChassisSharedWheels]                `json:"wheels,omitzero"`
 }
 
 type StrictComponentChassisSharedArmor struct {
-	LeftTrack  Optional[string] `json:"leftTrack,omitempty"`
-	RightTrack Optional[string] `json:"rightTrack,omitempty"`
+	LeftTrack  Optional[XMLInteger] `json:"leftTrack,omitzero"`
+	RightTrack Optional[XMLInteger] `json:"rightTrack,omitzero"`
 }
 
 type StrictComponentChassisSharedBlitz struct {
-	Bbox          Optional[StrictComponentChassisSharedBlitzBbox] `json:"bbox,omitempty"`
-	BlitzPartName Optional[string]                                `json:"blitzPartName,omitempty"`
-	SoundNPC      Optional[string]                                `json:"soundNPC,omitempty"`
-	SoundPC       Optional[string]                                `json:"soundPC,omitempty"`
+	Bbox          Optional[StrictComponentChassisSharedBlitzBbox] `json:"bbox,omitzero"`
+	BlitzPartName Optional[string]                                `json:"blitzPartName,omitzero"`
+	SoundNPC      Optional[string]                                `json:"soundNPC,omitzero"`
+	SoundPC       Optional[string]                                `json:"soundPC,omitzero"`
 }
 
 type StrictComponentChassisSharedBlitzBbox struct {
-	Max Optional[string] `json:"max,omitempty"`
-	Min Optional[string] `json:"min,omitempty"`
+	Max Optional[XMLNumberVector] `json:"max,omitzero"`
+	Min Optional[XMLNumberVector] `json:"min,omitzero"`
 }
 
 type StrictComponentChassisSharedEffects struct {
-	Dust    Optional[string] `json:"dust,omitempty"`
-	LodDist Optional[string] `json:"lodDist,omitempty"`
-	Mud     Optional[string] `json:"mud,omitempty"`
+	Dust    Optional[string] `json:"dust,omitzero"`
+	LodDist Optional[string] `json:"lodDist,omitzero"`
+	Mud     Optional[string] `json:"mud,omitzero"`
 }
 
 type StrictComponentChassisSharedHitTester struct {
-	CollisionModel Optional[string] `json:"collisionModel,omitempty"`
+	CollisionModel Optional[string] `json:"collisionModel,omitzero"`
 }
 
 type StrictComponentChassisSharedModels struct {
-	Destroyed Optional[string] `json:"destroyed,omitempty"`
-	Exploded  Optional[string] `json:"exploded,omitempty"`
-	Undamaged Optional[string] `json:"undamaged,omitempty"`
+	Destroyed Optional[string] `json:"destroyed,omitzero"`
+	Exploded  Optional[string] `json:"exploded,omitzero"`
+	Undamaged Optional[string] `json:"undamaged,omitzero"`
 }
 
 type StrictComponentChassisSharedShotDispersionFactors struct {
-	VehicleMovement Optional[string] `json:"vehicleMovement,omitempty"`
-	VehicleRotation Optional[string] `json:"vehicleRotation,omitempty"`
+	VehicleMovement Optional[XMLNumber] `json:"vehicleMovement,omitzero"`
+	VehicleRotation Optional[XMLNumber] `json:"vehicleRotation,omitzero"`
 }
 
 type StrictComponentChassisSharedTraces struct {
-	BufferPrefs Optional[string] `json:"bufferPrefs,omitempty"`
-	LodDist     Optional[string] `json:"lodDist,omitempty"`
-	Size        Optional[string] `json:"size,omitempty"`
-	TextureSet  Optional[string] `json:"textureSet,omitempty"`
+	BufferPrefs Optional[string]          `json:"bufferPrefs,omitzero"`
+	LodDist     Optional[string]          `json:"lodDist,omitzero"`
+	Size        Optional[XMLNumberVector] `json:"size,omitzero"`
+	TextureSet  Optional[string]          `json:"textureSet,omitzero"`
 }
 
 type StrictComponentChassisSharedTracks struct {
-	LeftMaterial  Optional[string] `json:"leftMaterial,omitempty"`
-	LodDist       Optional[string] `json:"lodDist,omitempty"`
-	RightMaterial Optional[string] `json:"rightMaterial,omitempty"`
+	LeftMaterial  Optional[string] `json:"leftMaterial,omitzero"`
+	LodDist       Optional[string] `json:"lodDist,omitzero"`
+	RightMaterial Optional[string] `json:"rightMaterial,omitzero"`
 }
 
 type StrictComponentChassisSharedUnlocks struct {
-	Chassis Optional[StrictComponentChassisSharedUnlocksChassis] `json:"chassis,omitempty"`
+	Chassis Optional[StrictComponentChassisSharedUnlocksChassis] `json:"chassis,omitzero"`
 }
 
 type StrictComponentChassisSharedUnlocksChassis struct {
-	Items Optional[[]Optional[StrictComponentChassisSharedUnlocksChassisItemsEntry]] `json:"#items,omitempty"`
-	Text  Optional[string]                                                           `json:"#text,omitempty"`
+	Items Optional[[]Optional[StrictComponentChassisSharedUnlocksChassisItemsEntry]] `json:"#items,omitzero"`
+	Text  Optional[string]                                                           `json:"#text,omitzero"`
 }
 
 type StrictComponentChassisSharedUnlocksChassisItemsEntry struct {
-	Name       Optional[string] `json:"name,omitempty"`
-	Properties Optional[string] `json:"properties,omitempty"`
+	Name       Optional[string]     `json:"name,omitzero"`
+	Properties Optional[XMLInteger] `json:"properties,omitzero"`
 }
 
 type StrictComponentChassisSharedWheels struct {
-	Group   Optional[[]Optional[StrictComponentChassisSharedWheelsGroupEntry]] `json:"group,omitempty"`
-	LodDist Optional[string]                                                   `json:"lodDist,omitempty"`
-	Wheel   Optional[[]Optional[StrictComponentChassisSharedWheelsWheelEntry]] `json:"wheel,omitempty"`
+	Group   Optional[[]Optional[StrictComponentChassisSharedWheelsGroupEntry]] `json:"group,omitzero"`
+	LodDist Optional[string]                                                   `json:"lodDist,omitzero"`
+	Wheel   Optional[[]Optional[StrictComponentChassisSharedWheelsWheelEntry]] `json:"wheel,omitzero"`
 }
 
 type StrictComponentChassisSharedWheelsGroupEntry struct {
-	Count      Optional[string] `json:"count,omitempty"`
-	IsLeft     Optional[string] `json:"isLeft,omitempty"`
-	Radius     Optional[string] `json:"radius,omitempty"`
-	StartIndex Optional[string] `json:"startIndex,omitempty"`
-	Template   Optional[string] `json:"template,omitempty"`
+	Count      Optional[XMLInteger] `json:"count,omitzero"`
+	IsLeft     Optional[XMLBool]    `json:"isLeft,omitzero"`
+	Radius     Optional[XMLNumber]  `json:"radius,omitzero"`
+	StartIndex Optional[XMLInteger] `json:"startIndex,omitzero"`
+	Template   Optional[string]     `json:"template,omitzero"`
 }
 
 type StrictComponentChassisSharedWheelsWheelEntry struct {
-	IsLeft Optional[string] `json:"isLeft,omitempty"`
-	Name   Optional[string] `json:"name,omitempty"`
-	Radius Optional[string] `json:"radius,omitempty"`
+	IsLeft Optional[XMLBool]   `json:"isLeft,omitzero"`
+	Name   Optional[string]    `json:"name,omitzero"`
+	Radius Optional[XMLNumber] `json:"radius,omitzero"`
 }
 
 type StrictComponentEnginesShared struct {
-	Deprecated         Optional[string]                `json:"deprecated,omitempty"`
-	Description        Optional[string]                `json:"description,omitempty"`
-	FireStartingChance Optional[string]                `json:"fireStartingChance,omitempty"`
-	Level              Optional[string]                `json:"level,omitempty"`
-	MaxHealth          Optional[string]                `json:"maxHealth,omitempty"`
-	MaxRegenHealth     Optional[string]                `json:"maxRegenHealth,omitempty"`
-	NotInShop          Optional[XMLScalarList[string]] `json:"notInShop,omitempty"`
-	Power              Optional[string]                `json:"power,omitempty"`
-	Price              Optional[string]                `json:"price,omitempty"`
-	RepairCost         Optional[string]                `json:"repairCost,omitempty"`
-	RpmMax             Optional[string]                `json:"rpm_max,omitempty"`
-	RpmMin             Optional[string]                `json:"rpm_min,omitempty"`
-	ShortUserString    Optional[string]                `json:"shortUserString,omitempty"`
-	Sound              Optional[string]                `json:"sound,omitempty"`
-	SoundNPC           Optional[string]                `json:"soundNPC,omitempty"`
-	SoundPC            Optional[string]                `json:"soundPC,omitempty"`
-	Tags               Optional[XMLScalarList[string]] `json:"tags,omitempty"`
-	UserString         Optional[string]                `json:"userString,omitempty"`
-	Weight             Optional[string]                `json:"weight,omitempty"`
-	WwsoundNPC         Optional[XMLScalarList[string]] `json:"wwsoundNPC,omitempty"`
-	WwsoundPC          Optional[XMLScalarList[string]] `json:"wwsoundPC,omitempty"`
+	Deprecated         Optional[string]                          `json:"deprecated,omitzero"`
+	Description        Optional[XMLLocalizationKey]              `json:"description,omitzero"`
+	FireStartingChance Optional[XMLNumber]                       `json:"fireStartingChance,omitzero"`
+	Level              Optional[XMLInteger]                      `json:"level,omitzero"`
+	MaxHealth          Optional[XMLInteger]                      `json:"maxHealth,omitzero"`
+	MaxRegenHealth     Optional[XMLInteger]                      `json:"maxRegenHealth,omitzero"`
+	NotInShop          Optional[XMLScalarList[XMLBool, XMLBool]] `json:"notInShop,omitzero"`
+	Power              Optional[XMLInteger]                      `json:"power,omitzero"`
+	Price              Optional[XMLInteger]                      `json:"price,omitzero"`
+	RepairCost         Optional[XMLInteger]                      `json:"repairCost,omitzero"`
+	RpmMax             Optional[XMLInteger]                      `json:"rpm_max,omitzero"`
+	RpmMin             Optional[XMLInteger]                      `json:"rpm_min,omitzero"`
+	ShortUserString    Optional[XMLLocalizationKey]              `json:"shortUserString,omitzero"`
+	Sound              Optional[string]                          `json:"sound,omitzero"`
+	SoundNPC           Optional[string]                          `json:"soundNPC,omitzero"`
+	SoundPC            Optional[string]                          `json:"soundPC,omitzero"`
+	Tags               Optional[XMLScalarList[string, string]]   `json:"tags,omitzero"`
+	UserString         Optional[XMLLocalizationKey]              `json:"userString,omitzero"`
+	Weight             Optional[XMLInteger]                      `json:"weight,omitzero"`
+	WwsoundNPC         Optional[XMLScalarList[string, string]]   `json:"wwsoundNPC,omitzero"`
+	WwsoundPC          Optional[XMLScalarList[string, string]]   `json:"wwsoundPC,omitzero"`
 }
 
 type StrictComponentFuelTanksShared struct {
-	Description    Optional[string] `json:"description,omitempty"`
-	MaxHealth      Optional[string] `json:"maxHealth,omitempty"`
-	MaxRegenHealth Optional[string] `json:"maxRegenHealth,omitempty"`
-	Price          Optional[string] `json:"price,omitempty"`
-	RepairCost     Optional[string] `json:"repairCost,omitempty"`
-	Tags           Optional[string] `json:"tags,omitempty"`
-	UserString     Optional[string] `json:"userString,omitempty"`
-	Weight         Optional[string] `json:"weight,omitempty"`
+	Description    Optional[XMLLocalizationKey] `json:"description,omitzero"`
+	MaxHealth      Optional[XMLInteger]         `json:"maxHealth,omitzero"`
+	MaxRegenHealth Optional[XMLInteger]         `json:"maxRegenHealth,omitzero"`
+	Price          Optional[XMLInteger]         `json:"price,omitzero"`
+	RepairCost     Optional[XMLInteger]         `json:"repairCost,omitzero"`
+	Tags           Optional[string]             `json:"tags,omitzero"`
+	UserString     Optional[XMLLocalizationKey] `json:"userString,omitzero"`
+	Weight         Optional[XMLInteger]         `json:"weight,omitzero"`
 }
 
 type StrictComponentGunsShared struct {
-	AimingTime               Optional[string]                                          `json:"aimingTime,omitempty"`
-	Burst                    Optional[StrictComponentGunsSharedBurst]                  `json:"burst,omitempty"`
-	Clip                     Optional[StrictComponentGunsSharedClip]                   `json:"clip,omitempty"`
-	Description              Optional[string]                                          `json:"description,omitempty"`
-	Effects                  Optional[string]                                          `json:"effects,omitempty"`
-	ExtraPitchLimits         Optional[StrictComponentGunsSharedExtraPitchLimits]       `json:"extraPitchLimits,omitempty"`
-	Impulse                  Optional[string]                                          `json:"impulse,omitempty"`
-	InvisibilityFactorAtShot Optional[string]                                          `json:"invisibilityFactorAtShot,omitempty"`
-	Level                    Optional[string]                                          `json:"level,omitempty"`
-	MaxAmmo                  Optional[string]                                          `json:"maxAmmo,omitempty"`
-	MaxHealth                Optional[string]                                          `json:"maxHealth,omitempty"`
-	MaxRegenHealth           Optional[string]                                          `json:"maxRegenHealth,omitempty"`
-	NotInShop                Optional[string]                                          `json:"notInShop,omitempty"`
-	PitchLimits              Optional[string]                                          `json:"pitchLimits,omitempty"`
-	Price                    Optional[string]                                          `json:"price,omitempty"`
-	Recoil                   Optional[StrictComponentGunsSharedRecoil]                 `json:"recoil,omitempty"`
-	ReloadEffect             Optional[string]                                          `json:"reloadEffect,omitempty"`
-	ReloadTime               Optional[string]                                          `json:"reloadTime,omitempty"`
-	RepairCost               Optional[string]                                          `json:"repairCost,omitempty"`
-	RotationSpeed            Optional[string]                                          `json:"rotationSpeed,omitempty"`
-	ShortUserString          Optional[string]                                          `json:"shortUserString,omitempty"`
-	ShotDispersionFactors    Optional[StrictComponentGunsSharedShotDispersionFactors]  `json:"shotDispersionFactors,omitempty"`
-	ShotDispersionRadius     Optional[string]                                          `json:"shotDispersionRadius,omitempty"`
-	Shots                    Optional[[]Optional[StrictComponentGunsSharedShotsEntry]] `json:"shots,omitempty"`
-	Tags                     Optional[XMLScalarList[string]]                           `json:"tags,omitempty"`
-	TurretYawLimits          Optional[XMLScalarList[string]]                           `json:"turretYawLimits,omitempty"`
-	UserString               Optional[string]                                          `json:"userString,omitempty"`
-	Weight                   Optional[string]                                          `json:"weight,omitempty"`
-	YawLimits                Optional[string]                                          `json:"yawLimits,omitempty"`
+	AimingTime               Optional[XMLNumber]                                       `json:"aimingTime,omitzero"`
+	Burst                    Optional[StrictComponentGunsSharedBurst]                  `json:"burst,omitzero"`
+	Clip                     Optional[StrictComponentGunsSharedClip]                   `json:"clip,omitzero"`
+	Description              Optional[XMLLocalizationKey]                              `json:"description,omitzero"`
+	Effects                  Optional[string]                                          `json:"effects,omitzero"`
+	ExtraPitchLimits         Optional[StrictComponentGunsSharedExtraPitchLimits]       `json:"extraPitchLimits,omitzero"`
+	Impulse                  Optional[XMLNumber]                                       `json:"impulse,omitzero"`
+	InvisibilityFactorAtShot Optional[XMLNumber]                                       `json:"invisibilityFactorAtShot,omitzero"`
+	Level                    Optional[XMLInteger]                                      `json:"level,omitzero"`
+	MaxAmmo                  Optional[XMLInteger]                                      `json:"maxAmmo,omitzero"`
+	MaxHealth                Optional[XMLInteger]                                      `json:"maxHealth,omitzero"`
+	MaxRegenHealth           Optional[XMLInteger]                                      `json:"maxRegenHealth,omitzero"`
+	NotInShop                Optional[XMLBool]                                         `json:"notInShop,omitzero"`
+	PitchLimits              Optional[XMLNumberVector]                                 `json:"pitchLimits,omitzero"`
+	Price                    Optional[XMLInteger]                                      `json:"price,omitzero"`
+	Recoil                   Optional[StrictComponentGunsSharedRecoil]                 `json:"recoil,omitzero"`
+	ReloadEffect             Optional[string]                                          `json:"reloadEffect,omitzero"`
+	ReloadTime               Optional[XMLNumber]                                       `json:"reloadTime,omitzero"`
+	RepairCost               Optional[XMLNumber]                                       `json:"repairCost,omitzero"`
+	RotationSpeed            Optional[XMLNumber]                                       `json:"rotationSpeed,omitzero"`
+	ShortUserString          Optional[XMLLocalizationKey]                              `json:"shortUserString,omitzero"`
+	ShotDispersionFactors    Optional[StrictComponentGunsSharedShotDispersionFactors]  `json:"shotDispersionFactors,omitzero"`
+	ShotDispersionRadius     Optional[XMLNumber]                                       `json:"shotDispersionRadius,omitzero"`
+	Shots                    Optional[[]Optional[StrictComponentGunsSharedShotsEntry]] `json:"shots,omitzero"`
+	Tags                     Optional[XMLScalarList[string, string]]                   `json:"tags,omitzero"`
+	TurretYawLimits          Optional[XMLScalarList[XMLNumberVector, XMLNumberVector]] `json:"turretYawLimits,omitzero"`
+	UserString               Optional[XMLLocalizationKey]                              `json:"userString,omitzero"`
+	Weight                   Optional[XMLInteger]                                      `json:"weight,omitzero"`
+	YawLimits                Optional[XMLNumberVector]                                 `json:"yawLimits,omitzero"`
 }
 
 type StrictComponentGunsSharedBurst struct {
-	Count Optional[string] `json:"count,omitempty"`
-	Rate  Optional[string] `json:"rate,omitempty"`
+	Count Optional[XMLInteger] `json:"count,omitzero"`
+	Rate  Optional[XMLInteger] `json:"rate,omitzero"`
 }
 
 type StrictComponentGunsSharedClip struct {
-	Count Optional[string] `json:"count,omitempty"`
-	Rate  Optional[string] `json:"rate,omitempty"`
+	Count Optional[XMLInteger] `json:"count,omitzero"`
+	Rate  Optional[XMLInteger] `json:"rate,omitzero"`
 }
 
 type StrictComponentGunsSharedExtraPitchLimits struct {
-	Back Optional[string] `json:"back,omitempty"`
+	Back Optional[XMLNumberVector] `json:"back,omitzero"`
 }
 
 type StrictComponentGunsSharedRecoil struct {
-	Amplitude    Optional[string] `json:"amplitude,omitempty"`
-	BackoffTime  Optional[string] `json:"backoffTime,omitempty"`
-	LodDist      Optional[string] `json:"lodDist,omitempty"`
-	RecoilEffect Optional[string] `json:"recoilEffect,omitempty"`
-	ReturnTime   Optional[string] `json:"returnTime,omitempty"`
+	Amplitude    Optional[XMLNumber] `json:"amplitude,omitzero"`
+	BackoffTime  Optional[XMLNumber] `json:"backoffTime,omitzero"`
+	LodDist      Optional[string]    `json:"lodDist,omitzero"`
+	RecoilEffect Optional[string]    `json:"recoilEffect,omitzero"`
+	ReturnTime   Optional[XMLNumber] `json:"returnTime,omitzero"`
 }
 
 type StrictComponentGunsSharedShotDispersionFactors struct {
-	AfterShot       Optional[string] `json:"afterShot,omitempty"`
-	TurretRotation  Optional[string] `json:"turretRotation,omitempty"`
-	WhileGunDamaged Optional[string] `json:"whileGunDamaged,omitempty"`
+	AfterShot       Optional[XMLNumber] `json:"afterShot,omitzero"`
+	TurretRotation  Optional[XMLNumber] `json:"turretRotation,omitzero"`
+	WhileGunDamaged Optional[XMLNumber] `json:"whileGunDamaged,omitzero"`
 }
 
 type StrictComponentGunsSharedShotsEntry struct {
-	Name       Optional[string]                                        `json:"name,omitempty"`
-	Properties Optional[StrictComponentGunsSharedShotsEntryProperties] `json:"properties,omitempty"`
+	Name       Optional[string]                                        `json:"name,omitzero"`
+	Properties Optional[StrictComponentGunsSharedShotsEntryProperties] `json:"properties,omitzero"`
 }
 
 type StrictComponentGunsSharedShotsEntryProperties struct {
-	Acceleration           Optional[string] `json:"acceleration,omitempty"`
-	DefaultPortion         Optional[string] `json:"defaultPortion,omitempty"`
-	Gravity                Optional[string] `json:"gravity,omitempty"`
-	MaxDistance            Optional[string] `json:"maxDistance,omitempty"`
-	MaxSpeed               Optional[string] `json:"maxSpeed,omitempty"`
-	PiercingPower          Optional[string] `json:"piercingPower,omitempty"`
-	RotationalDeceleration Optional[string] `json:"rotationalDeceleration,omitempty"`
-	Speed                  Optional[string] `json:"speed,omitempty"`
-	TurnSpeedHorizontal    Optional[string] `json:"turnSpeedHorizontal,omitempty"`
-	TurnSpeedVertical      Optional[string] `json:"turnSpeedVertical,omitempty"`
+	Acceleration           Optional[XMLNumber]       `json:"acceleration,omitzero"`
+	DefaultPortion         Optional[XMLNumber]       `json:"defaultPortion,omitzero"`
+	Gravity                Optional[XMLNumber]       `json:"gravity,omitzero"`
+	MaxDistance            Optional[XMLInteger]      `json:"maxDistance,omitzero"`
+	MaxSpeed               Optional[XMLInteger]      `json:"maxSpeed,omitzero"`
+	PiercingPower          Optional[XMLNumberVector] `json:"piercingPower,omitzero"`
+	RotationalDeceleration Optional[XMLInteger]      `json:"rotationalDeceleration,omitzero"`
+	Speed                  Optional[XMLInteger]      `json:"speed,omitzero"`
+	TurnSpeedHorizontal    Optional[XMLNumber]       `json:"turnSpeedHorizontal,omitzero"`
+	TurnSpeedVertical      Optional[XMLNumber]       `json:"turnSpeedVertical,omitzero"`
 }
 
 type StrictComponentRadiosShared struct {
-	Description    Optional[string] `json:"description,omitempty"`
-	Distance       Optional[string] `json:"distance,omitempty"`
-	Level          Optional[string] `json:"level,omitempty"`
-	MaxHealth      Optional[string] `json:"maxHealth,omitempty"`
-	MaxRegenHealth Optional[string] `json:"maxRegenHealth,omitempty"`
-	NotInShop      Optional[string] `json:"notInShop,omitempty"`
-	Price          Optional[string] `json:"price,omitempty"`
-	RepairCost     Optional[string] `json:"repairCost,omitempty"`
-	Tags           Optional[string] `json:"tags,omitempty"`
-	UserString     Optional[string] `json:"userString,omitempty"`
-	Weight         Optional[string] `json:"weight,omitempty"`
+	Description    Optional[XMLLocalizationKey] `json:"description,omitzero"`
+	Distance       Optional[XMLInteger]         `json:"distance,omitzero"`
+	Level          Optional[XMLInteger]         `json:"level,omitzero"`
+	MaxHealth      Optional[XMLInteger]         `json:"maxHealth,omitzero"`
+	MaxRegenHealth Optional[XMLInteger]         `json:"maxRegenHealth,omitzero"`
+	NotInShop      Optional[XMLBool]            `json:"notInShop,omitzero"`
+	Price          Optional[XMLInteger]         `json:"price,omitzero"`
+	RepairCost     Optional[XMLNumber]          `json:"repairCost,omitzero"`
+	Tags           Optional[string]             `json:"tags,omitzero"`
+	UserString     Optional[XMLLocalizationKey] `json:"userString,omitzero"`
+	Weight         Optional[XMLInteger]         `json:"weight,omitzero"`
 }
 
 type StrictComponentTurretsShared struct {
 }
 
 type StrictShell struct {
-	Blitz                             Optional[StrictShellBlitz]                        `json:"blitz,omitempty"`
-	Caliber                           Optional[string]                                  `json:"caliber,omitempty"`
-	Damage                            Optional[StrictShellDamage]                       `json:"damage,omitempty"`
-	Description                       Optional[string]                                  `json:"description,omitempty"`
-	Effects                           Optional[string]                                  `json:"effects,omitempty"`
-	ExplosionRadius                   Optional[string]                                  `json:"explosionRadius,omitempty"`
-	Icon                              Optional[string]                                  `json:"icon,omitempty"`
-	Id                                Optional[string]                                  `json:"id,omitempty"`
-	Improved                          Optional[string]                                  `json:"improved,omitempty"`
-	IsTracer                          Optional[string]                                  `json:"isTracer,omitempty"`
-	Kind                              Optional[string]                                  `json:"kind,omitempty"`
-	NormalizationAngle                Optional[string]                                  `json:"normalizationAngle,omitempty"`
-	NotInShop                         Optional[string]                                  `json:"notInShop,omitempty"`
-	PiercingPowerLossFactorByDistance Optional[string]                                  `json:"piercingPowerLossFactorByDistance,omitempty"`
-	Price                             Optional[XMLScalarObject[StrictShellPriceObject]] `json:"price,omitempty"`
-	ProjectileType                    Optional[string]                                  `json:"projectileType,omitempty"`
-	RicochetAngle                     Optional[string]                                  `json:"ricochetAngle,omitempty"`
-	UserString                        Optional[string]                                  `json:"userString,omitempty"`
+	Blitz                             Optional[StrictShellBlitz]                                    `json:"blitz,omitzero"`
+	Caliber                           Optional[XMLNumber]                                           `json:"caliber,omitzero"`
+	Damage                            Optional[StrictShellDamage]                                   `json:"damage,omitzero"`
+	Description                       Optional[XMLLocalizationKey]                                  `json:"description,omitzero"`
+	Effects                           Optional[string]                                              `json:"effects,omitzero"`
+	ExplosionRadius                   Optional[XMLNumber]                                           `json:"explosionRadius,omitzero"`
+	Icon                              Optional[string]                                              `json:"icon,omitzero"`
+	Id                                Optional[XMLInteger]                                          `json:"id,omitzero"`
+	Improved                          Optional[XMLBool]                                             `json:"improved,omitzero"`
+	IsTracer                          Optional[XMLBool]                                             `json:"isTracer,omitzero"`
+	Kind                              Optional[string]                                              `json:"kind,omitzero"`
+	NormalizationAngle                Optional[XMLInteger]                                          `json:"normalizationAngle,omitzero"`
+	NotInShop                         Optional[XMLBool]                                             `json:"notInShop,omitzero"`
+	PiercingPowerLossFactorByDistance Optional[XMLNumber]                                           `json:"piercingPowerLossFactorByDistance,omitzero"`
+	Price                             Optional[XMLScalarObject[XMLInteger, StrictShellPriceObject]] `json:"price,omitzero"`
+	ProjectileType                    Optional[string]                                              `json:"projectileType,omitzero"`
+	RicochetAngle                     Optional[XMLInteger]                                          `json:"ricochetAngle,omitzero"`
+	UserString                        Optional[XMLLocalizationKey]                                  `json:"userString,omitzero"`
 }
 
 type StrictShellBlitz struct {
-	BlitzIconFrame Optional[string] `json:"blitzIconFrame,omitempty"`
+	BlitzIconFrame Optional[XMLInteger] `json:"blitzIconFrame,omitzero"`
 }
 
 type StrictShellDamage struct {
-	Armor   Optional[string] `json:"armor,omitempty"`
-	Devices Optional[string] `json:"devices,omitempty"`
+	Armor   Optional[XMLInteger] `json:"armor,omitzero"`
+	Devices Optional[XMLInteger] `json:"devices,omitzero"`
 }
 
 type StrictShellPriceObject struct {
-	Text Optional[string] `json:"#text,omitempty"`
-	Gold Optional[string] `json:"gold,omitempty"`
+	Text Optional[XMLInteger] `json:"#text,omitzero"`
+	Gold Optional[string]     `json:"gold,omitzero"`
 }

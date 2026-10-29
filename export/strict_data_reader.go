@@ -16,14 +16,14 @@ type StrictDataSnapshot struct {
 	Included         []string                                              `json:"included"`
 	Nations          []string                                              `json:"nations"`
 	Tanks            []StrictDataTank                                      `json:"tanks"`
-	Localization     Optional[StrictLocalization]                          `json:"localization,omitempty"`
-	Maps             Optional[StrictMaps]                                  `json:"maps,omitempty"`
-	Components       Optional[map[string]Optional[StrictNationComponents]] `json:"components,omitempty"`
-	Equipment        Optional[StrictEquipment]                             `json:"equipment,omitempty"`
-	Provisions       Optional[StrictProvisions]                            `json:"provisions,omitempty"`
-	Settings         Optional[StrictSettings]                              `json:"settings,omitempty"`
-	HangarParameters Optional[StrictHangarParameters]                      `json:"hangarParameters,omitempty"`
-	CrewSkills       Optional[[]StrictCrewSkill]                           `json:"crewSkills,omitempty"`
+	Localization     Optional[StrictLocalization]                          `json:"localization,omitzero"`
+	Maps             Optional[StrictMaps]                                  `json:"maps,omitzero"`
+	Components       Optional[map[string]Optional[StrictNationComponents]] `json:"components,omitzero"`
+	Equipment        Optional[StrictEquipment]                             `json:"equipment,omitzero"`
+	Provisions       Optional[StrictProvisions]                            `json:"provisions,omitzero"`
+	Settings         Optional[StrictSettings]                              `json:"settings,omitzero"`
+	HangarParameters Optional[StrictHangarParameters]                      `json:"hangarParameters,omitzero"`
+	CrewSkills       Optional[[]StrictCrewSkill]                           `json:"crewSkills,omitzero"`
 	Issues           []StrictExportIssue                                   `json:"issues"`
 }
 
@@ -32,9 +32,9 @@ type StrictDataTank struct {
 	Nation        string                            `json:"nation"`
 	ClientID      int64                             `json:"clientId"`
 	TechName      string                            `json:"techName"`
-	Metadata      Optional[StrictTankMetadata]      `json:"metadata,omitempty"`
-	Parameters    Optional[StrictTankParameters]    `json:"parameters,omitempty"`
-	Configuration Optional[StrictTankConfiguration] `json:"configuration,omitempty"`
+	Metadata      Optional[StrictTankMetadata]      `json:"metadata,omitzero"`
+	Parameters    Optional[StrictTankParameters]    `json:"parameters,omitzero"`
+	Configuration Optional[StrictTankConfiguration] `json:"configuration,omitzero"`
 }
 
 // DecodeStrictDataExport reads a single data-only export. It rejects unknown

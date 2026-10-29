@@ -3,8 +3,6 @@ package export
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -76,45 +74,5 @@ func TestPartialSnapshotRejectsInvalidTypedData(t *testing.T) {
 				t.Fatal("expected error")
 			}
 		})
-	}
-}
-
-// Set BLITZ_EXPORT_DATA to a full data.json to validate the installed client.
-func TestPartialSnapshotCurrentExport(t *testing.T) {
-	path := os.Getenv("BLITZ_EXPORT_DATA")
-	if path == "" {
-		t.Skip("BLITZ_EXPORT_DATA not set")
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	s, err := DecodeStrictDataExport(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("strict data tanks: %d", len(s.Tanks))
-	got, err := json.Marshal(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var a, b any
-	decoder := json.NewDecoder(bytes.NewReader(input))
-	decoder.UseNumber()
-	if err := decoder.Decode(&a); err != nil {
-		t.Fatal(err)
-	}
-	decoder = json.NewDecoder(bytes.NewReader(got))
-	decoder.UseNumber()
-	if err := decoder.Decode(&b); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(a, b) {
-		t.Fatal("partial snapshot did not round-trip")
 	}
 }

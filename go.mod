@@ -1,8 +1,7 @@
 module github.com/thecoooler/blitz-client
 
-go 1.23.0
+go 1.27.0
 
-toolchain go1.23.12
 
 require (
 	github.com/ebitengine/purego v0.10.2

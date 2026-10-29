@@ -50,22 +50,23 @@ func TestStrictEquipmentRejectInvalid(t *testing.T) {
 }
 
 func TestStrictEquipmentFullExport(t *testing.T) {
-	raw := fullExportData(t)
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-	original, ok := doc["equipment"]
-	if !ok {
-		t.Fatal("missing equipment")
-	}
-	var data StrictEquipment
-	if err := decodeStrictJSON(original, &data); err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONEqual(t, original, encoded)
+	forEachFullExport(t, func(t *testing.T, raw []byte) {
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		original, ok := doc["equipment"]
+		if !ok {
+			t.Fatal("missing equipment")
+		}
+		var data StrictEquipment
+		if err := decodeStrictJSON(original, &data); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertJSONEqual(t, original, encoded)
+	})
 }

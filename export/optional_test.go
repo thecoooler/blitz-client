@@ -11,7 +11,7 @@ func TestOptionalRoundTrip(t *testing.T) {
 		Number json.Number `json:"number"`
 	}
 	type doc struct {
-		Field Optional[nested] `json:"field,omitempty"`
+		Field Optional[nested] `json:"field,omitzero"`
 	}
 	for _, input := range []string{`{}`, `{"field":null}`, `{"field":{"number":9007199254740993}}`} {
 		var got doc
