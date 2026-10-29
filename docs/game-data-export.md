@@ -76,6 +76,8 @@ Snapshot = {
   format: "blitz-client",
   version: 1,
   included: ("data" | "icons" | "models")[],
+  game: Game,
+  exportedAt: string,     // UTC, RFC 3339, e.g. "2026-10-29T02:03:16Z"
   nations: string[],
   tanks: Tank[],
   localization?: { ru: { [localizationKey: string]: string } },
@@ -99,6 +101,38 @@ order, then list.xml order. Map/object key order never determines component orde
 All media paths are relative to this directory and use `/` (a `./` prefix is valid).
 Media references contain no source-machine paths or timestamps. Diagnostic messages
 may mention source paths when conversion fails.
+
+## Game build
+
+`game` identifies the client the snapshot was read from. It is written for
+every `included` selection and reads only small configuration resources:
+
+```text
+Game = {
+  versionText: string | null, // version.txt, e.g. "26.10.70_533068 master MacOS"
+  version: string | null,     // "26.10.70"
+  build: string | null,       // "533068"; a string, not a number
+  branch: string | null,      // "master"
+  platform: string | null,    // "MacOS"; the rest of the line, may contain spaces
+  realms: string[],           // distinct regions_publish.yaml Regions[].realm, e.g. ["ru"]
+  languages: string[],        // languages.yaml, e.g. ["ru"]
+  hangarPresets: string[],    // 3d/Configs/Presets/<name>, sorted, e.g. "hg_halloween_26"
+  cacheFiles: integer         // selected resources taken from the packs overlay
+}
+```
+
+`versionText` is the first line of version.txt without surrounding whitespace.
+Its first token is split at the last `_` into `version` and `build` when the
+suffix is all digits; otherwise the whole token is `version` and `build` is
+null. A missing version.txt, regions_publish.yaml or languages.yaml leaves the
+corresponding fields null or empty; a malformed YAML file fails the export.
+Like every resource, version.txt from the packs overlay wins over the installed
+one. Seasonal hangar presets indicate the patch's events. `cacheFiles` depends
+on `included` (models and icons select more resources); zero means the data
+comes from the installed client only. Two exports of the same `version` and
+`build` can still differ when downloaded packs change, so compare `exportedAt`
+and `cacheFiles` as well. The typed readers decode `game` and `exportedAt`; the
+schema tool does not infer XML scalar types for them.
 
 ## Tank schema and identity
 

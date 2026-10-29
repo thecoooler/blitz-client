@@ -263,6 +263,9 @@ func (a *app) runClientExport(args []string) (bool, error) {
 		a.printJSON(report)
 	} else {
 		a.printf("Exported %d tanks, %d models (%s)\n", report.Tanks, report.Models, strings.Join(report.Included, ","))
+		if game := report.Game; game != nil && game.VersionText != nil {
+			a.printf("Game: %s\n", *game.VersionText)
+		}
 		a.printf("Snapshot: %s\n", report.File)
 		if len(report.Issues) > 0 {
 			a.printf("Media issues: %d (see data.json)\n", len(report.Issues))

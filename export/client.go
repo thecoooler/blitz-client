@@ -61,6 +61,7 @@ func ParseExportIncludes(values []string) ([]string, error) {
 type ClientExportReport struct {
 	File     string        `json:"file"`
 	Included []string      `json:"included"`
+	Game     *SnapshotGame `json:"game"`
 	Tanks    int           `json:"tanks"`
 	Models   int           `json:"models"`
 	Issues   []ExportIssue `json:"issues"`
@@ -193,7 +194,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 			count++
 		}
 	}
-	return &ClientExportReport{File: path, Included: included, Tanks: len(snapshot.Tanks), Models: count, Issues: snapshot.Issues, IconExport: iconReport, ItemsFile: itemsFile, MissingItemIcons: missingItemIcons}, nil
+	return &ClientExportReport{File: path, Included: included, Game: snapshot.Game, Tanks: len(snapshot.Tanks), Models: count, Issues: snapshot.Issues, IconExport: iconReport, ItemsFile: itemsFile, MissingItemIcons: missingItemIcons}, nil
 }
 
 // exportItemIcons writes the item icon sets, their catalog and items.json.

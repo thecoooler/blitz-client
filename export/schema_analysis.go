@@ -121,6 +121,10 @@ func AnalyzeClientExportSchema(r io.Reader) (*SchemaAnalysis, error) {
 	}
 	analysis := &SchemaAnalysis{Fields: map[SchemaField]*XMLFieldUsage{}}
 	observe := func(owner reflect.Type, field string, declared XMLScalarKind, value string) {
+		if owner == reflect.TypeFor[SnapshotGame]() {
+			// Version strings are not XML text; a numeric build must stay a string.
+			return
+		}
 		key := SchemaField{Field: field}
 		if owner != nil {
 			key.Owner, _, _ = strings.Cut(owner.Name(), "[")
