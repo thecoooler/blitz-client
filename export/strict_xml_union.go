@@ -1,42 +1,41 @@
 package export
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
 
-// XMLScalarObject is an XML text scalar or a structured XML value. Exactly one
-// variant must be set. A containing Optional represents null and absence.
-type XMLScalarObject[T any] struct {
-	Scalar *string
+// XML elements observed in more than one JSON shape are unions. Exactly one
+// variant is set; a containing Optional represents null and absence. S is the
+// scalar type of the XML text variant, e.g. string or XMLNumber.
+
+// XMLScalarObject is an XML text scalar or a structured XML value.
+type XMLScalarObject[S ~string, T any] struct {
+	Scalar *S
 	Object *T
 }
 
-func (v *XMLScalarObject[T]) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return fmt.Errorf("empty XML value")
-	}
-	switch b[0] {
+func (v *XMLScalarObject[S, T]) decodeSchema(d *schemaDecoder) error {
+	switch d.peek() {
 	case '"':
-		var x string
-		if err := decodeStrictJSON(b, &x); err != nil {
+		var x S
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarObject[T]{Scalar: &x}
+		*v = XMLScalarObject[S, T]{Scalar: &x}
 	case '{':
 		var x T
-		if err := decodeStrictJSON(b, &x); err != nil {
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarObject[T]{Object: &x}
+		*v = XMLScalarObject[S, T]{Object: &x}
 	default:
-		return fmt.Errorf("expected XML string or object")
+		return d.valueErr("expected XML string or object, got %s", d.tokenName())
 	}
 	return nil
 }
-func (v XMLScalarObject[T]) MarshalJSON() ([]byte, error) {
+
+func (v XMLScalarObject[S, T]) MarshalJSON() ([]byte, error) {
 	if (v.Scalar == nil) == (v.Object == nil) {
 		return nil, fmt.Errorf("XML value must have exactly one variant")
 	}
@@ -47,35 +46,32 @@ func (v XMLScalarObject[T]) MarshalJSON() ([]byte, error) {
 }
 
 // XMLScalarList is an XML scalar or a list of repeated same-name elements.
-type XMLScalarList[T any] struct {
-	Scalar *string
+type XMLScalarList[S ~string, T any] struct {
+	Scalar *S
 	List   *[]Optional[T]
 }
 
-func (v *XMLScalarList[T]) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return fmt.Errorf("empty XML value")
-	}
-	switch b[0] {
+func (v *XMLScalarList[S, T]) decodeSchema(d *schemaDecoder) error {
+	switch d.peek() {
 	case '"':
-		var x string
-		if err := decodeStrictJSON(b, &x); err != nil {
+		var x S
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarList[T]{Scalar: &x}
+		*v = XMLScalarList[S, T]{Scalar: &x}
 	case '[':
 		var x []Optional[T]
-		if err := decodeStrictJSON(b, &x); err != nil {
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarList[T]{List: &x}
+		*v = XMLScalarList[S, T]{List: &x}
 	default:
-		return fmt.Errorf("expected XML string or list")
+		return d.valueErr("expected XML string or list, got %s", d.tokenName())
 	}
 	return nil
 }
-func (v XMLScalarList[T]) MarshalJSON() ([]byte, error) {
+
+func (v XMLScalarList[S, T]) MarshalJSON() ([]byte, error) {
 	if (v.Scalar == nil) == (v.List == nil) {
 		return nil, fmt.Errorf("XML value must have exactly one variant")
 	}
@@ -91,29 +87,26 @@ type XMLObjectList[O, A any] struct {
 	List   *[]Optional[A]
 }
 
-func (v *XMLObjectList[O, A]) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return fmt.Errorf("empty XML value")
-	}
-	switch b[0] {
+func (v *XMLObjectList[O, A]) decodeSchema(d *schemaDecoder) error {
+	switch d.peek() {
 	case '{':
 		var x O
-		if err := decodeStrictJSON(b, &x); err != nil {
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
 		*v = XMLObjectList[O, A]{Object: &x}
 	case '[':
 		var x []Optional[A]
-		if err := decodeStrictJSON(b, &x); err != nil {
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
 		*v = XMLObjectList[O, A]{List: &x}
 	default:
-		return fmt.Errorf("expected XML object or list")
+		return d.valueErr("expected XML object or list, got %s", d.tokenName())
 	}
 	return nil
 }
+
 func (v XMLObjectList[O, A]) MarshalJSON() ([]byte, error) {
 	if (v.Object == nil) == (v.List == nil) {
 		return nil, fmt.Errorf("XML value must have exactly one variant")
@@ -125,42 +118,39 @@ func (v XMLObjectList[O, A]) MarshalJSON() ([]byte, error) {
 }
 
 // XMLScalarObjectList represents all three XML shapes when each is observed.
-type XMLScalarObjectList[O, A any] struct {
-	Scalar *string
+type XMLScalarObjectList[S ~string, O, A any] struct {
+	Scalar *S
 	Object *O
 	List   *[]Optional[A]
 }
 
-func (v *XMLScalarObjectList[O, A]) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return fmt.Errorf("empty XML value")
-	}
-	switch b[0] {
+func (v *XMLScalarObjectList[S, O, A]) decodeSchema(d *schemaDecoder) error {
+	switch d.peek() {
 	case '"':
-		var x string
-		if err := decodeStrictJSON(b, &x); err != nil {
+		var x S
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarObjectList[O, A]{Scalar: &x}
+		*v = XMLScalarObjectList[S, O, A]{Scalar: &x}
 	case '{':
 		var x O
-		if err := decodeStrictJSON(b, &x); err != nil {
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarObjectList[O, A]{Object: &x}
+		*v = XMLScalarObjectList[S, O, A]{Object: &x}
 	case '[':
 		var x []Optional[A]
-		if err := decodeStrictJSON(b, &x); err != nil {
+		if err := d.decodeAny(&x); err != nil {
 			return err
 		}
-		*v = XMLScalarObjectList[O, A]{List: &x}
+		*v = XMLScalarObjectList[S, O, A]{List: &x}
 	default:
-		return fmt.Errorf("expected XML string, object or list")
+		return d.valueErr("expected XML string, object or list, got %s", d.tokenName())
 	}
 	return nil
 }
-func (v XMLScalarObjectList[O, A]) MarshalJSON() ([]byte, error) {
+
+func (v XMLScalarObjectList[S, O, A]) MarshalJSON() ([]byte, error) {
 	n := 0
 	if v.Scalar != nil {
 		n++

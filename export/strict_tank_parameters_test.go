@@ -26,28 +26,29 @@ func TestStrictTankParametersRejectInvalid(t *testing.T) {
 	}
 }
 func TestStrictTankParametersFullExport(t *testing.T) {
-	data := fullExportData(t)
-	var snapshot struct {
-		Tanks []struct {
-			Parameters json.RawMessage `json:"parameters"`
-			ID         string          `json:"id"`
-		} `json:"tanks"`
-	}
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Tanks) == 0 {
-		t.Fatal("no tanks")
-	}
-	for _, tank := range snapshot.Tanks {
-		var value StrictTankParameters
-		if err := json.Unmarshal(tank.Parameters, &value); err != nil {
-			t.Fatalf("%s: %v", tank.ID, err)
+	forEachFullExport(t, func(t *testing.T, data []byte) {
+		var snapshot struct {
+			Tanks []struct {
+				Parameters json.RawMessage `json:"parameters"`
+				ID         string          `json:"id"`
+			} `json:"tanks"`
 		}
-		out, err := json.Marshal(value)
-		if err != nil {
-			t.Fatalf("%s: %v", tank.ID, err)
+		if err := json.Unmarshal(data, &snapshot); err != nil {
+			t.Fatal(err)
 		}
-		assertEquivalentJSON(t, tank.Parameters, out)
-	}
+		if len(snapshot.Tanks) == 0 {
+			t.Fatal("no tanks")
+		}
+		for _, tank := range snapshot.Tanks {
+			var value StrictTankParameters
+			if err := json.Unmarshal(tank.Parameters, &value); err != nil {
+				t.Fatalf("%s: %v", tank.ID, err)
+			}
+			out, err := json.Marshal(value)
+			if err != nil {
+				t.Fatalf("%s: %v", tank.ID, err)
+			}
+			assertEquivalentJSON(t, tank.Parameters, out)
+		}
+	})
 }

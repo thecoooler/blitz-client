@@ -1,7 +1,6 @@
 package export
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -10,23 +9,27 @@ import (
 // float64 conversion. Unlike json.Number, it rejects quoted numbers and null.
 type StrictNumber string
 
-func (n *StrictNumber) UnmarshalJSON(data []byte) error {
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 || (data[0] != '-' && (data[0] < '0' || data[0] > '9')) || !json.Valid(data) {
-		return fmt.Errorf("expected JSON number, got %s", data)
+func (n *StrictNumber) UnmarshalJSON(data []byte) error { return decodeStrictJSON(data, n) }
+
+func (n *StrictNumber) decodeSchema(d *schemaDecoder) error {
+	if c := d.peek(); c != '-' && (c < '0' || c > '9') {
+		return d.valueErr("expected number, got %s", d.tokenName())
 	}
-	var number json.Number
-	if err := json.Unmarshal(data, &number); err != nil {
-		return err
-	}
-	*n = StrictNumber(number)
+	*n = StrictNumber(d.readNumber())
 	return nil
 }
 
 func (n StrictNumber) MarshalJSON() ([]byte, error) {
-	var checked StrictNumber
-	if err := checked.UnmarshalJSON([]byte(n)); err != nil {
-		return nil, err
+	if !isJSONNumber(string(n)) {
+		return nil, fmt.Errorf("invalid JSON number %q", string(n))
 	}
 	return []byte(n), nil
+}
+
+func isJSONNumber(s string) bool {
+	if s == "" || s[0] != '-' && (s[0] < '0' || s[0] > '9') {
+		return false
+	}
+	var n json.Number
+	return json.Unmarshal([]byte(s), &n) == nil
 }

@@ -2,158 +2,158 @@ package export
 
 // Equipment fields retain XML scalar spelling; empty XML elements are null.
 type StrictEquipment struct {
-	Devices Optional[StrictEquipmentDevices] `json:"devices,omitempty"`
-	Slots   Optional[StrictEquipmentSlots]   `json:"slots,omitempty"`
+	Devices Optional[StrictEquipmentDevices] `json:"devices,omitzero"`
+	Slots   Optional[StrictEquipmentSlots]   `json:"slots,omitzero"`
 }
 type StrictEquipmentSlots struct {
-	Presets Optional[map[string]StrictEquipmentPreset] `json:"presets,omitempty"`
+	Presets Optional[map[string]StrictEquipmentPreset] `json:"presets,omitzero"`
 }
 
 type StrictEquipmentDevice struct {
-	Description   Optional[string]                             `json:"description,omitempty"`
-	DisplayParams Optional[StrictEquipmentDeviceDisplayParams] `json:"display_params,omitempty"`
-	Icon          Optional[string]                             `json:"icon,omitempty"`
-	ID            Optional[string]                             `json:"id,omitempty"`
-	Script        Optional[StrictEquipmentDeviceScript]        `json:"script,omitempty"`
-	UserString    Optional[string]                             `json:"userString,omitempty"`
+	Description   Optional[string]                             `json:"description,omitzero"`
+	DisplayParams Optional[StrictEquipmentDeviceDisplayParams] `json:"display_params,omitzero"`
+	Icon          Optional[string]                             `json:"icon,omitzero"`
+	ID            Optional[XMLInteger]                         `json:"id,omitzero"`
+	Script        Optional[StrictEquipmentDeviceScript]        `json:"script,omitzero"`
+	UserString    Optional[string]                             `json:"userString,omitzero"`
 }
 
 type StrictEquipmentDeviceDisplayParams struct {
-	ARMORPIERCING                   Optional[string]                      `json:"ARMOR_PIERCING,omitempty"`
-	ARMORPIERCINGCR                 Optional[string]                      `json:"ARMOR_PIERCING_CR,omitempty"`
-	HIGHEXPLOSIVE                   Optional[string]                      `json:"HIGH_EXPLOSIVE,omitempty"`
-	HOLLOWCHARGE                    Optional[string]                      `json:"HOLLOW_CHARGE,omitempty"`
-	ActivateWhenStillSec            Optional[string]                      `json:"activateWhenStillSec,omitempty"`
-	AdditiveShotDispersionFactor    Optional[string]                      `json:"additiveShotDispersionFactor,omitempty"`
-	AmmoEvasionPercentageBonus      Optional[string]                      `json:"ammoEvasionPercentageBonus,omitempty"`
-	ArmorHomogenizationFactor       Optional[string]                      `json:"armorHomogenizationFactor,omitempty"`
-	CircularVisionRadiusFactor      Optional[StrictEquipmentClassDisplay] `json:"circularVisionRadiusFactor,omitempty"`
-	CircularVisionRadiusIncrease    Optional[string]                      `json:"circularVisionRadiusIncrease,omitempty"`
-	CrewEvasionPercentageBonus      Optional[string]                      `json:"crewEvasionPercentageBonus,omitempty"`
-	CrewLevelIncrease               Optional[string]                      `json:"crewLevelIncrease,omitempty"`
-	DetectabilityFactor             Optional[StrictEquipmentClassDisplay] `json:"detectabilityFactor,omitempty"`
-	EngineEvasionPercentageBonus    Optional[string]                      `json:"engineEvasionPercentageBonus,omitempty"`
-	EnginePower                     Optional[StrictEquipmentClassDisplay] `json:"enginePower,omitempty"`
-	EquipmentDurationFactor         Optional[string]                      `json:"equipmentDurationFactor,omitempty"`
-	EquipmentReloadBoost            Optional[string]                      `json:"equipmentReloadBoost,omitempty"`
-	FirmGroundPassabilityIncrease   Optional[string]                      `json:"firmGroundPassabilityIncrease,omitempty"`
-	GunAimingTimeFactor             Optional[string]                      `json:"gunAimingTimeFactor,omitempty"`
-	GunReloadTimeFactor             Optional[string]                      `json:"gunReloadTimeFactor,omitempty"`
-	InvisibilityFactorAtShot        Optional[string]                      `json:"invisibilityFactorAtShot,omitempty"`
-	LowerPitchLimitIncrease         Optional[string]                      `json:"lowerPitchLimitIncrease,omitempty"`
-	MaxHealthPercentageBonus        Optional[string]                      `json:"maxHealthPercentageBonus,omitempty"`
-	MaxHpBonusPercent               Optional[string]                      `json:"maxHpBonusPercent,omitempty"`
-	MediumGroundPassabilityIncrease Optional[string]                      `json:"mediumGroundPassabilityIncrease,omitempty"`
-	PiercingPenaltyFactor500m       Optional[string]                      `json:"piercingPenaltyFactor500m,omitempty"`
-	ProjectileAccelerationFactor    Optional[string]                      `json:"projectileAccelerationFactor,omitempty"`
-	ProjectileMaxSpeedFactor        Optional[string]                      `json:"projectileMaxSpeedFactor,omitempty"`
-	ProjectileSpeedFactor           Optional[string]                      `json:"projectileSpeedFactor,omitempty"`
-	RammingAbsorptionPercent        Optional[string]                      `json:"rammingAbsorptionPercent,omitempty"`
-	RepairSpeedFactor               Optional[string]                      `json:"repairSpeedFactor,omitempty"`
-	RotationSpeedLimit              Optional[string]                      `json:"rotationSpeedLimit,omitempty"`
-	ShotDispersionAngleFactor       Optional[string]                      `json:"shotDispersionAngleFactor,omitempty"`
-	SoftGroundPassabilityIncrease   Optional[string]                      `json:"softGroundPassabilityIncrease,omitempty"`
-	UpperPitchLimitIncrease         Optional[string]                      `json:"upperPitchLimitIncrease,omitempty"`
+	ARMORPIERCING                   Optional[XMLInteger]                  `json:"ARMOR_PIERCING,omitzero"`
+	ARMORPIERCINGCR                 Optional[XMLInteger]                  `json:"ARMOR_PIERCING_CR,omitzero"`
+	HIGHEXPLOSIVE                   Optional[XMLInteger]                  `json:"HIGH_EXPLOSIVE,omitzero"`
+	HOLLOWCHARGE                    Optional[XMLInteger]                  `json:"HOLLOW_CHARGE,omitzero"`
+	ActivateWhenStillSec            Optional[XMLNumber]                   `json:"activateWhenStillSec,omitzero"`
+	AdditiveShotDispersionFactor    Optional[XMLInteger]                  `json:"additiveShotDispersionFactor,omitzero"`
+	AmmoEvasionPercentageBonus      Optional[XMLInteger]                  `json:"ammoEvasionPercentageBonus,omitzero"`
+	ArmorHomogenizationFactor       Optional[XMLInteger]                  `json:"armorHomogenizationFactor,omitzero"`
+	CircularVisionRadiusFactor      Optional[StrictEquipmentClassDisplay] `json:"circularVisionRadiusFactor,omitzero"`
+	CircularVisionRadiusIncrease    Optional[XMLInteger]                  `json:"circularVisionRadiusIncrease,omitzero"`
+	CrewEvasionPercentageBonus      Optional[XMLInteger]                  `json:"crewEvasionPercentageBonus,omitzero"`
+	CrewLevelIncrease               Optional[XMLInteger]                  `json:"crewLevelIncrease,omitzero"`
+	DetectabilityFactor             Optional[StrictEquipmentClassDisplay] `json:"detectabilityFactor,omitzero"`
+	EngineEvasionPercentageBonus    Optional[XMLInteger]                  `json:"engineEvasionPercentageBonus,omitzero"`
+	EnginePower                     Optional[StrictEquipmentClassDisplay] `json:"enginePower,omitzero"`
+	EquipmentDurationFactor         Optional[XMLInteger]                  `json:"equipmentDurationFactor,omitzero"`
+	EquipmentReloadBoost            Optional[XMLInteger]                  `json:"equipmentReloadBoost,omitzero"`
+	FirmGroundPassabilityIncrease   Optional[XMLInteger]                  `json:"firmGroundPassabilityIncrease,omitzero"`
+	GunAimingTimeFactor             Optional[XMLInteger]                  `json:"gunAimingTimeFactor,omitzero"`
+	GunReloadTimeFactor             Optional[XMLInteger]                  `json:"gunReloadTimeFactor,omitzero"`
+	InvisibilityFactorAtShot        Optional[XMLInteger]                  `json:"invisibilityFactorAtShot,omitzero"`
+	LowerPitchLimitIncrease         Optional[XMLInteger]                  `json:"lowerPitchLimitIncrease,omitzero"`
+	MaxHealthPercentageBonus        Optional[XMLInteger]                  `json:"maxHealthPercentageBonus,omitzero"`
+	MaxHpBonusPercent               Optional[XMLInteger]                  `json:"maxHpBonusPercent,omitzero"`
+	MediumGroundPassabilityIncrease Optional[XMLInteger]                  `json:"mediumGroundPassabilityIncrease,omitzero"`
+	PiercingPenaltyFactor500m       Optional[XMLInteger]                  `json:"piercingPenaltyFactor500m,omitzero"`
+	ProjectileAccelerationFactor    Optional[XMLInteger]                  `json:"projectileAccelerationFactor,omitzero"`
+	ProjectileMaxSpeedFactor        Optional[XMLInteger]                  `json:"projectileMaxSpeedFactor,omitzero"`
+	ProjectileSpeedFactor           Optional[XMLInteger]                  `json:"projectileSpeedFactor,omitzero"`
+	RammingAbsorptionPercent        Optional[XMLInteger]                  `json:"rammingAbsorptionPercent,omitzero"`
+	RepairSpeedFactor               Optional[XMLInteger]                  `json:"repairSpeedFactor,omitzero"`
+	RotationSpeedLimit              Optional[XMLInteger]                  `json:"rotationSpeedLimit,omitzero"`
+	ShotDispersionAngleFactor       Optional[XMLInteger]                  `json:"shotDispersionAngleFactor,omitzero"`
+	SoftGroundPassabilityIncrease   Optional[XMLInteger]                  `json:"softGroundPassabilityIncrease,omitzero"`
+	UpperPitchLimitIncrease         Optional[XMLInteger]                  `json:"upperPitchLimitIncrease,omitzero"`
 }
 
 type StrictEquipmentClassDisplay struct {
-	ATSPG  Optional[string] `json:"AT_SPG,omitempty"`
-	Heavy  Optional[string] `json:"Heavy,omitempty"`
-	Light  Optional[string] `json:"Light,omitempty"`
-	Medium Optional[string] `json:"Medium,omitempty"`
+	ATSPG  Optional[XMLInteger] `json:"AT_SPG,omitzero"`
+	Heavy  Optional[XMLInteger] `json:"Heavy,omitzero"`
+	Light  Optional[XMLInteger] `json:"Light,omitzero"`
+	Medium Optional[XMLInteger] `json:"Medium,omitzero"`
 }
 
 type StrictEquipmentDeviceScript struct {
-	Text                                    Optional[string]                                          `json:"#text,omitempty"`
-	ActivateBonusFactor                     Optional[string]                                          `json:"activateBonusFactor,omitempty"`
-	ActivateWhenStillSec                    Optional[string]                                          `json:"activateWhenStillSec,omitempty"`
-	Attribute                               Optional[string]                                          `json:"attribute,omitempty"`
-	Bonus                                   Optional[StrictEquipmentClassBonus]                       `json:"bonus,omitempty"`
-	BonusPercentage                         Optional[StrictEquipmentDeviceScriptBonusPercentage]      `json:"bonusPercentage,omitempty"`
-	BonusValues                             Optional[StrictEquipmentDeviceScriptBonusValues]          `json:"bonusValues,omitempty"`
-	ChancesToHit                            Optional[StrictEquipmentDeviceScriptChancesToHit]         `json:"chancesToHit,omitempty"`
-	EnginePowerPercentageBonus              Optional[StrictEquipmentClassBonus]                       `json:"enginePowerPercentageBonus,omitempty"`
-	LargeCaliberHighExplosiveDamageFactor   Optional[string]                                          `json:"largeCaliberHighExplosiveDamageFactor,omitempty"`
-	LargeCaliberHighExplosivePiercingFactor Optional[string]                                          `json:"largeCaliberHighExplosivePiercingFactor,omitempty"`
-	MaxHpBonusPercent                       Optional[string]                                          `json:"maxHpBonusPercent,omitempty"`
-	Modules                                 Optional[string]                                          `json:"modules,omitempty"`
-	ModulesHealthFactors                    Optional[StrictEquipmentDeviceScriptModulesHealthFactors] `json:"modulesHealthFactors,omitempty"`
-	PiercingFactors                         Optional[StrictEquipmentDeviceScriptPiercingFactors]      `json:"piercingFactors,omitempty"`
-	RammingAbsorptionPercent                Optional[string]                                          `json:"rammingAbsorptionPercent,omitempty"`
-	VisionRadiusPercentageBonus             Optional[StrictEquipmentClassBonus]                       `json:"visionRadiusPercentageBonus,omitempty"`
-	Weight                                  Optional[string]                                          `json:"weight,omitempty"`
+	Text                                    Optional[string]                                          `json:"#text,omitzero"`
+	ActivateBonusFactor                     Optional[XMLNumber]                                       `json:"activateBonusFactor,omitzero"`
+	ActivateWhenStillSec                    Optional[XMLNumber]                                       `json:"activateWhenStillSec,omitzero"`
+	Attribute                               Optional[string]                                          `json:"attribute,omitzero"`
+	Bonus                                   Optional[StrictEquipmentClassBonus]                       `json:"bonus,omitzero"`
+	BonusPercentage                         Optional[StrictEquipmentDeviceScriptBonusPercentage]      `json:"bonusPercentage,omitzero"`
+	BonusValues                             Optional[StrictEquipmentDeviceScriptBonusValues]          `json:"bonusValues,omitzero"`
+	ChancesToHit                            Optional[StrictEquipmentDeviceScriptChancesToHit]         `json:"chancesToHit,omitzero"`
+	EnginePowerPercentageBonus              Optional[StrictEquipmentClassBonus]                       `json:"enginePowerPercentageBonus,omitzero"`
+	LargeCaliberHighExplosiveDamageFactor   Optional[XMLNumber]                                       `json:"largeCaliberHighExplosiveDamageFactor,omitzero"`
+	LargeCaliberHighExplosivePiercingFactor Optional[XMLNumber]                                       `json:"largeCaliberHighExplosivePiercingFactor,omitzero"`
+	MaxHpBonusPercent                       Optional[XMLInteger]                                      `json:"maxHpBonusPercent,omitzero"`
+	Modules                                 Optional[string]                                          `json:"modules,omitzero"`
+	ModulesHealthFactors                    Optional[StrictEquipmentDeviceScriptModulesHealthFactors] `json:"modulesHealthFactors,omitzero"`
+	PiercingFactors                         Optional[StrictEquipmentDeviceScriptPiercingFactors]      `json:"piercingFactors,omitzero"`
+	RammingAbsorptionPercent                Optional[XMLInteger]                                      `json:"rammingAbsorptionPercent,omitzero"`
+	VisionRadiusPercentageBonus             Optional[StrictEquipmentClassBonus]                       `json:"visionRadiusPercentageBonus,omitzero"`
+	Weight                                  Optional[XMLInteger]                                      `json:"weight,omitzero"`
 }
 
 type StrictEquipmentClassBonus struct {
-	ATSPG      Optional[string] `json:"AT-SPG,omitempty"`
-	SPG        Optional[string] `json:"SPG,omitempty"`
-	HeavyTank  Optional[string] `json:"heavyTank,omitempty"`
-	LightTank  Optional[string] `json:"lightTank,omitempty"`
-	MediumTank Optional[string] `json:"mediumTank,omitempty"`
+	ATSPG      Optional[XMLNumber] `json:"AT-SPG,omitzero"`
+	SPG        Optional[XMLNumber] `json:"SPG,omitzero"`
+	HeavyTank  Optional[XMLNumber] `json:"heavyTank,omitzero"`
+	LightTank  Optional[XMLNumber] `json:"lightTank,omitzero"`
+	MediumTank Optional[XMLNumber] `json:"mediumTank,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptBonusPercentage struct {
-	FirmGroundPassabilityIncrease   Optional[string] `json:"firmGroundPassabilityIncrease,omitempty"`
-	InvisibilityFactorAtShot        Optional[string] `json:"invisibilityFactorAtShot,omitempty"`
-	MediumGroundPassabilityIncrease Optional[string] `json:"mediumGroundPassabilityIncrease,omitempty"`
-	PiercingPenaltyFactor500m       Optional[string] `json:"piercingPenaltyFactor500m,omitempty"`
-	ProjectileAccelerationFactor    Optional[string] `json:"projectileAccelerationFactor,omitempty"`
-	ProjectileMaxSpeedFactor        Optional[string] `json:"projectileMaxSpeedFactor,omitempty"`
-	ProjectileSpeedFactor           Optional[string] `json:"projectileSpeedFactor,omitempty"`
-	RotationSpeedFactor             Optional[string] `json:"rotationSpeedFactor,omitempty"`
-	SoftGroundPassabilityIncrease   Optional[string] `json:"softGroundPassabilityIncrease,omitempty"`
+	FirmGroundPassabilityIncrease   Optional[XMLInteger] `json:"firmGroundPassabilityIncrease,omitzero"`
+	InvisibilityFactorAtShot        Optional[XMLInteger] `json:"invisibilityFactorAtShot,omitzero"`
+	MediumGroundPassabilityIncrease Optional[XMLInteger] `json:"mediumGroundPassabilityIncrease,omitzero"`
+	PiercingPenaltyFactor500m       Optional[XMLInteger] `json:"piercingPenaltyFactor500m,omitzero"`
+	ProjectileAccelerationFactor    Optional[XMLInteger] `json:"projectileAccelerationFactor,omitzero"`
+	ProjectileMaxSpeedFactor        Optional[XMLInteger] `json:"projectileMaxSpeedFactor,omitzero"`
+	ProjectileSpeedFactor           Optional[XMLInteger] `json:"projectileSpeedFactor,omitzero"`
+	RotationSpeedFactor             Optional[XMLInteger] `json:"rotationSpeedFactor,omitzero"`
+	SoftGroundPassabilityIncrease   Optional[XMLInteger] `json:"softGroundPassabilityIncrease,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptBonusValues struct {
-	CircularVisionRadiusIncrease Optional[string] `json:"circularVisionRadiusIncrease,omitempty"`
-	LowerPitchLimitIncrease      Optional[string] `json:"lowerPitchLimitIncrease,omitempty"`
-	Percent                      Optional[string] `json:"percent,omitempty"`
-	UpperPitchLimitIncrease      Optional[string] `json:"upperPitchLimitIncrease,omitempty"`
-	Value                        Optional[string] `json:"value,omitempty"`
+	CircularVisionRadiusIncrease Optional[XMLInteger] `json:"circularVisionRadiusIncrease,omitzero"`
+	LowerPitchLimitIncrease      Optional[XMLInteger] `json:"lowerPitchLimitIncrease,omitzero"`
+	Percent                      Optional[XMLInteger] `json:"percent,omitzero"`
+	UpperPitchLimitIncrease      Optional[XMLInteger] `json:"upperPitchLimitIncrease,omitzero"`
+	Value                        Optional[XMLNumber]  `json:"value,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptChancesToHit struct {
-	Crew    Optional[string]                                         `json:"crew,omitempty"`
-	Modules Optional[StrictEquipmentDeviceScriptChancesToHitModules] `json:"modules,omitempty"`
+	Crew    Optional[XMLNumber]                                      `json:"crew,omitzero"`
+	Modules Optional[StrictEquipmentDeviceScriptChancesToHitModules] `json:"modules,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptChancesToHitModules struct {
-	AmmoBayHealth Optional[string] `json:"ammoBayHealth,omitempty"`
-	EngineHealth  Optional[string] `json:"engineHealth,omitempty"`
+	AmmoBayHealth Optional[XMLNumber] `json:"ammoBayHealth,omitzero"`
+	EngineHealth  Optional[XMLNumber] `json:"engineHealth,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptModulesHealthFactors struct {
-	Modules Optional[StrictEquipmentDeviceScriptModulesHealthFactorsModules] `json:"modules,omitempty"`
+	Modules Optional[StrictEquipmentDeviceScriptModulesHealthFactorsModules] `json:"modules,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptModulesHealthFactorsModules struct {
-	AmmoBayHealth    Optional[string] `json:"ammoBayHealth,omitempty"`
-	FuelTankHealth   Optional[string] `json:"fuelTankHealth,omitempty"`
-	LeftTrackHealth  Optional[string] `json:"leftTrackHealth,omitempty"`
-	RightTrackHealth Optional[string] `json:"rightTrackHealth,omitempty"`
+	AmmoBayHealth    Optional[XMLNumber] `json:"ammoBayHealth,omitzero"`
+	FuelTankHealth   Optional[XMLNumber] `json:"fuelTankHealth,omitzero"`
+	LeftTrackHealth  Optional[XMLNumber] `json:"leftTrackHealth,omitzero"`
+	RightTrackHealth Optional[XMLNumber] `json:"rightTrackHealth,omitzero"`
 }
 
 type StrictEquipmentDeviceScriptPiercingFactors struct {
-	ARMORPIERCING   Optional[string] `json:"ARMOR_PIERCING,omitempty"`
-	ARMORPIERCINGCR Optional[string] `json:"ARMOR_PIERCING_CR,omitempty"`
-	ARMORPIERCINGHE Optional[string] `json:"ARMOR_PIERCING_HE,omitempty"`
-	HIGHEXPLOSIVE   Optional[string] `json:"HIGH_EXPLOSIVE,omitempty"`
-	HOLLOWCHARGE    Optional[string] `json:"HOLLOW_CHARGE,omitempty"`
+	ARMORPIERCING   Optional[XMLInteger] `json:"ARMOR_PIERCING,omitzero"`
+	ARMORPIERCINGCR Optional[XMLInteger] `json:"ARMOR_PIERCING_CR,omitzero"`
+	ARMORPIERCINGHE Optional[XMLInteger] `json:"ARMOR_PIERCING_HE,omitzero"`
+	HIGHEXPLOSIVE   Optional[XMLInteger] `json:"HIGH_EXPLOSIVE,omitzero"`
+	HOLLOWCHARGE    Optional[XMLInteger] `json:"HOLLOW_CHARGE,omitzero"`
 }
 
 type StrictEquipmentPreset struct {
-	Level0 Optional[StrictEquipmentPresetLevel] `json:"level0,omitempty"`
-	Level1 Optional[StrictEquipmentPresetLevel] `json:"level1,omitempty"`
-	Level2 Optional[StrictEquipmentPresetLevel] `json:"level2,omitempty"`
+	Level0 Optional[StrictEquipmentPresetLevel] `json:"level0,omitzero"`
+	Level1 Optional[StrictEquipmentPresetLevel] `json:"level1,omitzero"`
+	Level2 Optional[StrictEquipmentPresetLevel] `json:"level2,omitzero"`
 }
 
 type StrictEquipmentPresetLevel struct {
-	Attack         Optional[StrictEquipmentSlot] `json:"attack,omitempty"`
-	Defence        Optional[StrictEquipmentSlot] `json:"defence,omitempty"`
-	Specialization Optional[StrictEquipmentSlot] `json:"specialization,omitempty"`
+	Attack         Optional[StrictEquipmentSlot] `json:"attack,omitzero"`
+	Defence        Optional[StrictEquipmentSlot] `json:"defence,omitzero"`
+	Specialization Optional[StrictEquipmentSlot] `json:"specialization,omitzero"`
 }
 
 type StrictEquipmentSlot struct {
-	Device0 Optional[string] `json:"device0,omitempty"`
-	Device1 Optional[string] `json:"device1,omitempty"`
+	Device0 Optional[string] `json:"device0,omitzero"`
+	Device1 Optional[string] `json:"device1,omitzero"`
 }

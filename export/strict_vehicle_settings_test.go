@@ -23,24 +23,25 @@ func TestStrictVehicleSettings(t *testing.T) {
 	}
 }
 func TestStrictVehicleSettingsFullExport(t *testing.T) {
-	data := fullExportData(t)
-	var snapshot struct {
-		Settings map[string]json.RawMessage `json:"settings"`
-	}
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	raw, ok := snapshot.Settings["vehicle"]
-	if !ok {
-		t.Fatal("settings.vehicle absent")
-	}
-	var v StrictVehicleSettings
-	if err := json.Unmarshal(raw, &v); err != nil {
-		t.Fatal(err)
-	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertEquivalentJSON(t, raw, out)
+	forEachFullExport(t, func(t *testing.T, data []byte) {
+		var snapshot struct {
+			Settings map[string]json.RawMessage `json:"settings"`
+		}
+		if err := json.Unmarshal(data, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		raw, ok := snapshot.Settings["vehicle"]
+		if !ok {
+			t.Fatal("settings.vehicle absent")
+		}
+		var v StrictVehicleSettings
+		if err := json.Unmarshal(raw, &v); err != nil {
+			t.Fatal(err)
+		}
+		out, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEquivalentJSON(t, raw, out)
+	})
 }

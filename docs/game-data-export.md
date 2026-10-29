@@ -356,59 +356,106 @@ snapshot, err := export.ReadClientExport("/path/to/export")
 ```
 
 `ReadClientExport` keeps nested game data as untyped values and does not
-validate it. For a data-only export, the strict reader validates every section
-against typed Go structs before anything else uses it:
+validate it. Package `export` also provides typed readers that validate every
+data section against Go structs:
+
+| Function | Accepts | On schema mismatch |
+| --- | --- | --- |
+| `DecodeStrictDataExport` / `ReadStrictDataExport` | data-only exports | error |
+| `DecodePartialClientExport` / `ReadPartialClientExport` | any `--include` selection | error |
+| `DecodePartialClientExportLenient` / `ReadPartialClientExportLenient` | any `--include` selection | `[]SchemaWarning` |
+
+The partial readers validate the data sections exactly like the strict reader
+and keep media (`tanks[].icons`, `tanks[].model`) and `crewSkillTraining` as raw
+JSON, listed in `UnvalidatedSections`. Use the strict readers in CI and when
+checking the schema, and the lenient reader in importers that must keep
+working after a game patch:
 
 ```go
-snapshot, err := export.ReadStrictDataExport("/path/to/export") // or DecodeStrictDataExport(r)
+snapshot, warnings, err := export.ReadPartialClientExportLenient("/path/to/export")
 if err != nil {
-	return err // unknown field, wrong shape, duplicate key, trailing data, ...
+	return err // malformed JSON, duplicate key, unsupported version, invalid root
+}
+for _, w := range warnings {
+	// w.Kind: export.SchemaUnknownField or export.SchemaUnexpectedValue
+	// w.Path: "$.tanks[12].configuration.hull.newField"
+	// w.SchemaPath: "$.tanks[].configuration.hull.newField" (for grouping)
+	log.Printf("export schema: %s", w)
 }
 for _, tank := range snapshot.Tanks {
-	params, ok := tank.Parameters.Get()
+	config, ok := tank.Configuration.Get()
 	if !ok {
 		continue // absent or null
 	}
-	if chassis, ok := params.Chassis.Get(); ok {
-		scale, _ := chassis.TextureScale.Get() // export.StrictNumber, original spelling
-		_ = scale
-	}
+	guns := config.Turrets0 // Optional[[]Optional[...Turrets0Entry]], source order
+	_ = guns
 }
 ```
 
-Strict reader guarantees:
+Lenient decoding skips unknown fields and drops a value whose shape or scalar
+spelling does not match: the field becomes absent, a dictionary entry or array
+element is removed, and a required field that is dropped drops its enclosing
+value. `SchemaWarning.Dropped` names the removed value. Everything else is
+decoded exactly as in strict mode. Strict errors are `*SchemaError` with the
+JSON path of the offending value.
+
+Guarantees of the typed readers:
 
 - Every value in `tanks[].metadata/parameters/configuration`, `localization`,
-  `maps`, `components`, `equipment`, `provisions`, all 23 `settings` documents,
-  `hangarParameters`, `crewSkills` and `issues` is decoded into a named type.
-  The data sections hold no `any`, `map[string]any` or `json.RawMessage` values.
-  Dictionaries keyed by game identifiers are `map[string]Optional[T]` with typed `T`.
+  `maps`, `components`, `equipment`, `provisions`, all 23 `settings`
+  documents, `hangarParameters`, `crewSkills` and `issues` is decoded into a
+  named type; the data sections hold no `any` or `json.RawMessage`.
+  Dictionaries keyed by game identifiers are `map[string]Optional[T]`.
 - `Optional[T]` distinguishes an absent field (`!Present()`), explicit `null`
-  (`Null()`) and a value (`Get()`). Encoding writes back exactly that state.
-- Numbers are `StrictNumber`/`StrictInteger` (string-backed, original spelling,
-  for example `9007199254740993`); nothing is routed through `float64`. XML text
-  stays `string`, as in the exporter.
+  (`Null()`) and a value (`Get()`), and encodes the same state back. Optional
+  fields use the `omitzero` tag (Go 1.24+); the module requires Go 1.27.
+- JSON numbers are `StrictNumber`/`StrictInteger` (string-backed, original
+  spelling such as `9007199254740993`); nothing passes through `float64`.
+- XML element text is a JSON string typed by its spelling: `XMLInteger`,
+  `XMLNumber`, `XMLBool`, `XMLLocalizationKey` (`#namespace:key`) or
+  `XMLNumberVector` (whitespace-separated numbers). They are string types that
+  keep and re-encode the original text, validate it on decode and offer
+  `Int64`, `Float64`, `Bool`, `Namespace`/`Key` and `Numbers`/`Float64s`.
+  Plain `string` remains only for fields whose values include free text,
+  names, paths or mixed spellings.
 - XML elements observed in several shapes are explicit unions:
-  `XMLScalarObject`, `XMLScalarList`, `XMLObjectList`, `XMLScalarObjectList`.
-  Exactly one variant is set.
-- Arrays, including configuration selection lists, keep their order.
+  `XMLScalarObject[S, T]`, `XMLScalarList[S, T]`, `XMLObjectList[O, A]`,
+  `XMLScalarObjectList[S, O, A]`, where `S` is the scalar type of the text
+  variant. Exactly one variant is set.
+- Arrays, including configuration selection lists, keep their order;
+  selection entries must have a non-null `name` and a `properties` field.
 - Unknown fields, unknown settings documents, duplicate keys, case-mismatched
-  keys and trailing JSON are errors. A new game version that adds fields fails
-  loudly instead of losing data; the schema must then be extended.
+  keys and trailing JSON are errors in strict mode.
 - `json.Marshal(snapshot)` reproduces `data.json` as an equal JSON value.
+  `json.Unmarshal` into the section types applies the strict schema.
 
-Limits: the schema describes the shapes observed in the current client, not
-game semantics or cross-references. `crewSkillTraining` (from `--server-config`)
-and media (`icons`, `model`, or `included` other than `data`) are rejected by the
-strict reader because no schema exists for them. `DecodePartialClientExport` /
-`ReadPartialClientExport` accept them as raw JSON and list such parts in
-`UnvalidatedSections`. The module requires Go 1.23.
+Limits: the schema describes the shapes observed in the client versions it was
+built from, not game semantics or cross-references. Scalar types come from the
+values seen; a field seen with only integers is `XMLInteger` even if a later
+version writes `1.5` (lenient mode then drops that value with a warning).
+`crewSkillTraining` and media have no schema.
 
-The schema tests validate a real export when `BLITZ_EXPORT_DATA` points to its
-`data.json`:
+### Updating the schema after a game patch
+
+Export the new client with `--include data`, then compare it with the schema,
+ideally together with exports of earlier versions:
 
 ```sh
-BLITZ_EXPORT_DATA=/path/to/export/data.json go test ./export -run 'FullExport|CurrentExport'
+go run ./internal/tools/exportschema new/data.json old/data.json
+```
+
+The command prints lenient warnings grouped by schema path (new fields, new
+shapes) and scalar drift (fields whose declared type differs from the most
+specific type all values fit), and exits with status 1 if there are any.
+`-write` rewrites drifted scalar types in `export/*.go`; new fields and shapes
+are added by hand to the struct named in the warning path. `-text` lists the
+fields that stay `string` with value examples; `-stats` counts schema fields by
+scalar type. The tests validate real exports listed in `BLITZ_EXPORT_DATA`
+(separated by `:`); with two or more exports they also require the declared
+scalar types to equal the inferred ones:
+
+```sh
+BLITZ_EXPORT_DATA=new/data.json:old/data.json go test ./export
 ```
 
 `--game-dir` accepts an install or Data directory. Plain and DVPL resources share

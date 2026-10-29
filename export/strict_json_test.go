@@ -24,7 +24,7 @@ func TestDecodeStrictJSON(t *testing.T) {
 		{"duplicate nested value", `{"items":[{"number":1,"number":2}]}`, `duplicate object key "number"`},
 		{"multiple values", `{} {}`, "multiple JSON values"},
 		{"trailing malformed", `{} x`, "invalid character"},
-		{"empty", ``, "EOF"},
+		{"empty", ``, "unexpected end"},
 		{"unterminated", `{"items":[`, "unexpected end"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

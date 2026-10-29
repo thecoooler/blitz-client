@@ -58,25 +58,26 @@ func TestStrictComponentsRejectInvalid(t *testing.T) {
 }
 
 func TestStrictComponentsFullExport(t *testing.T) {
-	raw := fullExportData(t)
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-	original, ok := doc["components"]
-	if !ok {
-		t.Fatal("missing components")
-	}
-	var data map[string]Optional[StrictNationComponents]
-	if err := decodeStrictJSON(original, &data); err != nil {
-		t.Fatal(err)
-	}
-	if len(data) != 9 {
-		t.Fatalf("expected 9 nations, got %d", len(data))
-	}
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONEqual(t, original, encoded)
+	forEachFullExport(t, func(t *testing.T, raw []byte) {
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		original, ok := doc["components"]
+		if !ok {
+			t.Fatal("missing components")
+		}
+		var data map[string]Optional[StrictNationComponents]
+		if err := decodeStrictJSON(original, &data); err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != 9 {
+			t.Fatalf("expected 9 nations, got %d", len(data))
+		}
+		encoded, err := json.Marshal(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertJSONEqual(t, original, encoded)
+	})
 }
