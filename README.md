@@ -109,7 +109,9 @@ by those records. With `icons`, item icon sprite sets are rendered to
 `assets/icons/` and indexed by `items.json`. No alternate `tanks.json`,
 `maps.json`, model catalog or raw source-document copies are produced. Consumers
 use the same schema for every selection; `included` declares the requested
-sections.
+sections. Every export records the client build in `game` (version, build,
+branch, platform), its time in `exportedAt` and the blitz-client version that
+wrote it in `exporterVersion`.
 
 `--include` defaults to `all`, or accepts a comma-separated selection of `data`,
 `icons`, `models`; the option may be repeated. `all` includes PBR model assets and

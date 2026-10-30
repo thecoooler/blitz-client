@@ -76,6 +76,9 @@ Snapshot = {
   format: "blitz-client",
   version: 1,
   included: ("data" | "icons" | "models")[],
+  game: Game,
+  exportedAt: string,     // UTC, RFC 3339, e.g. "2026-10-29T02:03:16Z"
+  exporterVersion: string | null, // blitz-client module version, see below
   nations: string[],
   tanks: Tank[],
   localization?: { ru: { [localizationKey: string]: string } },
@@ -99,6 +102,38 @@ order, then list.xml order. Map/object key order never determines component orde
 All media paths are relative to this directory and use `/` (a `./` prefix is valid).
 Media references contain no source-machine paths or timestamps. Diagnostic messages
 may mention source paths when conversion fails.
+
+## Game build and exporter
+
+`game` identifies the client the snapshot was read from. It is written for
+every `included` selection and comes from version.txt only:
+
+```text
+Game = {
+  versionText: string | null, // e.g. "26.10.70_533068 master MacOS"
+  version: string | null,     // "26.10.70"
+  build: string | null,       // "533068"; a string, not a number
+  branch: string | null,      // "master"
+  platform: string | null     // "MacOS"; the rest of the line, may contain spaces
+}
+```
+
+`versionText` is the first line of version.txt without surrounding whitespace.
+Its first token is split at the last `_` into `version` and `build` when the
+suffix is all digits; otherwise the whole token is `version` and `build` is
+null. Without version.txt every field is null. Like every resource, version.txt
+from the packs overlay wins over the installed one. Two exports of the same
+`version` and `build` can still differ when downloaded packs change; compare
+`exportedAt` as well.
+
+`exporterVersion` is the blitz-client module version of the program that
+wrote the export: a release tag such as `v1.2.0`, or a pseudo-version such as
+`v0.0.0-20261029201357-ed5695baa714` (commit time and hash) built from a
+checkout, with `+dirty` for uncommitted changes. It is null for `go run`,
+`go test`, builds outside a Git checkout and dependencies replaced by a local
+directory. A different exporter version can change `data.json` for the same
+game build. The typed readers decode `game`, `exportedAt` and
+`exporterVersion`; the schema tool does not infer XML scalar types for `game`.
 
 ## Tank schema and identity
 
