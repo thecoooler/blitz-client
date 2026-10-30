@@ -408,8 +408,20 @@ creation. It buffers any incomplete packet at a temporary end of file.
 `meta.json` and `battle_results.dat` were absent from the inspected live
 directory; the completed test replay ZIP contains both alongside `data.replay`.
 
-`replay.LiveReplayWatcher.Poll` also returns detached typed `Battle`, `Map`,
-`Vehicle`, `Result`, and `Counters` snapshots. `Battle.ArenaID` is the arena
+`replay.LiveReplayWatcher.Poll` also returns detached typed `Battle`, `Mode`, `Map`,
+`Vehicle`, `Result`, and `Counters` snapshots. `Roster.AuthorAccountID` identifies
+the replay author in the roster; every row retains the account ID, vehicle type
+descriptor, team number, nickname, optional clan tag and platoon number. Platoon
+numbers are team-local: only an equal positive number on the author's team
+identifies a platoon mate. Nil and zero do not indicate membership.
+
+`Mode` contains raw `battle_category_id` and `matchmaker_type` from the
+`BasePlayerCreate` arena context. It is nil when the context is unavailable;
+zero values remain known values. The bundled 26.10 replay has category 3 and
+matchmaker type 0. No human-readable mode mapping is inferred. Neither the
+unique arena ID nor the arena type is substituted for a mode identifier.
+
+`Battle.ArenaID` is the arena
 ID from the stream and is encoded as a decimal JSON string to avoid loss of
 64-bit precision. `Battle.ArenaTypeID` is the raw arena type; it is not a map
 name. `LoadMapCatalog` loads localized Russian names from the installed client

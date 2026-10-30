@@ -60,6 +60,14 @@ func TestLiveDetailsFixtureAndDetachedSnapshots(t *testing.T) {
 	if state.Kind != "battle" || state.Result != nil || state.Counters.Frags != nil {
 		t.Fatalf("premature result at EOF: %+v", state)
 	}
+	if state.Mode == nil || state.Mode.BattleCategoryID != 3 || state.Mode.MatchmakerType != 0 || state.Roster.AuthorAccountID == 0 {
+		t.Fatalf("missing arena context or author: %+v %+v", state.Mode, state.Roster)
+	}
+	for _, player := range state.Roster.Allies {
+		if player.Nickname == state.Roster.AuthorNickname && player.AccountID != state.Roster.AuthorAccountID {
+			t.Fatalf("author ID differs from roster: %+v", player)
+		}
+	}
 	idle, err := w.Poll()
 	if err != nil || idle.Result != nil || idle.Kind != "battle" {
 		t.Fatalf("idle EOF: %+v %v", idle, err)
@@ -126,12 +134,17 @@ func TestLiveDetailsFixtureAndDetachedSnapshots(t *testing.T) {
 	*state.Result.WinnerTeamNumber = 77
 	*state.Map.ID = 99
 	state.Battle.ArenaID = 1
+	state.Mode.BattleCategoryID = 255
+	state.Roster.AuthorAccountID = 1
 	again, err := w.Poll()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if *again.Counters.Damage == 1 || *again.Counters.Frags == 99 || *again.Result.WinnerTeamNumber == 77 || *again.Map.ID != 20 || again.Battle.ArenaID != 14044716647467574 {
 		t.Fatal("snapshot was not detached")
+	}
+	if again.Mode == nil || again.Mode.BattleCategoryID != 3 || again.Roster.AuthorAccountID == 1 {
+		t.Fatal("mode or author shares mutable snapshot state")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "replacement"), stream[:3], 0600); err != nil {
 		t.Fatal(err)
@@ -146,7 +159,7 @@ func TestLiveDetailsFixtureAndDetachedSnapshots(t *testing.T) {
 	if w.recording.metadata.entry != nil {
 		t.Fatal("metadata cache survived recording reset")
 	}
-	if reset.Battle != nil || reset.Map != nil || reset.Vehicle != nil || reset.Result != nil || reset.Counters.Damage != nil || reset.Counters.Frags != nil {
+	if reset.Battle != nil || reset.Mode != nil || reset.Map != nil || reset.Vehicle != nil || reset.Result != nil || reset.Counters.Damage != nil || reset.Counters.Frags != nil {
 		t.Fatalf("stale details after reset: %+v", reset)
 	}
 }

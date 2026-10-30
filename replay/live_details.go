@@ -7,6 +7,15 @@ type LiveBattleIdentity struct {
 	ArenaTypeID uint32 `json:"arena_type_id"`
 }
 
+// LiveBattleMode contains the raw matchmaking identifiers from arena context.
+// Zero is a valid value; a nil Mode means the context is unavailable. ArenaID
+// identifies one battle and ArenaTypeID describes the arena, not the game mode.
+// No human-readable mode mapping is inferred from these protocol values.
+type LiveBattleMode struct {
+	BattleCategoryID uint8 `json:"battle_category_id"`
+	MatchmakerType   uint8 `json:"matchmaker_type"`
+}
+
 // LiveBattleMap contains the numeric map ID and the internal map name from
 // matching replay metadata, when available. Name is an internal identifier;
 // DisplayName is a localized label from an explicitly loaded client catalog.
@@ -53,6 +62,10 @@ func (w *LiveReplayWatcher) enrichLiveState(state *LiveReplayState, r *liveRecor
 	p := &r.players
 	if p.hasArena {
 		state.Battle = &LiveBattleIdentity{ArenaID: p.arenaID, ArenaTypeID: p.arenaTypeID}
+		if p.mode != nil {
+			mode := *p.mode
+			state.Mode = &mode
+		}
 		state.Map = r.metadata.snapshot(r.path, p.arenaID)
 		if name, ok := w.mapCatalog[p.arenaTypeID]; ok && (state.Map == nil || state.Map.ID == nil || *state.Map.ID == p.arenaTypeID) {
 			if state.Map == nil {
