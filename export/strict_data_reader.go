@@ -16,6 +16,7 @@ type StrictDataSnapshot struct {
 	Included         []string                                              `json:"included"`
 	Game             Optional[SnapshotGame]                                `json:"game,omitzero"`
 	ExportedAt       Optional[string]                                      `json:"exportedAt,omitzero"`
+	ExporterVersion  Optional[string]                                      `json:"exporterVersion,omitzero"`
 	Nations          []string                                              `json:"nations"`
 	Tanks            []StrictDataTank                                      `json:"tanks"`
 	Localization     Optional[StrictLocalization]                          `json:"localization,omitzero"`
@@ -68,7 +69,7 @@ func requireFullyTypedData(s *PartialSnapshot) (*StrictDataSnapshot, error) {
 	if len(s.UnvalidatedSections) != 0 {
 		return nil, fmt.Errorf("unvalidated sections: %s", strings.Join(s.UnvalidatedSections, ", "))
 	}
-	out := &StrictDataSnapshot{Format: s.Format, Version: s.Version, Included: s.Included, Game: s.Game, ExportedAt: s.ExportedAt, Nations: s.Nations,
+	out := &StrictDataSnapshot{Format: s.Format, Version: s.Version, Included: s.Included, Game: s.Game, ExportedAt: s.ExportedAt, ExporterVersion: s.ExporterVersion, Nations: s.Nations,
 		Localization: s.Localization, Maps: s.Maps, Components: s.Components, Equipment: s.Equipment, Provisions: s.Provisions,
 		HangarParameters: s.HangarParameters, CrewSkills: s.CrewSkills, Issues: s.Issues, Tanks: make([]StrictDataTank, len(s.Tanks))}
 	if s.Settings.Null() {

@@ -1,18 +1,11 @@
 package export
 
 import (
-	"fmt"
-	"path"
-	"path/filepath"
-	"slices"
+	"runtime/debug"
 	"strings"
-
-	"go.yaml.in/yaml/v3"
 )
 
-// SnapshotGame identifies the client build a snapshot was read from. Every
-// source resource is optional: a missing one leaves its fields null or empty,
-// a malformed one fails the export like other configuration resources.
+// SnapshotGame identifies the client build a snapshot was read from.
 type SnapshotGame struct {
 	// VersionText is the first line of version.txt, for example
 	// "26.10.70_533068 master MacOS". Version, Build, Branch and Platform are
@@ -22,22 +15,11 @@ type SnapshotGame struct {
 	Build       *string `json:"build"`
 	Branch      *string `json:"branch"`
 	Platform    *string `json:"platform"`
-	// Realms are the distinct realm IDs of regions_publish.yaml, in source order.
-	Realms []string `json:"realms"`
-	// Languages come from languages.yaml, in source order.
-	Languages []string `json:"languages"`
-	// HangarPresets are the directories of 3d/Configs/Presets, sorted. Seasonal
-	// presets (for example hg_halloween_26) name the patch's hangar events.
-	HangarPresets []string `json:"hangarPresets"`
-	// CacheFiles counts the resources selected for this export that come from
-	// the downloaded packs overlay instead of the installed Data directory, so
-	// it depends on included. Zero means the export reflects the installed
-	// client only.
-	CacheFiles int `json:"cacheFiles"`
 }
 
+// extractGame reads version.txt; without it every field is null.
 func extractGame(r snapshotReader) (*SnapshotGame, error) {
-	g := &SnapshotGame{Realms: []string{}, Languages: []string{}, HangarPresets: []string{}}
+	g := &SnapshotGame{}
 	if r.has("version.txt") {
 		b, err := r.read("version.txt")
 		if err != nil {
@@ -45,39 +27,42 @@ func extractGame(r snapshotReader) (*SnapshotGame, error) {
 		}
 		parseVersionText(g, string(b))
 	}
-	if r.has("regions_publish.yaml") {
-		b, err := r.read("regions_publish.yaml")
-		if err != nil {
-			return nil, err
-		}
-		if g.Realms, err = publishRealms(b); err != nil {
-			return nil, fmt.Errorf("regions_publish.yaml: %w", err)
-		}
-	}
-	if r.has("languages.yaml") {
-		b, err := r.read("languages.yaml")
-		if err != nil {
-			return nil, err
-		}
-		if err := yaml.Unmarshal(b, &g.Languages); err != nil {
-			return nil, fmt.Errorf("languages.yaml: %w", err)
-		}
-		if g.Languages == nil {
-			g.Languages = []string{}
-		}
-	}
-	for rel, f := range r.files {
-		rel = filepath.ToSlash(rel)
-		if f.fromCache {
-			g.CacheFiles++
-		}
-		if name, ok := strings.CutPrefix(rel, "3d/Configs/Presets/"); ok && path.Base(name) == "presets.yaml" && path.Dir(name) != "." && !strings.Contains(path.Dir(name), "/") {
-			g.HangarPresets = append(g.HangarPresets, path.Dir(name))
-		}
-	}
-	slices.Sort(g.HangarPresets)
-	g.HangarPresets = slices.Compact(g.HangarPresets)
 	return g, nil
+}
+
+const modulePath = "github.com/thecoooler/blitz-client"
+
+// exporterVersion is the blitz-client module version of the running binary,
+// such as "v1.2.0" or a pseudo-version "v0.0.0-20261029201357-ed5695baa714"
+// (with "+dirty" for uncommitted changes). It is null when the build has no
+// version: go run, go test, a build outside a VCS checkout or a dependency
+// replaced by a local directory.
+func exporterVersion() *string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil
+	}
+	module := &info.Main
+	if module.Path != modulePath {
+		module = nil
+		for _, dep := range info.Deps {
+			if dep.Path == modulePath {
+				module = dep
+				break
+			}
+		}
+	}
+	if module == nil {
+		return nil
+	}
+	if module.Replace != nil {
+		// A local directory replacement has no version of its own.
+		module = module.Replace
+	}
+	if module.Version == "" || module.Version == "(devel)" {
+		return nil
+	}
+	return &module.Version
 }
 
 // parseVersionText splits "<version>_<build> <branch> <platform>". A first
@@ -105,33 +90,4 @@ func parseVersionText(g *SnapshotGame, text string) {
 		platform := strings.Join(fields[2:], " ")
 		g.Platform = &platform
 	}
-}
-
-func publishRealms(b []byte) ([]string, error) {
-	var doc struct {
-		Regions yaml.Node `yaml:"Regions"`
-	}
-	if err := yaml.Unmarshal(b, &doc); err != nil {
-		return nil, err
-	}
-	realms := []string{}
-	if doc.Regions.Kind == 0 {
-		return realms, nil
-	}
-	if doc.Regions.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("Regions must be a mapping")
-	}
-	// Mapping nodes keep source order; values alternate with keys.
-	for i := 1; i < len(doc.Regions.Content); i += 2 {
-		var region struct {
-			Realm string `yaml:"realm"`
-		}
-		if err := doc.Regions.Content[i].Decode(&region); err != nil {
-			return nil, fmt.Errorf("region %s: %w", doc.Regions.Content[i-1].Value, err)
-		}
-		if region.Realm != "" && !slices.Contains(realms, region.Realm) {
-			realms = append(realms, region.Realm)
-		}
-	}
-	return realms, nil
 }

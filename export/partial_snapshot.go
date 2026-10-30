@@ -22,6 +22,7 @@ type PartialSnapshot struct {
 	Included            []string                                              `json:"included"`
 	Game                Optional[SnapshotGame]                                `json:"game,omitzero"`
 	ExportedAt          Optional[string]                                      `json:"exportedAt,omitzero"`
+	ExporterVersion     Optional[string]                                      `json:"exporterVersion,omitzero"`
 	Nations             []string                                              `json:"nations"`
 	Tanks               []PartialSnapshotTank                                 `json:"tanks"`
 	Localization        Optional[StrictLocalization]                          `json:"localization,omitzero"`

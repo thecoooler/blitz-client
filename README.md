@@ -110,8 +110,8 @@ by those records. With `icons`, item icon sprite sets are rendered to
 `maps.json`, model catalog or raw source-document copies are produced. Consumers
 use the same schema for every selection; `included` declares the requested
 sections. Every export records the client build in `game` (version, build,
-branch, platform, realms, languages, hangar presets) and its time in
-`exportedAt`.
+branch, platform), its time in `exportedAt` and the blitz-client version that
+wrote it in `exporterVersion`.
 
 `--include` defaults to `all`, or accepts a comma-separated selection of `data`,
 `icons`, `models`; the option may be repeated. `all` includes PBR model assets and

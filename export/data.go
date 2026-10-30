@@ -19,14 +19,15 @@ import (
 
 // Snapshot is the one offline interchange format for data and media consumers.
 // Omitted sections were not requested; included empty sections have empty containers.
-// Game and ExportedAt (UTC, RFC 3339) are written for every selection; packs
-// can change data between exports of the same game version.
+// Game, ExportedAt (UTC, RFC 3339) and ExporterVersion are written for every
+// selection; packs can change data between exports of the same game version.
 type Snapshot struct {
 	Format            string                    `json:"format"`
 	Version           int                       `json:"version"`
 	Included          []string                  `json:"included"`
 	Game              *SnapshotGame             `json:"game,omitempty"`
 	ExportedAt        string                    `json:"exportedAt,omitempty"`
+	ExporterVersion   *string                   `json:"exporterVersion"`
 	Nations           []string                  `json:"nations"`
 	Tanks             []SnapshotTank            `json:"tanks"`
 	Localization      map[string]any            `json:"localization,omitempty"`
@@ -189,7 +190,8 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 	if err != nil {
 		return nil, err
 	}
-	s := &Snapshot{Format: "blitz-client", Version: 1, Included: included, Game: game, ExportedAt: time.Now().UTC().Format(time.RFC3339),
+	s := &Snapshot{Format: "blitz-client", Version: 1, Included: included, Game: game,
+		ExportedAt: time.Now().UTC().Format(time.RFC3339), ExporterVersion: exporterVersion(),
 		Nations: []string{}, Tanks: []SnapshotTank{}, Issues: []ExportIssue{}}
 	identities := map[string]bool{}
 	technicalNames := map[string]bool{}
