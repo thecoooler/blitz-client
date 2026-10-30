@@ -25,6 +25,7 @@ type LiveReplayState struct {
 	Damage      BattleDamage          `json:"damage"`
 	Diagnostics LiveReplayDiagnostics `json:"diagnostics"`
 	Battle      *LiveBattleIdentity   `json:"battle,omitempty"`
+	Mode        *LiveBattleMode       `json:"mode,omitempty"`
 	Map         *LiveBattleMap        `json:"map,omitempty"`
 	Vehicle     *LiveBattleVehicle    `json:"vehicle,omitempty"`
 	Result      *LiveBattleResult     `json:"result,omitempty"`
@@ -48,9 +49,10 @@ type LiveReplayDiagnostics struct {
 	CountersSupported bool     `json:"counters_supported"`
 }
 type BattleRoster struct {
-	AuthorNickname string        `json:"author_nickname"`
-	Allies         []ArenaPlayer `json:"allies"`
-	Enemies        []ArenaPlayer `json:"enemies"`
+	AuthorNickname  string        `json:"author_nickname"`
+	AuthorAccountID uint32        `json:"author_account_id"`
+	Allies          []ArenaPlayer `json:"allies"`
+	Enemies         []ArenaPlayer `json:"enemies"`
 }
 
 // Nil damage means unavailable, never zero.
@@ -93,6 +95,7 @@ type livePlayers struct {
 	author, version              string
 	arenaID                      uint64
 	arenaTypeID                  uint32
+	mode                         *LiveBattleMode
 	hasArena                     bool
 	players                      map[uint32]ArenaPlayer
 	pairs                        map[[2]uint32]uint64
@@ -126,6 +129,10 @@ func (p *livePlayers) event(e FollowEvent) error {
 		if packet.Payload.Kind == PayloadBasePlayerCreate {
 			p.author = packet.Payload.AuthorNickname
 			p.arenaID, p.arenaTypeID = packet.Payload.ArenaUniqueID, packet.Payload.ArenaTypeID
+			p.mode = nil
+			if args := packet.Payload.Arguments; args != nil {
+				p.mode = &LiveBattleMode{BattleCategoryID: args.BattleCategoryID, MatchmakerType: args.MatchmakerType}
+			}
 			p.hasArena = true
 		}
 		if method := packet.Payload.EntityMethod; method != nil && method.UpdateArena != nil && method.UpdateArena.Players != nil {
@@ -205,7 +212,7 @@ func (p *livePlayers) snapshot(fallback string) (*BattleRoster, BattleDamage) {
 	if own == nil {
 		return nil, BattleDamage{}
 	}
-	roster := &BattleRoster{AuthorNickname: author, Allies: []ArenaPlayer{}, Enemies: []ArenaPlayer{}}
+	roster := &BattleRoster{AuthorNickname: author, AuthorAccountID: own.AccountID, Allies: []ArenaPlayer{}, Enemies: []ArenaPlayer{}}
 	ids := make([]uint32, 0, len(p.players))
 	for id := range p.players {
 		ids = append(ids, id)

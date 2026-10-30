@@ -236,7 +236,9 @@ type ArenaPlayer struct {
 	TeamNumber      uint32  `json:"team_number"`
 	AccountID       uint32  `json:"account_id"`
 	ClanTag         *string `json:"clan_tag"`
-	PlatoonNumber   *uint32 `json:"platoon_number"`
+	// PlatoonNumber is local to a team. Only a positive equal number on the
+	// author's team identifies a platoon mate; nil and zero do not.
+	PlatoonNumber *uint32 `json:"platoon_number"`
 }
 
 func decodeUpdateArena(data []byte) (*UpdateArena, error) {
