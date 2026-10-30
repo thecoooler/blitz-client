@@ -27,7 +27,7 @@ type Snapshot struct {
 	Included          []string                  `json:"included"`
 	Game              *SnapshotGame             `json:"game,omitempty"`
 	ExportedAt        string                    `json:"exportedAt,omitempty"`
-	ExporterVersion   *string                   `json:"exporterVersion"`
+	ExporterVersion   Optional[string]          `json:"exporterVersion,omitzero"`
 	Nations           []string                  `json:"nations"`
 	Tanks             []SnapshotTank            `json:"tanks"`
 	Localization      map[string]any            `json:"localization,omitempty"`

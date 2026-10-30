@@ -36,11 +36,12 @@ const modulePath = "github.com/thecoooler/blitz-client"
 // such as "v1.2.0" or a pseudo-version "v0.0.0-20261029201357-ed5695baa714"
 // (with "+dirty" for uncommitted changes). It is null when the build has no
 // version: go run, go test, a build outside a VCS checkout or a dependency
-// replaced by a local directory.
-func exporterVersion() *string {
+// replaced by a local directory. It is never absent, so new exports always
+// carry the field.
+func exporterVersion() Optional[string] {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return nil
+		return NullValue[string]()
 	}
 	module := &info.Main
 	if module.Path != modulePath {
@@ -53,16 +54,16 @@ func exporterVersion() *string {
 		}
 	}
 	if module == nil {
-		return nil
+		return NullValue[string]()
 	}
 	if module.Replace != nil {
 		// A local directory replacement has no version of its own.
 		module = module.Replace
 	}
 	if module.Version == "" || module.Version == "(devel)" {
-		return nil
+		return NullValue[string]()
 	}
-	return &module.Version
+	return Some(module.Version)
 }
 
 // parseVersionText splits "<version>_<build> <branch> <platform>". A first

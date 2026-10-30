@@ -1,6 +1,9 @@
 package export
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -65,8 +68,8 @@ func TestGameSectionExport(t *testing.T) {
 		t.Fatalf("exportedAt %q: %v", s.ExportedAt, err)
 	}
 	// Test binaries carry no module version.
-	if s.ExporterVersion != nil {
-		t.Fatalf("exporterVersion: %q", *s.ExporterVersion)
+	if !s.ExporterVersion.Null() {
+		t.Fatalf("exporterVersion: %+v", s.ExporterVersion)
 	}
 	var root map[string]any
 	readDataJSON(t, o.OutputDir, "data.json", &root)
@@ -112,5 +115,32 @@ func TestGameSectionWithoutSources(t *testing.T) {
 	}
 	if !reflect.DeepEqual(s.Game, &SnapshotGame{}) {
 		t.Fatalf("game: %+v", s.Game)
+	}
+}
+
+// An export written before game metadata existed keeps its fields when read
+// and encoded again.
+func TestReadClientExportKeepsMissingGameFields(t *testing.T) {
+	dir := t.TempDir()
+	const doc = `{"format":"blitz-client","version":1,"included":["data"],"nations":[],"tanks":[],"issues":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "data.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := ReadClientExport(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"game", "exportedAt", "exporterVersion"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("re-encoded old export gained %q: %s", key, b)
+		}
 	}
 }
