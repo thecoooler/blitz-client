@@ -19,6 +19,8 @@ func TestWorldCatalogExport(t *testing.T) {
 	f.write("game/Data/Gfx/Lobby/backgrounds/premium/maps/atlas.png", pngBytes(t, 2, 2, func(x, y int) color.NRGBA { return color.NRGBA{R: 1, A: 255} }))
 	f.write("packs/Gfx/Lobby/backgrounds/premium/maps/atlas.png", pngBytes(t, 2, 2, func(x, y int) color.NRGBA { return color.NRGBA{R: 200, A: 255} }))
 	f.write("game/Data/Gfx/Lobby/icons/tank-mechanics/test/icon.png", pngBytes(t, 1, 1, atlasPixel))
+	f.write("game/Data/Gfx/Battle/HUD/aim/twin-guns/gun-selector.png", pngBytes(t, 1, 1, atlasPixel))
+	f.write("game/Data/Gfx/Battle/HUD/aim/ordinary.png", pngBytes(t, 1, 1, atlasPixel))
 	f.write("game/Data/Gfx/Lobby/icons/tank-mechanics/test/broken.txt", "1\nmissing.png\n1 1\n1\n0 0 1 1 0 0 0\n")
 	if _, err := ExportClient(o); err != nil {
 		t.Fatal(err)
@@ -38,7 +40,7 @@ func TestWorldCatalogExport(t *testing.T) {
 	if w.Mechanics[0].ID != "Test" || len(w.Mechanics[0].Tanks) != 2 || w.Mechanics[0].DescriptionKey != "TankMechanics/TestDescription" || len(w.Mechanics[1].Tanks) != 0 {
 		t.Fatalf("mechanics: %+v", w.Mechanics)
 	}
-	if len(w.MechanicsMedia) != 1 || len(w.MediaIssues) != 1 || !strings.Contains(w.MediaIssues[0].Message, "missing sprite atlas") {
+	if len(w.MechanicsMedia) != 2 || len(w.MediaIssues) != 1 || !strings.Contains(w.MediaIssues[0].Message, "missing sprite atlas") {
 		t.Fatalf("media: %+v %+v", w.MechanicsMedia, w.MediaIssues)
 	}
 	file, err := os.Open(filepath.Join(o.OutputDir, filepath.FromSlash(m.Images[0].File)))

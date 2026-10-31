@@ -358,7 +358,9 @@ the exporter does not guess these mappings or invent effects or statistics.
 With both `data` and `icons`, `world.maps[].images` contains available previews
 from `Gfx/Lobby/backgrounds/premium/maps/` whose resource names match the map
 key or its `_mini` variant. `world.mechanicsMedia` contains available artwork
-from `Gfx/Lobby/icons/tank-mechanics/` with original relative source paths. The
+from `Gfx/Lobby/icons/tank-mechanics/`, plus mechanic-specific battle HUD
+assets under `Gfx/Battle/HUD/aim/`, with original relative source paths. HUD
+assets are interface elements and need not be standalone illustrations. The
 client's mapping from mechanic IDs to images is not contained in these resource
 files, so these images are not automatically assigned to individual mechanics.
 Sprite frames are rendered as PNG under `assets/world/`, with each record's

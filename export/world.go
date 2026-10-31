@@ -125,13 +125,14 @@ func buildWorldCatalog(s *Snapshot) *WorldCatalog {
 
 // exportWorldMedia renders installed map previews and mechanics artwork. Files
 // from the packs overlay are resolved independently for descriptors and atlases.
+// Battle HUD assets are visual elements of mechanics, not their lobby icons.
 func exportWorldMedia(c *WorldCatalog, files map[string]sourceFile, out string) error {
 	const mapDir = "Gfx/Lobby/backgrounds/premium/maps/"
 	const mechanicDir = "Gfx/Lobby/icons/tank-mechanics/"
 	candidates := map[string]string{}
 	for name := range files {
 		rel := filepath.ToSlash(name)
-		if !strings.HasPrefix(rel, mapDir) && !strings.HasPrefix(rel, mechanicDir) {
+		if !strings.HasPrefix(rel, mapDir) && !strings.HasPrefix(rel, mechanicDir) && !mechanicsHUDResource(rel) {
 			continue
 		}
 		stem, _, ok := iconFileStem(rel)
@@ -198,6 +199,23 @@ func exportWorldMedia(c *WorldCatalog, files map[string]sourceFile, out string) 
 		}
 	}
 	return nil
+}
+
+// Mechanics-specific HUD paths are referenced by the corresponding battle UI.
+// The shared sight and the Polish consumable UI are deliberately excluded.
+func mechanicsHUDResource(rel string) bool {
+	const aim = "Gfx/Battle/HUD/aim/"
+	for _, dir := range []string{"ShotDispersionStabilizator/", "twin-guns/", "gun-cooling/", "atgm/", "missile/"} {
+		if strings.HasPrefix(rel, aim+dir) {
+			return true
+		}
+	}
+	stem, _, ok := iconFileStem(rel)
+	if !ok {
+		return false
+	}
+	stem = strings.TrimSuffix(stem, "@2x")
+	return stem == aim+"PumpDrum" || stem == aim+"PumpDrumRecharge"
 }
 
 func renderWorldResource(files map[string]sourceFile, rel, out string) ([]WorldMedia, error) {
