@@ -26,6 +26,7 @@ type PartialSnapshot struct {
 	Nations             []string                                              `json:"nations"`
 	Tanks               []PartialSnapshotTank                                 `json:"tanks"`
 	Localization        Optional[StrictLocalization]                          `json:"localization,omitzero"`
+	World               Optional[StrictWorldCatalog]                          `json:"world,omitzero"`
 	Maps                Optional[StrictMaps]                                  `json:"maps,omitzero"`
 	Components          Optional[map[string]Optional[StrictNationComponents]] `json:"components,omitzero"`
 	Equipment           Optional[StrictEquipment]                             `json:"equipment,omitzero"`

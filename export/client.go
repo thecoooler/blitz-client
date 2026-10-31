@@ -160,6 +160,15 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	if err != nil {
 		return nil, err
 	}
+	if slices.Contains(included, "data") {
+		world := buildWorldCatalog(snapshot)
+		if slices.Contains(included, "icons") {
+			if err := exportWorldMedia(world, files, out); err != nil {
+				return nil, err
+			}
+		}
+		snapshot.World = world
+	}
 	var iconReport *IconExportReport
 	var itemsFile string
 	var missingItemIcons []string

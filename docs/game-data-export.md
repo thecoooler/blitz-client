@@ -83,6 +83,7 @@ Snapshot = {
   tanks: Tank[],
   localization?: { ru: { [localizationKey: string]: string } },
   maps?: Object,
+  world?: WorldCatalog,     // index of maps, mechanics and available media
   components?: { [nation: string]: { [kind: string]: XMLValue } },
   equipment?: { devices: XMLValue, slots: XMLValue },
   provisions?: { [mode: string]: XMLValue },
@@ -337,14 +338,47 @@ maximum levels and XP prices are not specified in avatar.xml. Account-specific
 availability, server feature switches and missing training prerequisites are not
 inferred. Invalid server caches fail the export and remove partial output.
 
+## Maps and tank mechanics
+
+With `data`, `world.maps` indexes every key in `maps.maps`, sorted by key.
+Each entry has `key` and, when present in `localization.ru`, `nameKey`,
+`descriptionKey` and `tacticsKey`. Resolve these keys in `localization.ru` and
+look up the complete source record in `maps.maps[key]`; no map properties are
+inferred. A missing localization key is omitted.
+
+`world.mechanics` contains IDs found in tank parameter `mechanics` and titled
+`TankMechanics/` localization entries, sorted by ID. `tanks` contains canonical
+vehicle IDs in tank order; an empty array means no exported vehicle references
+the mechanic. `nameKey` and `descriptionKey` are present only for exact source
+localization matches. The original tank parameters, configurations, shared gun
+and other component data remain authoritative for mechanic-specific values.
+The client may map some mechanic IDs to different localization keys internally;
+the exporter does not guess these mappings or invent effects or statistics.
+
+With both `data` and `icons`, `world.maps[].images` contains available previews
+from `Gfx/Lobby/backgrounds/premium/maps/` whose resource names match the map
+key or its `_mini` variant. `world.mechanicsMedia` contains available artwork
+from `Gfx/Lobby/icons/tank-mechanics/` with original relative source paths. The
+client's mapping from mechanic IDs to images is not contained in these resource
+files, so these images are not automatically assigned to individual mechanics.
+Sprite frames are rendered as PNG under `assets/world/`, with each record's
+`source`, `frame`, and export-relative `file`. Data and packs are overlaid for
+both sprite descriptors and their atlases. Invalid or incomplete optional media
+is recorded in `world.mediaIssues`; missing image directories yield empty lists.
+These directories do not cover every possible in-game map image or minimap.
+
+The provided config-only extraction can produce the catalog with `--include data`,
+but it does not contain image pixels. To export images, use the installed client
+Data directory and its downloaded packs. Actual client resources and internal
+mappings determine which media and localized descriptions are available.
+
 ## Media, resources and consumers
 
 Icon sources come from parameters.resourcesPath.bigIconPath/smallIconPath.
 `~res:/` addresses the merged resource tree. Candidate order: exact path,
 `.packed.webp`, `@2x.packed.webp`, `.webp`, `.png`. DVPL is decoded; images are not
 transcoded/resized and retain their real extension. Icons never select models,
-collision meshes, textures or photos. Map atlas cropping/preview images are outside
-v1. Missing icons are null plus an issue when icons were requested.
+collision meshes, textures or photos. Map preview sprites are described above; other map atlases are not exported. Missing icons are null plus an issue when icons were requested.
 
 The same `icons` section renders item icons as PNG into `assets/icons/<set>`:
 `shells`, `consumables`, `provisions`, `equipment` and `crew-skills`. Sprite

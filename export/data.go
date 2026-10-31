@@ -32,6 +32,7 @@ type Snapshot struct {
 	Tanks             []SnapshotTank            `json:"tanks"`
 	Localization      map[string]any            `json:"localization,omitempty"`
 	Maps              any                       `json:"maps,omitempty"`
+	World             *WorldCatalog             `json:"world,omitempty"`
 	Components        map[string]map[string]any `json:"components,omitempty"`
 	Equipment         any                       `json:"equipment,omitempty"`
 	Provisions        map[string]any            `json:"provisions,omitempty"`
