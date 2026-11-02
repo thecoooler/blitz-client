@@ -26,15 +26,22 @@ import (
 // iconSet is one output folder of icons collected from client directories.
 // Every sprite descriptor and standalone image in a source directory becomes
 // an icon named after its file; atlases referenced by descriptors do not.
-// Prefixes optionally restrict the icon IDs taken from the sources.
+// Prefixes optionally restrict the icon IDs taken from the sources, while
+// excludes drop matching IDs or prefixes.
 type iconSet struct {
 	id       string
 	sources  []string
 	prefixes []string
+	excludes []string
 }
 
 // includes reports whether an icon ID belongs to this set.
 func (s iconSet) includes(id string) bool {
+	for _, exclude := range s.excludes {
+		if strings.HasPrefix(id, exclude) {
+			return false
+		}
+	}
 	if len(s.prefixes) == 0 {
 		return true
 	}
@@ -49,18 +56,19 @@ func (s iconSet) includes(id string) bool {
 // iconSets lists the exported groups. Event-specific folders are not included.
 // The class icons are spread over three client directories and share a prefix
 // that excludes the tier numbers and other lobby icons stored beside them.
+// The unused SPG icons from the legacy PC engine are explicitly excluded.
 var iconSets = []iconSet{
-	{"shells", []string{"Gfx/Shared/tank-supply/ammunition/big"}, nil},
-	{"consumables", []string{"Gfx/UI/InventoryIcons/Big/Consumables"}, nil},
-	{"provisions", []string{"Gfx/UI/InventoryIcons/Big/Provisions"}, nil},
-	{"equipment", []string{"Gfx/UI/InventoryIcons/Big/OptionalDevices", "Gfx/Lobby/tank-supply/optional-devices"}, nil},
-	{"crew-skills", []string{"Gfx/UI/CrewSkillIcons"}, nil},
-	{"flags", []string{"Gfx/Lobby/flags"}, nil},
+	{"shells", []string{"Gfx/Shared/tank-supply/ammunition/big"}, nil, nil},
+	{"consumables", []string{"Gfx/UI/InventoryIcons/Big/Consumables"}, nil, nil},
+	{"provisions", []string{"Gfx/UI/InventoryIcons/Big/Provisions"}, nil, nil},
+	{"equipment", []string{"Gfx/UI/InventoryIcons/Big/OptionalDevices", "Gfx/Lobby/tank-supply/optional-devices"}, nil, nil},
+	{"crew-skills", []string{"Gfx/UI/CrewSkillIcons"}, nil, nil},
+	{"flags", []string{"Gfx/Lobby/flags"}, nil, nil},
 	{"tank-classes", []string{
 		"Gfx/Lobby/icons",
 		"Gfx/Lobby/icons/tank-tiers",
 		"Gfx/Lobby/icons/tank-tiers/common",
-	}, []string{"icon_tank-class_", "heavy-tank_xl", "light-tank_xl", "middle-tank_xl", "pt-tank_xl"}},
+	}, []string{"icon_tank-class_", "heavy-tank_xl", "light-tank_xl", "middle-tank_xl", "pt-tank_xl"}, []string{"icon_tank-class_spg"}},
 }
 
 // existingIconSets drops source directories missing from the client and sets
@@ -75,7 +83,7 @@ func existingIconSets(resourceDir string, sets []iconSet) []iconSet {
 			}
 		}
 		if len(sources) > 0 {
-			out = append(out, iconSet{id: set.id, sources: sources, prefixes: set.prefixes})
+			out = append(out, iconSet{id: set.id, sources: sources, prefixes: set.prefixes, excludes: set.excludes})
 		}
 	}
 	return out

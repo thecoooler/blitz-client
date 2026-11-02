@@ -113,6 +113,7 @@ func fullDataFixture(t *testing.T) (*filesFixture, ClientExportOptions) {
 		`.equipment_item.kit #icon { bg-sprite: "~res:/Gfx/UI/InventoryIcons/Big/Consumables/kit.txt"; }`)
 	f.write("game/Data/Gfx/Lobby/flags/flag_carousel_ussr.png", pngBytes(t, 2, 2, atlasPixel))
 	f.write("game/Data/Gfx/Lobby/icons/icon_tank-class_heavy.png", pngBytes(t, 2, 2, atlasPixel))
+	f.write("game/Data/Gfx/Lobby/icons/icon_tank-class_spg.png", pngBytes(t, 2, 2, atlasPixel))
 	f.write("game/Data/Gfx/Lobby/icons/icon_level_1_pack.png", pngBytes(t, 2, 2, atlasPixel))
 	f.write("game/Data/Gfx/Lobby/icons/tank-tiers/common/heavy-tank_xl.png", pngBytes(t, 2, 2, atlasPixel))
 	f.write(common+"optional_devices.xml", `<root><nextAvailableId>2</nextAvailableId><Rammer><script><reloadFactor>0.9</reloadFactor></script></Rammer></root>`)
@@ -235,6 +236,9 @@ func TestUnifiedExport(t *testing.T) {
 	}
 	if exists(filepath.Join(o.OutputDir, "assets/icons/tank-classes/icon_level_1_pack.png")) {
 		t.Fatal("big-prefix filter did not exclude tier icons")
+	}
+	if exists(filepath.Join(o.OutputDir, "assets/icons/tank-classes/icon_tank-class_spg.png")) {
+		t.Fatal("spg icon was not excluded from tank-classes")
 	}
 	if _, err := ExportClient(o); err == nil {
 		t.Fatal("nonempty output accepted")
