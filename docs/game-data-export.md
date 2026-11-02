@@ -367,7 +367,9 @@ Two more sets are exported unconditionally when the directories exist:
   `Gfx/Lobby/icons/tank-tiers`, plus the `heavy-tank_xl`, `light-tank_xl`,
   `middle-tank_xl` and `pt-tank_xl` icons from
   `Gfx/Lobby/icons/tank-tiers/common`. Prefix filters keep tier numbers and
-  other lobby icons stored beside them out of the set.
+  other lobby icons stored beside them out of the set, and unused SPG
+  artifacts (`icon_tank-class_spg`) are excluded because Blitz does not
+  include artillery.
 
 A sprite with several frames exports its first frame under the icon ID and the
 remaining frames as `<id>-frame1`, `<id>-frame2` … so color and state variants

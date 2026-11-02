@@ -44,7 +44,7 @@ func iconFixture(t *testing.T) (*filesFixture, []iconSet) {
 	f.write("game/Data/Gfx/A/notes.yaml", "ignored")
 	f.write("game/Data/Gfx/B1/.keep", "")
 	f.write("game/Data/Gfx/B2/plain@2x.png", pngBytes(t, 3, 2, func(int, int) color.NRGBA { return color.NRGBA{1, 2, 3, 128} }))
-	return f, []iconSet{{"a", []string{"Gfx/A"}, nil}, {"b", []string{"Gfx/B1", "Gfx/B2"}, nil}}
+	return f, []iconSet{{"a", []string{"Gfx/A"}, nil, nil}, {"b", []string{"Gfx/B1", "Gfx/B2"}, nil, nil}}
 }
 
 func readCatalog(t *testing.T, path string) IconCatalog {
@@ -136,7 +136,7 @@ func TestIconSetPrefixesFilterSourcesButNotReferences(t *testing.T) {
 	}
 	output := f.path("output")
 	report, index, err := exportIcons(f.path("game/Data"), output,
-		[]iconSet{{"a", []string{"Gfx/A"}, []string{"keep-"}}},
+		[]iconSet{{"a", []string{"Gfx/A"}, []string{"keep-"}, nil}},
 		map[string][]string{"a": {"Gfx/A/drop.png"}})
 	if err != nil {
 		t.Fatal(err)
@@ -151,12 +151,37 @@ func TestIconSetPrefixesFilterSourcesButNotReferences(t *testing.T) {
 	}
 }
 
+func TestIconSetExcludesFilterMatchingSources(t *testing.T) {
+	f := newFilesFixture(t)
+	for _, name := range []string{"icon_tank-class_heavy", "icon_tank-class_light", "icon_tank-class_spg"} {
+		f.write("game/Data/Gfx/A/"+name+".png", pngBytes(t, 2, 2, atlasPixel))
+	}
+	output := f.path("output")
+	report, _, err := exportIcons(f.path("game/Data"), output,
+		[]iconSet{{"a", []string{"Gfx/A"}, []string{"icon_tank-class_"}, []string{"icon_tank-class_spg"}}},
+		nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.IconCount != 2 {
+		t.Fatalf("wrong filtered count: %+v", report)
+	}
+	for _, name := range []string{"icon_tank-class_heavy", "icon_tank-class_light"} {
+		if !exists(filepath.Join(output, "assets/icons/a", name+".png")) {
+			t.Fatalf("%s missing", name)
+		}
+	}
+	if exists(filepath.Join(output, "assets/icons/a/icon_tank-class_spg.png")) {
+		t.Fatal("icon_tank-class_spg should have been excluded")
+	}
+}
+
 func TestIconSpritesExportExtraFramesAsVariants(t *testing.T) {
 	f := newFilesFixture(t)
 	f.write("game/Data/Gfx/A/texture.png", pngBytes(t, 2, 2, atlasPixel))
 	f.write("game/Data/Gfx/A/states.txt", "1\ntexture.png\n2 2\n2\n0 0 1 1 0 0 0 frame0\n1 0 1 1 0 0 0 frame1\n")
 	output := f.path("output")
-	report, _, err := exportIcons(f.path("game/Data"), output, []iconSet{{"a", []string{"Gfx/A"}, nil}}, nil)
+	report, _, err := exportIcons(f.path("game/Data"), output, []iconSet{{"a", []string{"Gfx/A"}, nil, nil}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +230,7 @@ func TestIconExportRejectsDuplicatesAndMissingSources(t *testing.T) {
 	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), sets, nil); errorCode(err) != "ICON_EXPORT_DUPLICATE" {
 		t.Fatalf("expected ICON_EXPORT_DUPLICATE, got %v", err)
 	}
-	missing := []iconSet{{"missing", []string{"Gfx/Missing"}, nil}}
+	missing := []iconSet{{"missing", []string{"Gfx/Missing"}, nil, nil}}
 	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), missing, nil); errorCode(err) != "IO_ERROR" {
 		t.Fatalf("expected IO_ERROR, got %v", err)
 	}
@@ -252,7 +277,7 @@ func TestPackedImagesAndItemReferencesJoinIconSets(t *testing.T) {
 		"packed": "Gfx/Other/packed.psd", "red": "Gfx/A/red.txt",
 		"gone": "Gfx/Other/gone", "elsewhere": "Gfx/Nowhere/icon.txt",
 	}, client.ItemShells: {"ap": "Gfx/A/red"}, client.ItemCrewSkills: {"sniper": "Gfx/A/red.txt"}}
-	sets := []iconSet{{"shells", nil, nil}, {"consumables", []string{"Gfx/A"}, nil}, {"crew-skills", nil, nil}}
+	sets := []iconSet{{"shells", nil, nil, nil}, {"consumables", []string{"Gfx/A"}, nil, nil}, {"crew-skills", nil, nil, nil}}
 	output := f.path("output")
 	report, index, err := exportIcons(f.path("game/Data"), output, sets, itemIconReferences(items, sprites))
 	if err != nil {
@@ -367,7 +392,7 @@ func TestIconReferencesStayInsideResources(t *testing.T) {
 		t.Run(reference, func(t *testing.T) {
 			f, _ := iconFixture(t)
 			f.write("game/private/photo.png", pngBytes(t, 1, 1, atlasPixel))
-			_, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", nil, nil}}, map[string][]string{"a": {reference}})
+			_, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", nil, nil, nil}}, map[string][]string{"a": {reference}})
 			if errorCode(err) != "ICON_EXPORT_INVALID" {
 				t.Fatalf("expected ICON_EXPORT_INVALID, got %v", err)
 			}
@@ -389,11 +414,11 @@ func TestIconResourcesRejectSymlinkReferencesAndAtlases(t *testing.T) {
 			if err := os.Symlink(filepath.Dir(photo), f.path("game/Data/Gfx/Private")); err != nil {
 				t.Skipf("symlinks unavailable: %v", err)
 			}
-			sets := []iconSet{{"a", nil, nil}}
+			sets := []iconSet{{"a", nil, nil, nil}}
 			references := map[string][]string{"a": {"Gfx/Private/photo.png"}}
 			if atlas {
 				f.write("game/Data/Gfx/Safe/icon.txt", "1\n../Private/photo.png\n1 1\n1\n0 0 1 1 0 0 0\n")
-				sets = []iconSet{{"a", []string{"Gfx/Safe"}, nil}}
+				sets = []iconSet{{"a", []string{"Gfx/Safe"}, nil, nil}}
 				references = nil
 			}
 			if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), sets, references); errorCode(err) != "ICON_EXPORT_INVALID" {
@@ -409,7 +434,7 @@ func TestIconAtlasTraversalIsRejected(t *testing.T) {
 			f := newFilesFixture(t)
 			f.write("game/private/photo.png", pngBytes(t, 1, 1, atlasPixel))
 			f.write("game/Data/Gfx/A/icon.txt", "1\n"+texture+"\n1 1\n1\n0 0 1 1 0 0 0\n")
-			if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil}}, nil); errorCode(err) != "ICON_EXPORT_INVALID" {
+			if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil, nil}}, nil); errorCode(err) != "ICON_EXPORT_INVALID" {
 				t.Fatalf("expected ICON_EXPORT_INVALID, got %v", err)
 			}
 		})
@@ -423,7 +448,7 @@ func TestIconExportRejectsImageFormatCollisions(t *testing.T) {
 			f.write("game/Data/Gfx/A/foo.png", pngBytes(t, 1, 1, atlasPixel))
 			// Image formats are detected by their contents, not their suffix.
 			f.write("game/Data/Gfx/A/"+second, pngBytes(t, 1, 1, atlasPixel))
-			if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil}}, nil); errorCode(err) != "ICON_EXPORT_DUPLICATE" {
+			if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil, nil}}, nil); errorCode(err) != "ICON_EXPORT_DUPLICATE" {
 				t.Fatalf("expected ICON_EXPORT_DUPLICATE, got %v", err)
 			}
 		})
@@ -438,7 +463,7 @@ func TestAtlasExclusionUsesFullPathsAcrossSets(t *testing.T) {
 			f.write("game/Data/Gfx/A/shared.png", pngBytes(t, 1, 1, atlasPixel))
 			f.write("game/Data/Gfx/B/shared.png", pngBytes(t, 1, 1, atlasPixel))
 			f.write("game/Data/Gfx/B/shared@2x.png", pngBytes(t, 2, 2, atlasPixel))
-			sets := []iconSet{{"a", []string{"Gfx/A"}, nil}, {"b", []string{"Gfx/B"}, nil}}
+			sets := []iconSet{{"a", []string{"Gfx/A"}, nil, nil}, {"b", []string{"Gfx/B"}, nil, nil}}
 			if reversed {
 				slices.Reverse(sets)
 			}
@@ -459,7 +484,7 @@ func TestDescriptorCanUseAnImageWithTheSameID(t *testing.T) {
 	f := newFilesFixture(t)
 	f.write("game/Data/Gfx/A/icon.txt", "1\nicon.png\n2 2\n1\n0 0 1 1 1 1 0\n")
 	f.write("game/Data/Gfx/A/icon.png", pngBytes(t, 1, 1, atlasPixel))
-	report, index, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil}}, map[string][]string{"a": {"Gfx/A/icon.txt"}})
+	report, index, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil, nil}}, map[string][]string{"a": {"Gfx/A/icon.txt"}})
 	if err != nil || report.IconCount != 1 || index["a"]["Gfx/A/icon.txt"] != "a/icon.png" {
 		t.Fatalf("unexpected report/index/error: %+v, %v, %v", report, index, err)
 	}
@@ -473,7 +498,7 @@ func TestAtlasExclusionPreservesOtherImageFormats(t *testing.T) {
 	f.write("game/Data/Gfx/A/button.txt", "1\nshared.png\n1 1\n1\n0 0 1 1 0 0 0\n")
 	f.write("game/Data/Gfx/A/shared.png", pngBytes(t, 1, 1, atlasPixel))
 	f.write("game/Data/Gfx/A/shared.webp", pngBytes(t, 2, 2, atlasPixel))
-	report, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil}}, nil)
+	report, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil, nil}}, nil)
 	if err != nil || report.IconCount != 2 {
 		t.Fatalf("unexpected report/error: %+v, %v", report, err)
 	}
@@ -486,7 +511,7 @@ func TestIconExportRejectsOverflowingAtlasCoordinates(t *testing.T) {
 	f := newFilesFixture(t)
 	f.write("game/Data/Gfx/A/icon.txt", fmt.Sprintf("1\natlas.png\n1 1\n1\n%d 0 1 1 0 0 0\n", int(^uint(0)>>1)))
 	f.write("game/Data/Gfx/A/atlas.png", pngBytes(t, 1, 1, atlasPixel))
-	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil}}, nil); errorCode(err) != "ICON_EXPORT_INVALID" {
+	if _, _, err := exportIcons(f.path("game/Data"), f.path("output"), []iconSet{{"a", []string{"Gfx/A"}, nil, nil}}, nil); errorCode(err) != "ICON_EXPORT_INVALID" {
 		t.Fatalf("expected ICON_EXPORT_INVALID, got %v", err)
 	}
 }
