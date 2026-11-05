@@ -76,9 +76,8 @@ func filesResolver(files map[string]sourceFile) assetResolver {
 }
 
 // exportOne converts one tank. tank.ModelFiles hold logical client paths.
-// convertedTextures carries the first produced file per source texture across
-// tanks; repeated sources are linked instead of converted again.
-func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string, options *TankExportOptions, convertedTextures map[string]string) (*SnapshotModel, error) {
+// convertedTextures deduplicates shared source textures across all tanks.
+func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string, options *TankExportOptions, convertedTextures *textureDeduper) (*SnapshotModel, error) {
 	bundle := filepath.Join(outputRoot, tank.Nation, tank.ID)
 	if err := os.MkdirAll(bundle, 0o777); err != nil {
 		return nil, blitz.IOError("could not create model bundle", bundle, err)
@@ -153,15 +152,18 @@ func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string
 			}
 			continue
 		}
-		// Many vehicles share track, wheel and turret textures; the cache maps
+		// Many vehicles share track, wheel and turret textures; the deduper maps
 		// each source+role to its first converted file for the whole run.
 		cacheKey := texture.source + "\x00" + texture.role
-		if first, ok := convertedTextures[cacheKey]; ok {
+		if first, ok, waitErr := convertedTextures.wait(cacheKey); waitErr != nil {
+			return nil, waitErr
+		} else if ok {
 			if err := linkTexture(first, target); err != nil {
 				return nil, err
 			}
 			continue
 		}
+		var convertErr error
 		// Material paths are relative to the scene; the resolver also finds
 		// unpacked cache files that override packed game resources.
 		source := resolve(path.Join(modelDirectory, filepath.ToSlash(texture.source)))
@@ -174,20 +176,18 @@ func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string
 				return nil, blitz.IOError("could not create temporary directory", os.TempDir(), err)
 			}
 			placeholder := filepath.Join(temp, "placeholder.png")
-			err = writeFallbackPNG(placeholder, texture.role)
-			if err == nil {
-				err = convertTexture(placeholder, target, options.MaxTextureSize, options.TextureFormat, options.WebPQuality, texture.lossless)
+			convertErr = writeFallbackPNG(placeholder, texture.role)
+			if convertErr == nil {
+				convertErr = convertTexture(placeholder, target, options.MaxTextureSize, options.TextureFormat, options.WebPQuality, texture.lossless)
 			}
 			os.RemoveAll(temp)
-			if err != nil {
-				return nil, err
-			}
 		} else {
-			if err := convertTexture(source, target, options.MaxTextureSize, options.TextureFormat, options.WebPQuality, texture.lossless); err != nil {
-				return nil, err
-			}
+			convertErr = convertTexture(source, target, options.MaxTextureSize, options.TextureFormat, options.WebPQuality, texture.lossless)
 		}
-		convertedTextures[cacheKey] = target
+		convertedTextures.store(cacheKey, target, convertErr)
+		if convertErr != nil {
+			return nil, convertErr
+		}
 	}
 
 	bundleURL := fmt.Sprintf("./assets/tanks/%s/%s/", tank.Nation, tank.ID)
@@ -354,6 +354,48 @@ func convertTexture(source, destination string, maxSize *TextureSize, format str
 		return fmt.Errorf("cwebp failed to encode %s: %s", source, strings.TrimSpace(lossy.String(stderr)))
 	}
 	return nil
+}
+
+// textureDeduper maps each source texture+role to its first conversion across
+// all parallel tank workers. Concurrent callers converting the same source:
+// the first one converts, the rest wait and link the finished file.
+type textureDeduper struct {
+	mu      sync.Mutex
+	entries map[string]*textureConversion
+}
+
+type textureConversion struct {
+	done chan struct{}
+	path string
+	err  error
+}
+
+func newTextureDeduper() *textureDeduper {
+	return &textureDeduper{entries: map[string]*textureConversion{}}
+}
+
+// wait reports a finished conversion for the key. ok is false when the caller
+// became the converter and must call store.
+func (d *textureDeduper) wait(key string) (path string, ok bool, err error) {
+	d.mu.Lock()
+	entry, found := d.entries[key]
+	if !found {
+		d.entries[key] = &textureConversion{done: make(chan struct{})}
+		d.mu.Unlock()
+		return "", false, nil
+	}
+	d.mu.Unlock()
+	<-entry.done
+	return entry.path, true, entry.err
+}
+
+// store completes the conversion registered by wait for the converting caller.
+func (d *textureDeduper) store(key, path string, err error) {
+	d.mu.Lock()
+	entry := d.entries[key]
+	d.mu.Unlock()
+	entry.path, entry.err = path, err
+	close(entry.done)
 }
 
 // linkTexture places the previously converted texture at target. A hard link

@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	blitz "github.com/thecoooler/blitz-client"
 	"github.com/thecoooler/blitz-client/client"
@@ -223,14 +226,18 @@ func exportItemIcons(resourceDir, out string) (*IconExportReport, string, []stri
 
 // exportModels attaches converted showroom models. Per-tank failures become
 // issues; failures that affect every tank, or a run where no model converts, fail.
+// Tanks convert in parallel; results, issues and the chosen error are assembled
+// in tank order, so the snapshot matches a sequential run.
 func exportModels(snapshot *Snapshot, resolve assetResolver, outputRoot string, options *TankExportOptions) error {
 	folders := map[string]string{}
 	for _, nation := range client.Nations() {
 		folders[nation.ID] = nation.ModelFolder
 	}
-	convertedTextures := map[string]string{}
-	attempted, exported := 0, 0
-	var first error
+	type conversion struct {
+		index int
+		model client.ClientTank
+	}
+	var conversions []conversion
 	for i := range snapshot.Tanks {
 		tank := &snapshot.Tanks[i]
 		folder := folders[tank.Nation]
@@ -239,26 +246,78 @@ func exportModels(snapshot *Snapshot, resolve assetResolver, outputRoot string, 
 			snapshot.Issues = append(snapshot.Issues, ExportIssue{Tank: tank.ID, Section: "models", Message: "showroom model is not installed"})
 			continue
 		}
-		model := client.ClientTank{ID: tank.TechName, Nation: tank.Nation, Name: tank.TechName, ModelFiles: client.TankModelFiles{Scene: base + ".sc2", Geometry: base + ".scg"}}
+		conversions = append(conversions, conversion{index: i, model: client.ClientTank{
+			ID: tank.TechName, Nation: tank.Nation, Name: tank.TechName,
+			ModelFiles: client.TankModelFiles{Scene: base + ".sc2", Geometry: base + ".scg"},
+		}})
+	}
+
+	textures := newTextureDeduper()
+	results := make([]modelExportResult, len(snapshot.Tanks))
+	var failed atomic.Bool
+	workers := min(max(runtime.GOMAXPROCS(0), 1), max(len(conversions), 1))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				if failed.Load() {
+					return
+				}
+				c := &conversions[j]
+				entry, err := exportOne(&c.model, resolve, outputRoot, options, textures)
+				results[c.index] = modelExportResult{entry: entry, err: err}
+				if err != nil && fatalModelError(err) {
+					failed.Store(true)
+					return
+				}
+			}
+		}()
+	}
+	for j := range conversions {
+		jobs <- j
+	}
+	close(jobs)
+	wg.Wait()
+
+	attempted, exported := 0, 0
+	var first, fatal error
+	for _, c := range conversions {
 		attempted++
-		entry, err := exportOne(&model, resolve, outputRoot, options, convertedTextures)
-		if err != nil {
-			if fatalModelError(err) {
-				return err
+		result := results[c.index]
+		if result.err != nil {
+			if fatalModelError(result.err) {
+				if fatal == nil {
+					fatal = result.err
+				}
+				continue
 			}
 			if first == nil {
-				first = err
+				first = result.err
 			}
-			snapshot.Issues = append(snapshot.Issues, ExportIssue{Tank: tank.ID, Section: "models", Message: err.Error()})
+			tank := &snapshot.Tanks[c.index]
+			snapshot.Issues = append(snapshot.Issues, ExportIssue{Tank: tank.ID, Section: "models", Message: result.err.Error()})
 			continue
 		}
 		exported++
-		tank.Model = entry
+		snapshot.Tanks[c.index].Model = result.entry
+	}
+	if fatal != nil {
+		return fatal
 	}
 	if attempted > 0 && exported == 0 {
 		return blitz.NewError("MODEL_EXPORT_FAILED", fmt.Sprintf("all %d model exports failed; first error: %v", attempted, first))
 	}
 	return nil
+}
+
+// modelExportResult keeps one tank's conversion outcome until results are
+// assembled in tank order.
+type modelExportResult struct {
+	entry *SnapshotModel
+	err   error
 }
 
 // removeExportOutput deletes a failed export. The directory was new or empty
