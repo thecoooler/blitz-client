@@ -138,7 +138,7 @@ The viewer implementation is outside this repository; it must read `tanks[].mode
 from `data.json` instead of the removed `assets/tanks/catalog.json`. Binary model
 and armor schemas are unchanged. Site projects are not modified by this change.
 
-SC2/SCG decoding, mesh transforms, geometry generation, armor joining and model bundles are Go code. Texture conversion uses `ffmpeg`; WebP output uses `cwebp`; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
+SC2/SCG decoding, mesh transforms, geometry generation, armor joining and model bundles are Go code. Texture conversion uses `ffmpeg`; WebP output uses ffmpeg's built-in WebP encoder when it is compiled in, and `cwebp` otherwise; Brotli model compression uses the `brotli` command. Add these codec executables to `PATH` for the corresponding export options. Python is not used by this application.
 
 SCG groups share binary-layout, buffer-size, and triangle-index validation.
 Geometry is decoded only for groups referenced by the selected scene nodes;

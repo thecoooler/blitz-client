@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	blitz "github.com/thecoooler/blitz-client"
 	"github.com/thecoooler/blitz-client/client"
@@ -75,7 +76,9 @@ func filesResolver(files map[string]sourceFile) assetResolver {
 }
 
 // exportOne converts one tank. tank.ModelFiles hold logical client paths.
-func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string, options *TankExportOptions) (*SnapshotModel, error) {
+// convertedTextures carries the first produced file per source texture across
+// tanks; repeated sources are linked instead of converted again.
+func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string, options *TankExportOptions, convertedTextures map[string]string) (*SnapshotModel, error) {
 	bundle := filepath.Join(outputRoot, tank.Nation, tank.ID)
 	if err := os.MkdirAll(bundle, 0o777); err != nil {
 		return nil, blitz.IOError("could not create model bundle", bundle, err)
@@ -150,6 +153,15 @@ func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string
 			}
 			continue
 		}
+		// Many vehicles share track, wheel and turret textures; the cache maps
+		// each source+role to its first converted file for the whole run.
+		cacheKey := texture.source + "\x00" + texture.role
+		if first, ok := convertedTextures[cacheKey]; ok {
+			if err := linkTexture(first, target); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		// Material paths are relative to the scene; the resolver also finds
 		// unpacked cache files that override packed game resources.
 		source := resolve(path.Join(modelDirectory, filepath.ToSlash(texture.source)))
@@ -170,11 +182,12 @@ func exportOne(tank *client.ClientTank, resolve assetResolver, outputRoot string
 			if err != nil {
 				return nil, err
 			}
-			continue
+		} else {
+			if err := convertTexture(source, target, options.MaxTextureSize, options.TextureFormat, options.WebPQuality, texture.lossless); err != nil {
+				return nil, err
+			}
 		}
-		if err := convertTexture(source, target, options.MaxTextureSize, options.TextureFormat, options.WebPQuality, texture.lossless); err != nil {
-			return nil, err
-		}
+		convertedTextures[cacheKey] = target
 	}
 
 	bundleURL := fmt.Sprintf("./assets/tanks/%s/%s/", tank.Nation, tank.ID)
@@ -244,6 +257,24 @@ func readDecoded(path string) ([]byte, error) {
 	return plain, nil
 }
 
+// webpEncoderName probes ffmpeg once for a built-in WebP encoder. When ffmpeg
+// can encode WebP directly, textures skip the intermediate PNG and cwebp.
+// Empty means ffmpeg has no WebP encoder and cwebp is used instead.
+var webpEncoderName = sync.OnceValue(func() string {
+	data, err := exec.Command("ffmpeg", "-hide_banner", "-encoders").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		for _, field := range strings.Fields(line) {
+			if field == "libwebp" || field == "libwebp_anim" {
+				return field
+			}
+		}
+	}
+	return ""
+})
+
 func convertTexture(source, destination string, maxSize *TextureSize, format string, quality uint8, lossless bool) error {
 	if err := os.MkdirAll(filepath.Dir(destination), 0o777); err != nil {
 		return blitz.IOError("could not create texture directory", filepath.Dir(destination), err)
@@ -258,16 +289,41 @@ func convertTexture(source, destination string, maxSize *TextureSize, format str
 	}
 	defer os.RemoveAll(temp)
 	dds := filepath.Join(temp, "source.dds")
-	png := filepath.Join(temp, "decoded.png")
 	if err := os.WriteFile(dds, sourceBytes, 0o666); err != nil {
 		return blitz.IOError("could not stage DDS", dds, err)
 	}
-	args := []string{"-hide_banner", "-v", "error", "-y", "-i", dds}
+	scale := []string{}
 	if maxSize != nil {
-		args = append(args, "-vf", fmt.Sprintf(
-			"scale=w='min(iw,%d)':h='min(ih,%d)':force_original_aspect_ratio=decrease", maxSize.Width, maxSize.Height))
+		scale = []string{"-vf", fmt.Sprintf(
+			"scale=w='min(iw,%d)':h='min(ih,%d)':force_original_aspect_ratio=decrease", maxSize.Width, maxSize.Height)}
 	}
-	args = append(args, "-frames:v", "1", "-update", "1", "-compression_level", "9", png)
+	if format == "webp" {
+		if encoder := webpEncoderName(); encoder != "" {
+			args := []string{"-hide_banner", "-v", "error", "-y", "-i", dds}
+			args = append(args, scale...)
+			args = append(args, "-frames:v", "1", "-update", "1", "-c:v", encoder)
+			if lossless {
+				args = append(args, "-lossless", "1", "-compression_level", "6")
+			} else {
+				args = append(args, "-quality", strconv.Itoa(int(quality)), "-compression_level", "4")
+			}
+			args = append(args, destination)
+			if stderr, err := run("ffmpeg", args...); err != nil {
+				if stderr == nil {
+					return blitz.NewError("FFMPEG_NOT_FOUND", "ffmpeg is required to decode DDS textures: "+blitz.IOMessage(err))
+				}
+				return fmt.Errorf("ffmpeg failed to encode %s: %s", source, strings.TrimSpace(lossy.String(stderr)))
+			}
+			return nil
+		}
+	}
+
+	png := filepath.Join(temp, "decoded.png")
+	args := []string{"-hide_banner", "-v", "error", "-y", "-i", dds}
+	args = append(args, scale...)
+	// The PNG is a lossless intermediate, so its compression level only costs
+	// time; the final texture is identical regardless of the level used.
+	args = append(args, "-frames:v", "1", "-update", "1", "-compression_level", "1", png)
 	if stderr, err := run("ffmpeg", args...); err != nil {
 		if stderr == nil {
 			return blitz.NewError("FFMPEG_NOT_FOUND", "ffmpeg is required to decode DDS textures: "+blitz.IOMessage(err))
@@ -284,7 +340,7 @@ func convertTexture(source, destination string, maxSize *TextureSize, format str
 		}
 		return nil
 	}
-	args = []string{"-m", "6", "-alpha_q", "100", "-exact", "-metadata", "none"}
+	args = []string{"-m", "4", "-alpha_q", "100", "-exact", "-metadata", "none"}
 	if lossless {
 		args = append(args, "-lossless", "-z", "9")
 	} else {
@@ -296,6 +352,25 @@ func convertTexture(source, destination string, maxSize *TextureSize, format str
 			return blitz.NewError("CWEBP_NOT_FOUND", "cwebp is required to export WebP textures: "+blitz.IOMessage(err))
 		}
 		return fmt.Errorf("cwebp failed to encode %s: %s", source, strings.TrimSpace(lossy.String(stderr)))
+	}
+	return nil
+}
+
+// linkTexture places the previously converted texture at target. A hard link
+// shares the first file's bytes; a plain copy covers filesystems that reject links.
+func linkTexture(from, to string) error {
+	if err := os.MkdirAll(filepath.Dir(to), 0o777); err != nil {
+		return blitz.IOError("could not create texture directory", filepath.Dir(to), err)
+	}
+	if err := os.Link(from, to); err == nil {
+		return nil
+	}
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return blitz.IOError("could not read converted texture", from, err)
+	}
+	if err := os.WriteFile(to, data, 0o666); err != nil {
+		return blitz.IOError("could not write texture", to, err)
 	}
 	return nil
 }

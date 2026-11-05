@@ -228,6 +228,7 @@ func exportModels(snapshot *Snapshot, resolve assetResolver, outputRoot string, 
 	for _, nation := range client.Nations() {
 		folders[nation.ID] = nation.ModelFolder
 	}
+	convertedTextures := map[string]string{}
 	attempted, exported := 0, 0
 	var first error
 	for i := range snapshot.Tanks {
@@ -240,7 +241,7 @@ func exportModels(snapshot *Snapshot, resolve assetResolver, outputRoot string, 
 		}
 		model := client.ClientTank{ID: tank.TechName, Nation: tank.Nation, Name: tank.TechName, ModelFiles: client.TankModelFiles{Scene: base + ".sc2", Geometry: base + ".scg"}}
 		attempted++
-		entry, err := exportOne(&model, resolve, outputRoot, options)
+		entry, err := exportOne(&model, resolve, outputRoot, options, convertedTextures)
 		if err != nil {
 			if fatalModelError(err) {
 				return err

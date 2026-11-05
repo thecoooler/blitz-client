@@ -505,5 +505,8 @@ other sections. Resources are never modified.
 Model encoding options are `--max-texture-size original|N|WIDTHxHEIGHT` (1024x1024),
 `--texture-format webp|png` (webp), `--webp-quality 0..100` (90), `--no-compress`, and `--no-pbr`.
 The pre-existing model codecs remain required for corresponding assets: ffmpeg
-for texture decoding, cwebp for WebP, brotli for compressed model payloads. Data
+for texture decoding, cwebp for WebP when ffmpeg lacks a built-in WebP encoder,
+brotli for compressed model payloads. Data
 and icon exports require none of them. There are no new external dependencies.
+Textures shared by several vehicles are converted once per export and linked
+into the other bundles.
