@@ -17,6 +17,12 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// StrictLocalization describes the localization included by the v1 exporter.
+// A dictionary entry may be null; an absent key is not the same as null.
+type Localization struct {
+	RU map[string]*string `json:"ru"`
+}
+
 // Snapshot is the one offline interchange format for data and media consumers.
 // Omitted sections were not requested; included empty sections have empty containers.
 // Game, ExportedAt (UTC, RFC 3339) and ExporterVersion are written for every
@@ -30,8 +36,8 @@ type Snapshot struct {
 	ExporterVersion   Optional[string]          `json:"exporterVersion,omitzero"`
 	Nations           []string                  `json:"nations"`
 	Tanks             []SnapshotTank            `json:"tanks"`
-	Localization      map[string]any            `json:"localization,omitempty"`
-	Maps              any                       `json:"maps,omitempty"`
+	Localization      *Localization             `json:"localization,omitempty"`
+	Maps              *RawMaps                  `json:"maps,omitempty"`
 	Components        map[string]map[string]any `json:"components,omitempty"`
 	Equipment         any                       `json:"equipment,omitempty"`
 	Provisions        map[string]any            `json:"provisions,omitempty"`
@@ -303,11 +309,15 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 	if !data {
 		return s, nil
 	}
-	ru, err := r.document("Strings/ru.yaml")
+	ru, err := r.read("Strings/ru.yaml")
 	if err != nil {
 		return nil, err
 	}
-	s.Localization = map[string]any{"ru": ru}
+	var names map[string]*string
+	if err := yaml.Unmarshal(ru, &names); err != nil {
+		return nil, fmt.Errorf("Strings/ru.yaml: %w", err)
+	}
+	s.Localization = &Localization{RU: names}
 	if r.has("hangarParamsConfig.yaml") {
 		s.HangarParameters, err = r.document("hangarParamsConfig.yaml")
 		if err != nil {
@@ -326,10 +336,15 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 	}
 	for _, name := range []string{"maps.yaml", "maps.yml"} {
 		if _, ok := files[name]; ok {
-			s.Maps, err = r.document(name)
+			b, err := r.read(name)
 			if err != nil {
 				return nil, err
 			}
+			raw, err := parseRawMaps(b)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", name, err)
+			}
+			s.Maps = raw
 			break
 		}
 	}

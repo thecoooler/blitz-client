@@ -70,7 +70,7 @@ type ClientExportCmd struct {
 	GameDir        *string     `placeholder:"path" help:"Game directory (default: the first existing default path for this OS)"`
 	CacheDir       *string     `placeholder:"path" help:"Cache directory"`
 	NoCache        bool        `help:"Do not read or write the cache"`
-	Include        []string    `enum:"all,data,icons,models" placeholder:"section" help:"Snapshot sections to export (repeatable)"`
+	Include        []string    `enum:"all,data,icons,models,maps" placeholder:"section" help:"Snapshot sections to export (repeatable)"`
 	ServerConfig   string      `placeholder:"path" help:"Server config used to restore crew skill data"`
 	MaxTextureSize textureSize `placeholder:"original|N|WxH" help:"Model texture size"`
 	TextureFormat  *string     `enum:"png,webp" placeholder:"format" help:"Model texture format"`

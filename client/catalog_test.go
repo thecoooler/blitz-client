@@ -198,7 +198,7 @@ func TestCatalogPreservesSchemaLocalizationAndDistinctModelIDs(t *testing.T) {
 		"level": 3, "nation": "usa", "combatRole": {"default": "support"},
 		"configurationModes": ["default", "special"], "leasing": "2026-09-30T12:34:00"
 	}`), &expectedTank)
-	json.Unmarshal([]byte(`{"id": 7, "localName": "Карта", "availableInTrainingRoom": true, "availableModes": [1, 2], "spriteFrame": 4}`), &expectedMap)
+	json.Unmarshal([]byte(`{"name": "arena", "id": 7, "localName": "Карта", "availableInTrainingRoom": true, "availableModes": [1, 2], "spriteFrame": 4}`), &expectedMap)
 	if got := jsonValue(t, catalog.Tanks[0]); !reflect.DeepEqual(got, expectedTank) {
 		t.Fatalf("%v", got)
 	}

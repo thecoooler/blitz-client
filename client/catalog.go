@@ -26,6 +26,9 @@ type ClientCatalog struct {
 
 // ClientMap is one entry of maps.yaml.
 type ClientMap struct {
+	// Name is the maps.yaml entry key, which is also the space name used by
+	// client asset folders such as the minimap directory.
+	Name                    string  `json:"name"`
 	ID                      int64   `json:"id"`
 	LocalName               string  `json:"localName"`
 	AvailableInTrainingRoom bool    `json:"availableInTrainingRoom"`
@@ -289,6 +292,12 @@ func readAvailableNations(dataDir string) ([]string, error) {
 	return result, nil
 }
 
+// ReadMapsCatalog reads maps.yaml without localization, so LocalName keeps
+// the raw scene path. Names are the maps.yaml entry keys.
+func ReadMapsCatalog(dataDir string) ([]ClientMap, error) {
+	return readMaps(dataDir, nil)
+}
+
 func readMaps(dataDir string, localized map[string]string) ([]ClientMap, error) {
 	path := ResolveClientAsset(dataDir, "maps.yml")
 	if path == "" {
@@ -403,6 +412,7 @@ func finishMap(entry *mapEntry, localized map[string]string, output *[]ClientMap
 		localName = translated
 	}
 	*output = append(*output, ClientMap{
+		Name:                    entry.name,
 		ID:                      id,
 		LocalName:               localName,
 		AvailableInTrainingRoom: training,

@@ -3,7 +3,7 @@
 There is one entity export command and one interchange format:
 
 ```sh
-# All sections (default): data + tank icons + 3D/PBR models
+# All sections (default): data + tank icons + 3D/PBR models + maps
 go run ./cmd/blitz-client client export --game-dir /path/to/Data --output-dir /tmp/blitz-all
 
 # Fast offline data export: no image reads, no model conversion
@@ -12,10 +12,11 @@ go run ./cmd/blitz-client client export --game-dir /path/to/Data --output-dir /t
 # One option selects one or several sections
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-icons --include data,icons
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-models --include models
+go run ./cmd/blitz-client client export --output-dir /tmp/blitz-maps --include maps
 ```
 
 `--include` accepts `all` (default) or any comma-separated subset of `data`,
-`icons`, `models`; the option may be repeated. Order is immaterial; duplicates collapse. Unknown/empty values
+`icons`, `models`, `maps`; the option may be repeated. Order is immaterial; duplicates collapse. Unknown/empty values
 and combining `all` with individual sections are errors. Every selection writes
 **the same `data.json` schema**, with a canonical `included` array. Tank identities
 are always present so media-only exports can be consumed without another catalog.
@@ -35,6 +36,7 @@ The output directory contains `data.json` plus referenced media, if requested:
 export/
   data.json
   items.json
+  maps.json
   images/tanks/<nation>/<techName>/big.webp
   images/tanks/<nation>/<techName>/small.webp
   assets/icons/catalog.json
@@ -45,13 +47,16 @@ export/
   assets/tanks/<nation>/<techName>/armor.json[.br]
   assets/tanks/<nation>/<techName>/armor-mesh.json[.br]
   assets/tanks/<nation>/<techName>/<texture files>
+  assets/maps/<space>/preview.png
+  assets/maps/<space>/minimap.png
 ```
 
 No separate manifest, maps/tanks/parameters/configuration/component files, model
 catalog or duplicated raw documents are written. `items.json` is the normalized
 index of shells, consumables, provisions, equipment and crew skills that links
 each item to its exported icon; `assets/icons/catalog.json` describes the icon
-sets and their source resources. A tank record contains its own
+sets and their source resources. `maps.json` is the normalized index of
+maps.yaml entries that links each map to its exported images. A tank record contains its own
 metadata, parameters, configuration and media references. Shared definitions live
 once under `components`, not as resolved copies inside every turret. Equipment,
 provisions and localization also have one authoritative home. Model files contain
@@ -81,8 +86,8 @@ Snapshot = {
   exporterVersion: string | null, // blitz-client module version, see below
   nations: string[],
   tanks: Tank[],
-  localization?: { ru: { [localizationKey: string]: string } },
-  maps?: Object,
+  localization?: { ru: { [localizationKey: string]: string | null } },
+  maps?: { maps: { [name: string]: Map } }, // the raw maps.yaml document, keys sorted
   components?: { [nation: string]: { [kind: string]: XMLValue } },
   equipment?: { devices: XMLValue, slots: XMLValue },
   provisions?: { [mode: string]: XMLValue },
@@ -90,13 +95,20 @@ Snapshot = {
   hangarParameters?: YAMLValue,
   crewSkills?: CrewSkill[],
   crewSkillTraining?: CrewSkillTraining,
-  issues: { tank: string, section: "icons" | "models", message: string }[]
+  issues: { tank: string, section: "icons" | "models" | "maps", message: string }[]
 }
 ```
 
+`Map` mirrors one maps.yaml entry: `id` (integer), `localName` (scene path),
+`avaliableInTrainingRoom` (the client's own spelling), `availableModes`,
+`spriteFrame`, and when present `tags`, `vehicleCamouflageKind`,
+`shadowMapsAvailable`, `supremacyPointsThreshold`, `levels` and
+`assaultRespawnPoints` (`allies`/`enemies` arrays of
+`{ respawnNumber, points: [[x, y], …] }`).
+
 Require `format == "blitz-client"` and `version == 1`. Unknown versions must be
 rejected; additional fields may be introduced without changing the version.
-`included` is always canonical: data, icons, models, filtered to the selection.
+`included` is always canonical: data, icons, models, maps, filtered to the selection.
 `nations` comes from available_nations.yaml, in source order. Tanks are in nation
 order, then list.xml order. Map/object key order never determines component order.
 All media paths are relative to this directory and use `/` (a `./` prefix is valid).
@@ -343,8 +355,8 @@ Icon sources come from parameters.resourcesPath.bigIconPath/smallIconPath.
 `~res:/` addresses the merged resource tree. Candidate order: exact path,
 `.packed.webp`, `@2x.packed.webp`, `.webp`, `.png`. DVPL is decoded; images are not
 transcoded/resized and retain their real extension. Icons never select models,
-collision meshes, textures or photos. Map atlas cropping/preview images are outside
-v1. Missing icons are null plus an issue when icons were requested.
+collision meshes, textures or photos. Missing icons are null plus an issue when
+icons were requested.
 
 The same `icons` section renders item icons as PNG into `assets/icons/<set>`:
 `shells`, `consumables`, `provisions`, `equipment` and `crew-skills`. Sprite
@@ -375,6 +387,31 @@ A sprite with several frames exports its first frame under the icon ID and the
 remaining frames as `<id>-frame1`, `<id>-frame2` … so color and state variants
 are kept without changing the base name. Each frame is a separate catalog
 entry.
+
+## Maps
+
+The `maps` section renders map images as PNG into `assets/maps/<space>/` and
+writes `maps.json`, the normalized index of `maps.yaml` entries:
+
+- `preview` is cropped from the map preview atlas
+  `Gfx/UI/MapsListDialog/back_maps[@2x].packed.webp`; the maps.yaml
+  `spriteFrame` is the atlas frame index. The atlas is decoded once and shared.
+- `minimap` comes from `Gfx/UI/BattleScreenHUD/minimap/<space>/MiniMapSmall[@2x].packed.webp`,
+  where `<space>` is the maps.yaml entry key. `@2x` wins when both resolutions
+  exist; the SD variant is the fallback.
+- `effects` lists the surface effect names from the scene's
+  `3d/Maps/<scene dir>/blitz/map_effects.yaml`, when present.
+
+A missing maps.yaml records one issue and writes an empty index. Missing or
+broken per-map images leave `preview`/`minimap` null and add an issue, like
+icons; everything else fails the export. `data.json` still carries the raw
+`maps.yaml` document in the `data` section.
+
+Every rendered image names its client resource explicitly: `previewSource` and
+`minimapSource` use the same source object as the icon catalog (`kind: sprite`
+with the atlas `path` and the cropped `frame` rectangle, both relative to Data
+and without the `.dvpl` suffix), so consumers can re-derive or re-crop the
+images from the client themselves.
 
 Models retain existing geometry, PBR and armor payload schemas. A viewer enumerates
 `tanks` and selects records with `model`, loads `tank.model.model`, and resolves its
