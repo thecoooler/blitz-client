@@ -15,24 +15,6 @@ import (
 	"github.com/thecoooler/blitz-client/mods"
 )
 
-func (a *app) runMod(args []string) (bool, error) {
-	if len(args) > 0 {
-		switch args[0] {
-		case "list":
-			return a.runModList(args[1:])
-		case "validate":
-			return a.runValidate(args[1:])
-		case "install":
-			return a.runInstall(args[1:])
-		case "uninstall":
-			return a.runUninstall(args[1:])
-		case "update-from-git":
-			return a.runUpdate(args[1:])
-		}
-	}
-	return false, usageError("expected mod list/validate/install/uninstall/update-from-git")
-}
-
 type validationStyle struct{ color bool }
 
 func newValidationStyle(terminal bool) validationStyle {
@@ -69,37 +51,32 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func (a *app) runValidate(args []string) (bool, error) {
-	positional, gameDir, err := takeGameDir(args)
-	if err != nil {
-		return false, err
-	}
-	if len(positional) != 1 {
-		return false, usageError("validate requires a mods directory, mod directory or mod.yaml/mod.yml path")
-	}
+func (c ModValidateCmd) Run(a *app) error {
 	style := newValidationStyle(isTerminal(a.stdout))
-	path := positional[0]
-	single := func(manifest string) (bool, error) {
+	path := c.Path
+	gameDir := derefFlag(c.GameDir)
+	single := func(manifest string) error {
 		report, err := mods.ValidateMod(manifest, gameDir)
 		if err != nil {
-			return false, err
+			return err
 		}
 		if a.json {
 			a.printJSON(report)
 		} else {
 			a.printValidation(report, style)
 		}
-		return report.Valid, nil
+		a.valid = report.Valid
+		return nil
 	}
 	if !isDir(path) {
 		return single(path)
 	}
 	manifests, err := mods.DiscoverMods(path)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if len(manifests) == 0 {
-		return false, blitz.ErrorAt("MANIFEST_NOT_FOUND", "no mod.yaml/mod.yml found in the directory or its subdirectories", path)
+		return blitz.ErrorAt("MANIFEST_NOT_FOUND", "no mod.yaml/mod.yml found in the directory or its subdirectories", path)
 	}
 	// Keep the existing report shape for a single mod directory.
 	if len(manifests) == 1 && pathx.Equal(pathx.Parent(manifests[0]), path) {
@@ -138,9 +115,10 @@ func (a *app) runValidate(args []string) (bool, error) {
 		}
 	}
 	valid := passed == len(manifests)
+	a.valid = valid
 	if a.json {
 		a.printJSON(jsonx.Object{"valid": valid, "mods": results})
-		return valid, nil
+		return nil
 	}
 	if len(failures) > 0 {
 		if passed > 0 {
@@ -163,20 +141,13 @@ func (a *app) runValidate(args []string) (bool, error) {
 		style.paint(2, fmt.Sprintf("%d mods", len(manifests))),
 		style.paint(32, fmt.Sprintf("%d passed", passed)),
 		style.paint(failedCode, fmt.Sprintf("%d failed", len(manifests)-passed)))
-	return valid, nil
+	return nil
 }
 
-func (a *app) runModList(args []string) (bool, error) {
-	positional, gameDir, err := takeGameDir(args)
+func (c ModListCmd) Run(a *app) error {
+	report, err := mods.ListInstalledMods(derefFlag(c.GameDir))
 	if err != nil {
-		return false, err
-	}
-	if len(positional) > 0 {
-		return false, usageError("list accepts only --game-dir and --json")
-	}
-	report, err := mods.ListInstalledMods(gameDir)
-	if err != nil {
-		return false, err
+		return err
 	}
 	switch {
 	case a.json:
@@ -192,7 +163,7 @@ func (a *app) runModList(args []string) (bool, error) {
 			a.printf("%s — %s (%d %s)\n", item.ID, item.Name, len(item.Files), noun)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 type diagnostic struct{ path, code, message string }
@@ -293,21 +264,14 @@ func (a *app) printValidationError(err *blitz.Error) {
 	}
 }
 
-func (a *app) runInstall(args []string) (bool, error) {
-	positional, gameDir, err := takeGameDir(args)
+func (c ModInstallCmd) Run(a *app) error {
+	report, err := mods.InstallMod(c.Path, derefFlag(c.GameDir))
 	if err != nil {
-		return false, err
-	}
-	if len(positional) != 1 {
-		return false, usageError("install requires a mod directory or mod.yaml/mod.yml path")
-	}
-	report, err := mods.InstallMod(positional[0], gameDir)
-	if err != nil {
-		return false, err
+		return err
 	}
 	if a.json {
 		a.printJSON(report)
-		return true, nil
+		return nil
 	}
 	verb := "Installed"
 	if report.Reinstalled {
@@ -317,70 +281,33 @@ func (a *app) runInstall(args []string) (bool, error) {
 	for _, target := range report.Targets {
 		a.printf("  %s\n", target)
 	}
-	return true, nil
+	return nil
 }
 
-func (a *app) runUninstall(args []string) (bool, error) {
-	positional, gameDir, err := takeGameDir(args)
+func (c ModUninstallCmd) Run(a *app) error {
+	report, err := mods.RemoveMod(c.ModID, derefFlag(c.GameDir))
 	if err != nil {
-		return false, err
-	}
-	if len(positional) != 1 {
-		return false, usageError("uninstall requires an installed mod id")
-	}
-	report, err := mods.RemoveMod(positional[0], gameDir)
-	if err != nil {
-		return false, err
+		return err
 	}
 	if a.json {
 		a.printJSON(report)
-		return true, nil
+		return nil
 	}
 	a.printf("Removed %s\n", report.ModID)
 	for _, target := range report.RestoredFiles {
 		a.printf("  restored %s\n", target)
 	}
-	return true, nil
+	return nil
 }
 
-func (a *app) runUpdate(args []string) (bool, error) {
-	var positional []string
-	repo := ""
-	var base *string
-	hasRepo := false
-	for index := 0; index < len(args); index++ {
-		switch arg := args[index]; {
-		case arg == "--repo":
-			value, err := optionValue(args, &index, "--repo requires a path")
-			if err != nil {
-				return false, err
-			}
-			repo, hasRepo = value, true
-		case arg == "--base":
-			value, err := optionValue(args, &index, "--base requires a revision")
-			if err != nil {
-				return false, err
-			}
-			base = &value
-		case strings.HasPrefix(arg, "-"):
-			return false, usageError("unknown option: " + arg)
-		default:
-			positional = append(positional, arg)
-		}
-	}
-	if len(positional) != 1 {
-		return false, usageError("update-from-git requires a mod directory or mod.yaml/mod.yml path")
-	}
-	if !hasRepo {
-		return false, usageError("update-from-git requires --repo <path>")
-	}
-	manifest, err := mods.UpdateFromGitDiff(positional[0], repo, base)
+func (c ModUpdateFromGitCmd) Run(a *app) error {
+	manifest, err := mods.UpdateFromGitDiff(c.Path, c.Repo, c.Base)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if a.json {
 		a.printJSON(manifest)
-		return true, nil
+		return nil
 	}
 	var generated []string
 	for _, file := range manifest.Files {
@@ -389,5 +316,5 @@ func (a *app) runUpdate(args []string) (bool, error) {
 		}
 	}
 	a.printf("Updated %s: mod.patch (%d resources)\n", manifest.ID, len(generated))
-	return true, nil
+	return nil
 }

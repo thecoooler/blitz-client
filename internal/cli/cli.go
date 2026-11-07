@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,34 +12,17 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/spf13/cobra"
+	"github.com/alecthomas/kong"
 	blitz "github.com/thecoooler/blitz-client"
 	"github.com/thecoooler/blitz-client/internal/jsonx"
 )
 
-const usage = `blitz-client commands:
-
-blitz-client client locate [--game-dir <path>] [--json]
-blitz-client client files unpack --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <all|configs,images,models,sounds,fonts,shaders,other>] [--exclude <pattern>] [--dry-run] [--json]
-blitz-client client tanks list [--game-dir <path>] [--json]
-blitz-client client export --output-dir <path> [--game-dir <path>] [--include <all|data,icons,models>]... [--cache-dir <path> | --no-cache] [--server-config <path>] [model options]
-blitz-client mod list [--game-dir <path>] [--json]
-blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
-blitz-client mod install <mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
-blitz-client mod uninstall <mod-id> [--game-dir <path>] [--json]
-blitz-client mod update-from-git <mod-dir|mod.yaml|mod.yml> --repo <path> [--base <rev>] [--json]
-blitz-client replay inspect <replay.tbreplay|data.replay> [--data] [--out <path>] [--json]
-blitz-client replay latest [--dir <path>] [--data] [--out <path>] [--json]
-blitz-client replay follow <data.replay> [--poll-ms <N>] [--idle-timeout-ms <N>] [--out <new-path>]
-blitz-client game status [--process-name <name>]... [--watch] [--poll-ms <N>] [--json]
-
---game-dir is optional. Without it the first existing default path for this OS is used.
-replay latest uses the newest .tbreplay of the platform replay folder; --dir overrides it.`
-
-// app carries the output streams and the global --json flag.
+// app carries the output streams, the global --json flag, and the result of
+// commands that report success or failure on their own (mod validate).
 type app struct {
 	stdout, stderr io.Writer
 	json           bool
+	valid          bool
 }
 
 func (a *app) printf(format string, args ...any)  { fmt.Fprintf(a.stdout, format, args...) }
@@ -57,18 +41,26 @@ func (a *app) printJSON(value any) {
 
 func usageError(message string) error { return blitz.NewError("USAGE", message) }
 
-// Run executes the command line and returns the process exit code.
-func Run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || slices.Contains(args, "--help") || slices.Contains(args, "-h") {
-		fmt.Fprintln(stdout, usage)
-		return 0
-	}
-	a := &app{stdout: stdout, stderr: stderr, json: slices.Contains(args, "--json")}
-	args = slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return arg == "--json" })
+// exitRequest is how kong reports that it wants the process to stop (--help,
+// completion scripts); the panic is caught by Run.
+type exitRequest struct{ code int }
 
-	valid, err := a.execute(args)
+// Run executes the command line and returns the process exit code.
+func Run(args []string, stdout, stderr io.Writer) (code int) {
+	a := &app{stdout: stdout, stderr: stderr, json: slices.Contains(args, "--json"), valid: true}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			request, ok := recovered.(exitRequest)
+			if !ok {
+				panic(recovered)
+			}
+			code = request.code
+		}
+	}()
+
+	err := a.execute(args)
 	switch {
-	case err == nil && valid:
+	case err == nil && a.valid:
 		return 0
 	case err == nil:
 		return 4
@@ -87,82 +79,29 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-// execute dispatches through the cobra command tree. Leaf commands parse
-// their own arguments so options and diagnostics match the original tool.
-func (a *app) execute(args []string) (bool, error) {
-	var valid bool
-	var runErr error
-	command := func(name string, run func([]string) (bool, error)) *cobra.Command {
-		return &cobra.Command{
-			Use:                name,
-			DisableFlagParsing: true,
-			Args:               cobra.ArbitraryArgs,
-			RunE: func(_ *cobra.Command, rest []string) error {
-				valid, runErr = run(rest)
-				return nil
-			},
+// execute parses the command line through the kong grammar in grammar.go and
+// runs the selected command. Parse errors keep the original code of errors
+// raised by custom mappers and Validate hooks.
+func (a *app) execute(args []string) error {
+	cli := &CLI{}
+	parser, err := kong.New(cli,
+		kong.Name("blitz-client"),
+		kong.Description("Inspect the installed Tanks Blitz client, export tank models, install resource mods, and analyze replays."),
+		kong.Writers(a.stdout, a.stderr),
+		kong.Exit(func(code int) { panic(exitRequest{code}) }),
+	)
+	if err != nil {
+		return usageError(err.Error())
+	}
+	ctx, err := parser.Parse(args)
+	if err != nil {
+		var typed *blitz.Error
+		if errors.As(err, &typed) {
+			return typed
 		}
+		return usageError(err.Error())
 	}
-	root := &cobra.Command{Use: "blitz-client", SilenceErrors: true, SilenceUsage: true}
-	root.CompletionOptions.DisableDefaultCmd = true
-	root.SetHelpCommand(&cobra.Command{Hidden: true})
-	root.AddCommand(command("client", a.runClient), command("mod", a.runMod), command("replay", a.runReplay), command("game", a.runGame))
-	if len(args) == 0 {
-		return false, usageError("unknown command: ")
-	}
-	if found, _, err := root.Find(args); err != nil || found == root {
-		return false, usageError("unknown command: " + args[0])
-	}
-	root.SetArgs(args)
-	root.SetOut(a.stdout)
-	root.SetErr(a.stderr)
-	if err := root.Execute(); err != nil {
-		return false, usageError(err.Error())
-	}
-	return valid, runErr
-}
-
-// takeGameDir separates positional arguments from --game-dir.
-func takeGameDir(args []string) ([]string, string, error) {
-	var positional []string
-	gameDir := ""
-	for index := 0; index < len(args); index++ {
-		switch arg := args[index]; {
-		case arg == "--game-dir":
-			index++
-			if index >= len(args) {
-				return nil, "", usageError("--game-dir requires a path")
-			}
-			value, err := gameDirOption(args[index])
-			if err != nil {
-				return nil, "", err
-			}
-			gameDir = value
-		case len(arg) > 0 && arg[0] == '-':
-			return nil, "", usageError("unknown option: " + arg)
-		default:
-			positional = append(positional, arg)
-		}
-	}
-	return positional, gameDir, nil
-}
-
-// gameDirOption rejects an explicitly empty --game-dir, which the library
-// would otherwise treat as "search the default locations".
-func gameDirOption(value string) (string, error) {
-	if value == "" {
-		return "", blitz.NewError("GAME_DIR_NOT_FOUND", "the explicitly supplied game directory does not exist")
-	}
-	return value, nil
-}
-
-// optionValue returns the argument after a flag.
-func optionValue(args []string, index *int, message string) (string, error) {
-	*index++
-	if *index >= len(args) {
-		return "", usageError(message)
-	}
-	return args[*index], nil
+	return ctx.Run(a)
 }
 
 // Main runs the command line with the process streams.

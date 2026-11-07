@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,23 +11,8 @@ import (
 	blitz "github.com/thecoooler/blitz-client"
 	"github.com/thecoooler/blitz-client/internal/jsonx"
 	"github.com/thecoooler/blitz-client/internal/pathx"
-	"github.com/thecoooler/blitz-client/internal/rs"
 	"github.com/thecoooler/blitz-client/replay"
 )
-
-func (a *app) runReplay(args []string) (bool, error) {
-	if len(args) > 0 {
-		switch args[0] {
-		case "inspect":
-			return a.runReplayAnalysis(args[1:], false)
-		case "latest":
-			return a.runReplayAnalysis(args[1:], true)
-		case "follow":
-			return a.runReplayFollow(args[1:])
-		}
-	}
-	return false, usageError("expected replay inspect, replay latest or replay follow")
-}
 
 func resolveFilePath(value string) (string, error) {
 	parent := pathx.Parent(value)
@@ -46,62 +30,33 @@ func resolveFilePath(value string) (string, error) {
 	return filepath.Join(canonical, name), nil
 }
 
-func (a *app) runReplayFollow(args []string) (bool, error) {
-	path, out := "", ""
-	hasPath, hasOut := false, false
-	pollMS := uint64(25)
-	var idleTimeout time.Duration
-	for index := 0; index < len(args); index++ {
-		switch arg := args[index]; {
-		case arg == "--poll-ms" || arg == "--idle-timeout-ms":
-			index++
-			var value uint64
-			var err error = errors.New("missing")
-			if index < len(args) {
-				value, err = rs.ParseUint(args[index], 64)
-			}
-			if err != nil || value == 0 || value > 86_400_000 {
-				return false, usageError(arg + " requires milliseconds between 1 and 86400000")
-			}
-			if arg == "--poll-ms" {
-				pollMS = value
-			} else {
-				idleTimeout = time.Duration(value) * time.Millisecond
-			}
-		case arg == "--out":
-			value, err := optionValue(args, &index, "--out requires a path")
-			if err != nil {
-				return false, err
-			}
-			out, hasOut = value, true
-		case strings.HasPrefix(arg, "-"):
-			return false, usageError("unknown option: " + arg)
-		case !hasPath:
-			path, hasPath = arg, true
-		default:
-			return false, usageError("unexpected argument: " + arg)
-		}
+func (c ReplayFollowCmd) Run(a *app) error {
+	if c.PollMS == 0 {
+		return usageError("--poll-ms requires milliseconds between 1 and 86400000")
 	}
-	if !hasPath {
-		return false, usageError("replay follow requires a data.replay path")
+	path, out := c.Path, c.Out
+	pollMS := uint64(c.PollMS)
+	var idleTimeout time.Duration
+	if c.IdleTimeoutMS > 0 {
+		idleTimeout = time.Duration(c.IdleTimeoutMS) * time.Millisecond
 	}
 	var output io.Writer = a.stdout
-	if hasOut {
+	if out != nil {
 		source, err := resolveFilePath(path)
 		if err != nil {
-			return false, err
+			return err
 		}
-		target, err := resolveFilePath(out)
+		target, err := resolveFilePath(*out)
 		if err != nil {
-			return false, err
+			return err
 		}
 		if source == target {
-			return false, usageError("--out must differ from the live replay path")
+			return usageError("--out must differ from the live replay path")
 		}
 		// Create exclusively: never truncate the source or an existing output file.
-		file, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		file, err := os.OpenFile(*out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
 		if err != nil {
-			return false, blitz.ErrorAt("IO_ERROR", "cannot create NDJSON output: "+blitz.IOMessage(err), out)
+			return blitz.ErrorAt("IO_ERROR", "cannot create NDJSON output: "+blitz.IOMessage(err), *out)
 		}
 		defer file.Close()
 		output = file
@@ -126,13 +81,13 @@ func (a *app) runReplayFollow(args []string) (bool, error) {
 			return nil
 		})
 		if err != nil {
-			return false, err
+			return err
 		}
 		if count > 0 || reset {
 			lastActivity = time.Now()
 		}
 		if idleTimeout > 0 && time.Since(lastActivity) >= idleTimeout {
-			return true, nil
+			return nil
 		}
 		wait := time.Duration(pollMS) * time.Millisecond
 		if idleTimeout > 0 {
@@ -142,80 +97,50 @@ func (a *app) runReplayFollow(args []string) (bool, error) {
 	}
 }
 
-func (a *app) runReplayAnalysis(args []string, useLatest bool) (bool, error) {
-	path, directory, out := "", "", ""
-	hasPath, hasDirectory, hasOut, includeData := false, false, false, false
-	for index := 0; index < len(args); index++ {
-		switch arg := args[index]; {
-		case arg == "--data":
-			includeData = true
-		case arg == "--dir":
-			value, err := optionValue(args, &index, "--dir requires a path")
-			if err != nil {
-				return false, err
-			}
-			directory, hasDirectory = value, true
-		case arg == "--out":
-			value, err := optionValue(args, &index, "--out requires a path")
-			if err != nil {
-				return false, err
-			}
-			out, hasOut = value, true
-		case strings.HasPrefix(arg, "-"):
-			return false, usageError("unknown option: " + arg)
-		case !hasPath:
-			path, hasPath = arg, true
-		default:
-			return false, usageError("unexpected argument: " + arg)
-		}
-	}
+func (c ReplayInspectCmd) Run(a *app) error {
+	return a.replayAnalysis(c.Path, "", false, c.Data, c.Out)
+}
+
+func (c ReplayLatestCmd) Run(a *app) error {
+	return a.replayAnalysis("", derefFlag(c.Dir), c.Dir != nil, c.Data, c.Out)
+}
+
+func (a *app) replayAnalysis(path, directory string, explicitDir, includeData bool, out *string) error {
 	var target string
-	if useLatest {
-		if hasPath {
-			return false, usageError("replay latest accepts no replay path")
-		}
+	if explicitDir {
 		var err error
-		if !hasDirectory {
-			directory = ""
-		}
-		if target, err = findLatest(directory, hasDirectory); err != nil {
-			return false, err
+		if target, err = findLatest(directory); err != nil {
+			return err
 		}
 	} else {
-		if hasDirectory {
-			return false, usageError("--dir is only valid for replay latest")
-		}
-		if !hasPath {
-			return false, usageError("replay inspect requires a .tbreplay or data.replay path")
-		}
 		target = path
 	}
 	analysis, err := replay.AnalyzeReplay(target, replay.Options{IncludeData: includeData})
 	if err != nil {
-		return false, err
+		return err
 	}
-	if hasOut {
+	if out != nil {
 		data, err := jsonx.MarshalIndent(analysis)
 		if err != nil {
-			return false, blitz.NewError("JSON_SERIALIZE_FAILED", err.Error())
+			return blitz.NewError("JSON_SERIALIZE_FAILED", err.Error())
 		}
-		if err := os.WriteFile(out, data, 0o666); err != nil {
-			return false, blitz.ErrorAt("IO_ERROR", "cannot write the replay JSON: "+blitz.IOMessage(err), out)
+		if err := os.WriteFile(*out, data, 0o666); err != nil {
+			return blitz.ErrorAt("IO_ERROR", "cannot write the replay JSON: "+blitz.IOMessage(err), *out)
 		}
 	}
 	if a.json {
 		a.printJSON(analysis)
 	} else {
 		a.printReplaySummary(analysis)
-		if hasOut {
-			a.printf("json: %s\n", out)
+		if out != nil {
+			a.printf("json: %s\n", *out)
 		}
 	}
-	return true, nil
+	return nil
 }
 
-func findLatest(directory string, explicit bool) (string, error) {
-	if explicit && directory == "" {
+func findLatest(directory string) (string, error) {
+	if directory == "" {
 		// An empty explicit directory cannot be scanned.
 		return "", blitz.IOError("cannot scan the replay folder", "", os.ErrNotExist)
 	}

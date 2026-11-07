@@ -11,55 +11,26 @@ import (
 	blitz "github.com/thecoooler/blitz-client"
 	"github.com/thecoooler/blitz-client/game"
 	"github.com/thecoooler/blitz-client/internal/jsonx"
-	"github.com/thecoooler/blitz-client/internal/rs"
 )
 
-func (a *app) runGame(args []string) (bool, error) {
-	if len(args) == 0 || args[0] != "status" {
-		return false, usageError("expected game status")
+func (c GameStatusCmd) Run(a *app) error {
+	if c.PollMS == 0 {
+		return usageError("--poll-ms requires milliseconds between 1 and 86400000")
 	}
-	var options game.Options
-	watch := false
-	pollMS := uint64(500)
-	for index := 1; index < len(args); index++ {
-		switch arg := args[index]; {
-		case arg == "--process-name":
-			value, err := optionValue(args, &index, "--process-name requires a name")
-			if err != nil {
-				return false, err
-			}
-			options.ProcessNames = append(options.ProcessNames, value)
-		case arg == "--watch":
-			watch = true
-		case arg == "--poll-ms":
-			index++
-			var value uint64
-			var err error = errors.New("missing")
-			if index < len(args) {
-				value, err = rs.ParseUint(args[index], 64)
-			}
-			if err != nil || value == 0 || value > 86_400_000 {
-				return false, usageError("--poll-ms requires milliseconds between 1 and 86400000")
-			}
-			pollMS = value
-		case strings.HasPrefix(arg, "-"):
-			return false, usageError("unknown option: " + arg)
-		default:
-			return false, usageError("unexpected argument: " + arg)
-		}
-	}
+	options := game.Options{ProcessNames: c.ProcessNames}
+	pollMS := uint64(c.PollMS)
 
-	if !watch {
+	if !c.Watch {
 		state, err := game.Detect(options)
 		if err != nil {
-			return false, blitz.NewError("GAME_DETECT_FAILED", err.Error())
+			return blitz.NewError("GAME_DETECT_FAILED", err.Error())
 		}
 		if a.json {
 			a.printJSON(state)
 		} else {
 			a.printGameState(state)
 		}
-		return true, nil
+		return nil
 	}
 
 	// --watch prints one NDJSON state per change until interrupted.
@@ -81,9 +52,9 @@ func (a *app) runGame(args []string) (bool, error) {
 		}
 	})
 	if err := context.Cause(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func (a *app) printGameState(state game.State) {
