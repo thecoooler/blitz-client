@@ -88,6 +88,7 @@ Snapshot = {
   tanks: Tank[],
   localization?: { ru: { [localizationKey: string]: string | null } },
   maps?: { maps: { [name: string]: Map } }, // the raw maps.yaml document, keys sorted
+  modes?: GameMode[],
   components?: { [nation: string]: { [kind: string]: XMLValue } },
   equipment?: { devices: XMLValue, slots: XMLValue },
   provisions?: { [mode: string]: XMLValue },
@@ -105,6 +106,26 @@ Snapshot = {
 `shadowMapsAvailable`, `supremacyPointsThreshold`, `levels` and
 `assaultRespawnPoints` (`allies`/`enemies` arrays of
 `{ respawnNumber, points: [[x, y], …] }`).
+
+`GameMode` is one battle mode named by the client's hangar UI:
+
+```text
+GameMode = {
+  id: string,                     // client mode string, e.g. "regular", "bossmode"
+  name: string,                   // localization key, e.g. "battleType/regular"
+  description: string | null,     // localization key or null
+  shortDescription: string | null // localization key or null
+}
+```
+
+The client offers its battle modes through a build-time enum, not one resource
+document. `modes` therefore lists the modes the exporter knows for this client
+release in display order and resolves their text through `localization.ru`.
+IDs match the client's `battleType/<id>` localization keys. A few client
+builds spell a description key differently from the mode ID; those keys are
+listed explicitly. Server-side availability, allowed levels, squad limits and
+event schedules are not client data and are not exported. `modes` is present
+only when `data` is selected.
 
 Require `format == "blitz-client"` and `version == 1`. Unknown versions must be
 rejected; additional fields may be introduced without changing the version.
@@ -477,7 +498,7 @@ Guarantees of the typed readers:
 
 - Every value in `tanks[].metadata/parameters/configuration`, `localization`,
   `maps`, `components`, `equipment`, `provisions`, all 23 `settings`
-  documents, `hangarParameters`, `crewSkills` and `issues` is decoded into a
+  documents, `hangarParameters`, `crewSkills`, `modes` and `issues` is decoded into a
   named type; the data sections hold no `any` or `json.RawMessage`.
   Dictionaries keyed by game identifiers are `map[string]Optional[T]`.
 - `Optional[T]` distinguishes an absent field (`!Present()`), explicit `null`

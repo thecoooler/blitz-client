@@ -3,6 +3,10 @@
 - **Client resources**: installed files under the client's `Data` directory.
   Resources may be plain files or DVPL containers.
 - **Showroom model**: a paired SC2 scene and SCG geometry resource for a tank.
+- **Battle mode**: a hangar battle type identified by the client's mode string,
+  such as `regular` or `bossmode`. Its name, description, and short description
+  are localization keys; availability, level limits, and event schedules are
+  server data and are not inferred.
 - **Model discovery**: finding tanks with both showroom model files. The tank
   identifier comes from the vehicle XML node name. Localization, `userString`,
   and level are optional; without a localized name, the identifier supplies the

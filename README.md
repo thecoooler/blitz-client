@@ -102,8 +102,10 @@ blitz-client client export --output-dir "/path/to/export-maps" --include maps
 
 `client export` is the only game-data export command. It writes one versioned
 `data.json`, with all properties and media references of each tank in one record.
-Shared components, equipment, presets, provisions and localization live once in
-that same file. Crew skill definitions, effect parameters and activation conditions
+Shared components, equipment, presets, provisions, battle modes and localization
+live once in that same file. The `modes` array lists the client's battle modes
+with localization keys for their names and descriptions. Crew skill definitions,
+effect parameters and activation conditions
 are included by `data`; localization fields retain their source keys. Supply
 `--server-config /path/to/server_config_*.dat` to add training levels, XP prices
 and acceleration economics from a local server cache. Without it, skill `levels`
