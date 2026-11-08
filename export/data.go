@@ -38,6 +38,7 @@ type Snapshot struct {
 	Tanks             []SnapshotTank            `json:"tanks"`
 	Localization      *Localization             `json:"localization,omitempty"`
 	Maps              *RawMaps                  `json:"maps,omitempty"`
+	Modes             []client.ClientGameMode   `json:"modes,omitempty"`
 	Components        map[string]map[string]any `json:"components,omitempty"`
 	Equipment         any                       `json:"equipment,omitempty"`
 	Provisions        map[string]any            `json:"provisions,omitempty"`
@@ -309,6 +310,7 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 	if !data {
 		return s, nil
 	}
+	s.Modes = client.GameModes()
 	ru, err := r.read("Strings/ru.yaml")
 	if err != nil {
 		return nil, err

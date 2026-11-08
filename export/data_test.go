@@ -61,6 +61,49 @@ func TestCrewSkillsExport(t *testing.T) {
 	}
 }
 
+func TestGameModesExport(t *testing.T) {
+	f, o := fullDataFixture(t)
+	o.Include = []string{"data"}
+	f.write("game/Data/Strings/ru.yaml", "\"battleType/regular\": \"Обычный бой\"\n\"hangar/battleType/regularDescription\": \"Базовый режим боя.\"\n")
+	if _, err := ExportClient(o); err != nil {
+		t.Fatal(err)
+	}
+	s, err := ReadClientExport(o.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Modes) == 0 || s.Modes[0].ID != "regular" || s.Modes[0].Name != "battleType/regular" {
+		t.Fatalf("modes: %+v", s.Modes)
+	}
+	if s.Localization.RU["battleType/regular"] == nil || *s.Modes[0].Description != "hangar/battleType/regularDescription" {
+		t.Fatalf("mode localization key lost: %+v", s.Modes[0])
+	}
+	tournament := false
+	for _, mode := range s.Modes {
+		if mode.ID == "tournament" {
+			tournament = true
+			if mode.Description != nil || mode.Name != "battleResults/Footer/Tournament" {
+				t.Fatalf("tournament mode: %+v", mode)
+			}
+		}
+	}
+	if !tournament {
+		t.Fatal("tournament mode missing")
+	}
+	o.Include = []string{"icons"}
+	o.OutputDir = f.path("icons-output")
+	if _, err := ExportClient(o); err != nil {
+		t.Fatal(err)
+	}
+	icons, err := ReadClientExport(o.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if icons.Modes != nil {
+		t.Fatalf("icons export read modes: %+v", icons.Modes)
+	}
+}
+
 func TestHangarParametersExport(t *testing.T) {
 	for _, include := range [][]string{{"data"}, {"icons"}} {
 		t.Run(strings.Join(include, ","), func(t *testing.T) {
