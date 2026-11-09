@@ -22,7 +22,8 @@
 
 The catalog module owns these distinct validation rules. Combined catalog
 discovery shares vehicle-list and localization reads between metadata and
-showroom-model results.
+showroom-model results. The client export consumes the same source readers and
+projects them into its snapshot shapes instead of parsing these files again.
 
 # Item and icon vocabulary
 

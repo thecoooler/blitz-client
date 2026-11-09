@@ -16,7 +16,6 @@ import (
 	"github.com/thecoooler/blitz-client/internal/glob"
 	"github.com/thecoooler/blitz-client/internal/pathx"
 	"github.com/thecoooler/blitz-client/internal/rs"
-	"github.com/thecoooler/blitz-client/resources"
 )
 
 // ClientFileType is a category of unpacked client files.
@@ -136,7 +135,7 @@ func ExportClientFilesWithProgress(options ClientFilesExportOptions, progress fu
 	if progress == nil {
 		progress = func(*ClientFilesExportReport) error { return nil }
 	}
-	if options.NoCache && options.CacheDir != "" {
+	if exportCacheConflict(options.CacheDir, options.NoCache) {
 		return nil, blitz.NewError("FILE_EXPORT_OPTIONS_INVALID", "cache_dir and no_cache cannot be combined")
 	}
 	exclusions := make([]*glob.Pattern, 0, len(options.Exclude))
@@ -151,42 +150,25 @@ func ExportClientFilesWithProgress(options ClientFilesExportOptions, progress fu
 		}
 		exclusions = append(exclusions, pattern)
 	}
-	game, err := client.ResolveGameDir(options.GameDir)
+	roots, err := openExportRoots(exportSessionOptions{
+		GameDir:   options.GameDir,
+		CacheDir:  options.CacheDir,
+		NoCache:   options.NoCache,
+		OutputDir: options.OutputDir,
+	})
 	if err != nil {
+		var overlap *outputOverlapError
+		if errors.As(err, &overlap) {
+			return nil, blitz.ErrorAt("FILE_EXPORT_OUTPUT_INVALID", overlap.Error(), overlap.output)
+		}
 		return nil, err
 	}
-	resourceDir, err := canonicalDirectory(game.ResourceDir)
-	if err != nil {
-		return nil, err
-	}
+	resourceDir := roots.ResourceDir
+	outputDir := roots.OutputDir
 	var cacheDir *string
-	switch {
-	case options.NoCache:
-	case options.CacheDir != "":
-		path, err := canonicalDirectory(options.CacheDir)
-		if err != nil {
-			return nil, err
-		}
-		cacheDir = &path
-	case game.CacheDir != nil && isDir(*game.CacheDir):
-		path, err := canonicalDirectory(*game.CacheDir)
-		if err != nil {
-			return nil, err
-		}
-		cacheDir = &path
-	}
-	outputDir, err := resolveOutputPath(options.OutputDir)
-	if err != nil {
-		return nil, err
-	}
-	sources := []string{resourceDir}
-	if cacheDir != nil {
-		sources = append(sources, *cacheDir)
-	}
-	for _, source := range sources {
-		if pathx.HasPrefix(outputDir, source) || pathx.HasPrefix(source, outputDir) {
-			return nil, blitz.ErrorAt("FILE_EXPORT_OUTPUT_INVALID", "output and source directories must not overlap", outputDir)
-		}
+	if roots.CacheDir != "" {
+		cache := roots.CacheDir
+		cacheDir = &cache
 	}
 
 	files := map[string]sourceFile{}
@@ -269,11 +251,9 @@ func ExportClientFilesWithProgress(options ClientFilesExportOptions, progress fu
 		}
 		report.SourceBytes += uint64(len(data))
 		if source.packed {
-			decoded, kind, err := resources.DecodeDVPL(data)
+			decoded, kind, err := client.DecodeClientAsset(data, source.path)
 			if err != nil {
-				typed := *blitz.AsError(err)
-				typed.Path = source.path
-				return nil, &typed
+				return nil, err
 			}
 			if !kind.DVPL {
 				return nil, blitz.ErrorAt("DVPL_INVALID", "file with .dvpl extension has no DVPL footer", source.path)
@@ -328,6 +308,11 @@ func unpackedPath(path string) string {
 
 func collectFiles(root string, options ClientFilesExportOptions, fromCache bool, files map[string]sourceFile, skipped *int) error {
 	local := map[string]sourceFile{}
+	// spellings detects two files that differ only in case on a filesystem
+	// that would treat them as one name. A plain file and its .dvpl sibling
+	// are the same resource; plain and packed names are tracked separately.
+	plainSpellings := map[string]string{}
+	packedSpellings := map[string]string{}
 	directories := []string{root}
 	selectAll := len(options.Types) == 0 || slices.Contains(options.Types, FileTypeAll)
 	for len(directories) > 0 {
@@ -357,6 +342,17 @@ func collectFiles(root string, options ClientFilesExportOptions, fromCache bool,
 			packed := isPacked(path)
 			relative, _ := filepath.Rel(root, path)
 			relative = unpackedPath(relative)
+			logical, _ := client.LogicalResourceKey(filepath.ToSlash(relative), false)
+			folded, _ := client.LogicalResourceKey(filepath.ToSlash(relative), client.CaseInsensitiveFS())
+			spellings := plainSpellings
+			if packed {
+				spellings = packedSpellings
+			}
+			if previous, ok := spellings[folded]; ok && previous != logical {
+				return blitz.ErrorAt("CLIENT_RESOURCE_COLLISION",
+					"client files differ only in case: "+previous+" and "+logical, path)
+			}
+			spellings[folded] = logical
 			if previous, ok := local[relative]; !ok || (previous.packed && !packed) {
 				local[relative] = sourceFile{path: path, packed: packed, fromCache: fromCache}
 			}

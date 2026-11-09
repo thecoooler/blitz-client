@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// StrictDataSnapshot represents a v1 data-only export using typed values. It
+// StrictDataSnapshot represents a v1 data-only export using typed values and is
+// the projection returned by ReadStrictDataExport and DecodeStrictDataExport. It
 // does not include media or server-config training, which the reader rejects.
 // The schema describes observed wire shapes, not game semantics or references.
 // Future game versions may require schema updates.
@@ -41,11 +42,12 @@ type StrictDataTank struct {
 	Configuration Optional[StrictTankConfiguration] `json:"configuration,omitzero"`
 }
 
-// DecodeStrictDataExport reads a single data-only export. It rejects unknown
-// settings documents, media attachments and server-config training because
-// their contents are not covered by this schema. For those inputs use
-// DecodePartialClientExport, which explicitly reports every unvalidated part.
-// Numbers retain their original spelling; selection arrays retain their order.
+// DecodeStrictDataExport reads a single data-only export and returns the typed
+// StrictDataSnapshot projection. It rejects unknown settings documents, media
+// attachments and server-config training because their contents are not covered
+// by this schema. For those inputs use DecodePartialClientExport, which
+// explicitly reports every unvalidated part. Numbers retain their original
+// spelling; selection arrays retain their order.
 func DecodeStrictDataExport(r io.Reader) (*StrictDataSnapshot, error) {
 	s, err := DecodePartialClientExport(r)
 	if err != nil {
@@ -54,7 +56,8 @@ func DecodeStrictDataExport(r io.Reader) (*StrictDataSnapshot, error) {
 	return requireFullyTypedData(s)
 }
 
-// ReadStrictDataExport reads data.json in directory using DecodeStrictDataExport.
+// ReadStrictDataExport reads data.json in directory using
+// DecodeStrictDataExport and returns the typed StrictDataSnapshot projection.
 func ReadStrictDataExport(directory string) (*StrictDataSnapshot, error) {
 	s, err := ReadPartialClientExport(directory)
 	if err != nil {

@@ -145,7 +145,8 @@ Encoding options apply only to model conversion:
 - `--no-pbr` skips PBR maps and `model.pbr.bin`, keeping base-color textures only.
 
 The full contract and consumer examples are in [Game data export](docs/game-data-export.md).
-Go consumers can call `export.ReadClientExport(directory)` to load any selection.
+Go consumers can call `export.ReadClientExport(directory)` to load any selection,
+or `export.DecodeClientExport(reader)` for an `io.Reader`.
 `export.ReadStrictDataExport(directory)` validates a data-only export against typed
 structs, keeping exact numbers, absent vs. null fields and array order;
 `export.ReadPartialClientExportLenient` returns warnings instead of failing on
@@ -180,6 +181,15 @@ schemas and asset layout.
 The library's `client.DiscoverClientCatalog` also provides localized item,
 shell type and crew skill summaries through `ClientItems`. These summaries
 remain available independently of the snapshot exporter.
+
+The catalog package also exposes its shared source readers:
+`client.ReadAvailableNations`, `client.ReadLocalization`,
+`client.ReadVehicleList`, and `client.ReadMapsDocument`. They accept a
+`client.CatalogSource` (`*client.Resources` satisfies it), so the exporter and
+library callers use the same parsing, aliases and validation while each keeps
+its own output projection. `client.DecodeLocalization`,
+`client.DecodeMapsDocument`, and `client.ParseCrewSkills` provide the same
+parsers for already-read documents.
 
 ## Unpacked client files
 
@@ -297,7 +307,7 @@ Live telemetry uses the same packet layouts as inspect and keeps previous HP per
 
 Errors go to stderr, including with `--json`; follow always writes compact NDJSON. `--out <new-path>` writes to a new file instead of stdout and refuses to overwrite existing files. Ctrl+C stops following. `--idle-timeout-ms <N>` optionally stops after no new bytes or session resets for the specified duration (also applies while waiting for creation). An idle timeout does not certify a complete replay and may leave an incomplete frame unreported.
 
-Following expects append-only writes within a session. It detects replacement by file identity (device/inode on Unix, creation time elsewhere), observed truncation, and changes to the last 64 read bytes. A rewrite that restores those same bytes can escape detection. Consumer callbacks run synchronously, providing backpressure without accumulating the whole live history. The library exposes `replay.StreamDecoder` (`Feed`, `Finish`), `TelemetryDecoder.OnPacket`, and `Follower.Poll`; callers control scheduling and cancellation. Payload size is limited to 16 MiB. Actual latency also depends on how frequently the game flushes its recording buffer.
+Following expects append-only writes within a session. It detects replacement by file identity (device/inode on Unix, creation time elsewhere), observed truncation, and changes to the last 64 read bytes. A rewrite that restores those same bytes can escape detection. Consumer callbacks run synchronously, providing backpressure without accumulating the whole live history. The library exposes `replay.StreamDecoder` (`Feed`, `Finish`), `TelemetryDecoder.OnPacket` (JSON-ready live telemetry) and `TelemetryDecoder.OnPacketUpdate` (the typed per-packet update behind it), and `Follower.Poll`; callers control scheduling and cancellation. Payload size is limited to 16 MiB. Actual latency also depends on how frequently the game flushes its recording buffer.
 
 `client locate` also returns `replay_dir` in JSON and prints the replay directory
 in text output. This is the fixed OS path, independent of `--game-dir`, and is
@@ -885,6 +895,12 @@ func main() {
 	_, _, _ = tanks, catalog, exported
 }
 ```
+
+For direct access to logical client resources, `client.OpenResources(dataDir, cacheDir)`
+returns a `*client.Resources` whose `Open`, `Exists`, `List`, and `Path` methods
+apply the same cache-over-Data precedence, plain-over-DVPL selection, and DVPL
+decoding as the exporters. On Windows and macOS lookups follow the filesystem's
+case-insensitive rules.
 
 Errors are `*blitzclient.Error` values with `Code`, `Message`, and an optional
 `Path`; use `blitzclient.AsError(err)` to recover them. The replay API follows the

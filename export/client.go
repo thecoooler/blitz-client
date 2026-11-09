@@ -12,7 +12,6 @@ import (
 
 	blitz "github.com/thecoooler/blitz-client"
 	"github.com/thecoooler/blitz-client/client"
-	"github.com/thecoooler/blitz-client/internal/pathx"
 )
 
 // ClientExportOptions configures the single client snapshot format.
@@ -94,7 +93,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	if err != nil {
 		return nil, blitz.NewError("USAGE", err.Error())
 	}
-	if o.NoCache && o.CacheDir != "" {
+	if exportCacheConflict(o.CacheDir, o.NoCache) {
 		return nil, blitz.NewError("USAGE", "--cache-dir and --no-cache cannot be combined")
 	}
 	if o.ServerConfig != "" && !slices.Contains(included, "data") {
@@ -109,48 +108,26 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 			return nil, err
 		}
 	}
-	game, err := client.ResolveGameDir(o.GameDir)
+	roots, err := openExportRoots(exportSessionOptions{
+		GameDir:            o.GameDir,
+		CacheDir:           o.CacheDir,
+		NoCache:            o.NoCache,
+		OutputDir:          o.OutputDir,
+		RequireEmptyOutput: true,
+	})
 	if err != nil {
 		return nil, err
 	}
-	// Canonical roots keep the overlap check below correct for symlinked Data.
-	resourceDir, err := canonicalDirectory(game.ResourceDir)
-	if err != nil {
-		return nil, err
-	}
-	roots := []string{resourceDir}
-	cache := o.CacheDir
-	if cache == "" && !o.NoCache && game.CacheDir != nil && isDir(*game.CacheDir) {
-		cache = *game.CacheDir
-	}
-	if cache != "" {
-		cache, err = canonicalDirectory(cache)
-		if err != nil {
-			return nil, err
-		}
-		roots = append(roots, cache)
-	}
-	out, err := resolveOutputPath(o.OutputDir)
-	if err != nil {
-		return nil, err
-	}
-	for _, root := range roots {
-		if pathx.HasPrefix(out, root) || pathx.HasPrefix(root, out) {
-			return nil, fmt.Errorf("output and source directories must not overlap")
-		}
-	}
-	entries, err := os.ReadDir(out)
-	existed := err == nil
-	if existed && len(entries) != 0 {
-		return nil, fmt.Errorf("export requires a new or empty output directory: %s", out)
-	} else if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
+	out := roots.OutputDir
 	defer func() {
 		if err != nil {
-			removeExportOutput(out, existed)
+			removeExportOutput(out, roots.OutputExisted)
 		}
 	}()
+	clientResources, err := client.OpenResources(roots.ResourceDir, roots.CacheDir)
+	if err != nil {
+		return nil, err
+	}
 	files := map[string]sourceFile{}
 	skipped := 0
 	types := []ClientFileType{FileTypeConfigs}
@@ -160,12 +137,12 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	if slices.Contains(included, "models") {
 		types = append(types, FileTypeModels)
 	}
-	for i, root := range roots {
+	for i, root := range roots.sources() {
 		if err := collectFiles(root, ClientFilesExportOptions{Types: types}, i > 0, files, &skipped); err != nil {
 			return nil, err
 		}
 	}
-	snapshot, err := extractSnapshot(files, included, out)
+	snapshot, err := extractSnapshot(clientResources, files, included, out)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +150,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	var itemsFile string
 	var missingItemIcons []string
 	if slices.Contains(included, "icons") {
-		if iconReport, itemsFile, missingItemIcons, err = exportItemIcons(resourceDir, out); err != nil {
+		if iconReport, itemsFile, missingItemIcons, err = exportItemIcons(clientResources, roots.ResourceDir, out); err != nil {
 			return nil, err
 		}
 	}
@@ -186,25 +163,25 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 		client.ApplyCrewSkillTraining(snapshot.CrewSkills, training)
 	}
 	if slices.Contains(included, "models") {
-		if err := exportModels(snapshot, filesResolver(files), filepath.Join(out, "assets/tanks"), &o.ModelOptions); err != nil {
+		if err := exportModels(snapshot, resourcesResolver(clientResources), filepath.Join(out, "assets/tanks"), &o.ModelOptions); err != nil {
 			return nil, err
 		}
 	}
 	var mapReport *MapExportReport
 	if slices.Contains(included, "maps") {
-		if mapReport, err = exportMaps(resourceDir, out, snapshot); err != nil {
+		if mapReport, err = exportMaps(roots.ResourceDir, out, snapshot); err != nil {
 			return nil, err
 		}
 	}
 	var mechanicReport *MechanicExportReport
 	if slices.Contains(included, "mechanics") {
-		if mechanicReport, err = exportMechanics(files, resourceDir, out, snapshot); err != nil {
+		if mechanicReport, err = exportMechanics(files, roots.ResourceDir, out, snapshot); err != nil {
 			return nil, err
 		}
 	}
 	var modeReport *ModeExportReport
 	if slices.Contains(included, "modes") {
-		if modeReport, err = exportGameModes(files, resourceDir, out, snapshot); err != nil {
+		if modeReport, err = exportGameModes(files, roots.ResourceDir, out, snapshot); err != nil {
 			return nil, err
 		}
 	}
@@ -227,7 +204,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 // exportItemIcons writes the item icon sets, their catalog and items.json.
 // The item definitions and UI sprite mappings are read from the client's Data
 // directory, like the icon resources themselves.
-func exportItemIcons(resourceDir, out string) (*IconExportReport, string, []string, error) {
+func exportItemIcons(resources *client.Resources, resourceDir, out string) (*IconExportReport, string, []string, error) {
 	items, err := client.ReadClientItems(resourceDir)
 	if err != nil {
 		return nil, "", nil, err
@@ -236,7 +213,7 @@ func exportItemIcons(resourceDir, out string) (*IconExportReport, string, []stri
 	if err != nil {
 		return nil, "", nil, err
 	}
-	report, index, err := exportIcons(resourceDir, out, existingIconSets(resourceDir, iconSets), itemIconReferences(items, sprites))
+	report, index, err := exportIconsWithResources(resources, resourceDir, out, existingIconSets(resources, iconSets), itemIconReferences(items, sprites))
 	if err != nil {
 		return nil, "", nil, err
 	}

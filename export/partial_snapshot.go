@@ -4,15 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 )
 
 // PartialSnapshot is a v1 export in which every data section is decoded with
 // the strict schema, while sections without a schema stay raw: tank icons and
-// model media, crewSkillTraining and unknown settings documents. Raw parts are
-// preserved but not validated; UnvalidatedSections lists those present in this
-// document. DecodeStrictDataExport rejects any document that has them.
+// model media, crewSkillTraining and unknown settings documents. It is the
+// typed projection returned by ReadPartialClientExport and
+// DecodePartialClientExport. Raw parts are preserved but not validated;
+// UnvalidatedSections lists those present in this document.
+// DecodeStrictDataExport rejects any document that has them.
 //
 // The typed schemas describe the currently observed data and may reject new
 // fields or shapes in later game versions.
@@ -54,21 +54,21 @@ type PartialSnapshotTank struct {
 }
 
 // ReadPartialClientExport reads data.json in directory with
-// DecodePartialClientExport.
+// DecodePartialClientExport and returns the typed PartialSnapshot projection.
 func ReadPartialClientExport(directory string) (*PartialSnapshot, error) {
 	s, _, err := readPartialClientExport(directory, schemaOptions{})
 	return s, err
 }
 
 // ReadPartialClientExportLenient reads data.json in directory with
-// DecodePartialClientExportLenient.
+// DecodePartialClientExportLenient and returns the typed PartialSnapshot
+// projection.
 func ReadPartialClientExportLenient(directory string) (*PartialSnapshot, []SchemaWarning, error) {
 	return readPartialClientExport(directory, schemaOptions{lenient: true})
 }
 
 func readPartialClientExport(directory string, options schemaOptions) (*PartialSnapshot, []SchemaWarning, error) {
-	path := filepath.Join(directory, "data.json")
-	data, err := os.ReadFile(path)
+	path, data, err := readExportDocument(directory)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -80,11 +80,12 @@ func readPartialClientExport(directory string, options schemaOptions) (*PartialS
 }
 
 // DecodePartialClientExport reads a single v1 JSON document of any --include
-// selection. Every data section is validated with the strict schema; media and
-// crewSkillTraining stay raw and are listed in UnvalidatedSections. Numbers
-// retain their spelling, absent and null fields stay distinct, and arrays keep
-// their order. Errors are *SchemaError values with the JSON path of the
-// offending value, or JSON syntax errors.
+// selection and returns the typed PartialSnapshot projection. Every data
+// section is validated with the strict schema; media and crewSkillTraining stay
+// raw and are listed in UnvalidatedSections. Numbers retain their spelling,
+// absent and null fields stay distinct, and arrays keep their order. Errors are
+// *SchemaError values with the JSON path of the offending value, or JSON syntax
+// errors.
 func DecodePartialClientExport(r io.Reader) (*PartialSnapshot, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -95,7 +96,8 @@ func DecodePartialClientExport(r io.Reader) (*PartialSnapshot, error) {
 }
 
 // DecodePartialClientExportLenient is DecodePartialClientExport for data that
-// may come from a newer game version. Unknown fields are skipped, and a value
+// may come from a newer game version; it returns the same typed PartialSnapshot
+// projection. Unknown fields are skipped, and a value
 // with an unexpected shape or scalar spelling is dropped (the field becomes
 // absent, the dictionary entry or array element is removed); each case is
 // reported as a SchemaWarning. Malformed JSON, duplicate keys, an unsupported
@@ -114,13 +116,7 @@ func decodePartialClientExport(data []byte, options schemaOptions) (*PartialSnap
 	if err != nil {
 		return nil, warnings, err
 	}
-	if s.Format != "blitz-client" || s.Version != 1 {
-		return nil, warnings, fmt.Errorf("unsupported client export %q version %d", s.Format, s.Version)
-	}
-	if len(s.Included) == 0 {
-		return nil, warnings, fmt.Errorf("snapshot is missing included sections")
-	}
-	if _, err := ParseExportIncludes(s.Included); err != nil {
+	if err := validateExportEnvelope(s.Format, s.Version, s.Included); err != nil {
 		return nil, warnings, err
 	}
 	if s.CrewSkillTraining.Present() {

@@ -113,7 +113,8 @@ type SchemaAnalysis struct {
 }
 
 // AnalyzeClientExportSchema decodes a v1 export of any --include selection
-// leniently and collects a SchemaAnalysis.
+// leniently through the typed PartialSnapshot projection and collects a
+// SchemaAnalysis.
 func AnalyzeClientExportSchema(r io.Reader) (*SchemaAnalysis, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {

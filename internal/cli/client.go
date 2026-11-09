@@ -34,19 +34,13 @@ func (c LocateCmd) Run(a *app) error {
 
 func (c FilesUnpackCmd) Run(a *app) error {
 	options := export.NewClientFilesExportOptions(c.OutputDir)
-	if c.GameDir != nil {
-		options.GameDir = *c.GameDir
-	}
-	if c.CacheDir != nil {
-		options.CacheDir = *c.CacheDir
-	}
+	options.GameDir, options.CacheDir, options.NoCache = clientSourceFlags(c.GameDir, c.CacheDir, c.NoCache)
 	if len(c.Exclude) > 0 {
 		options.Exclude = c.Exclude
 	}
 	if len(c.Types) > 0 {
 		options.Types = c.Types
 	}
-	options.NoCache = c.NoCache
 	options.DryRun = c.DryRun
 	if c.CacheDir != nil && *c.CacheDir == "" {
 		return blitz.ErrorAt("FILE_EXPORT_SOURCE_NOT_FOUND", "source directory does not exist", "")
@@ -110,14 +104,9 @@ func (c TanksListCmd) Run(a *app) error {
 
 func (c ClientExportCmd) Run(a *app) error {
 	o := export.NewClientExportOptions(c.OutputDir)
+	o.GameDir, o.CacheDir, o.NoCache = clientSourceFlags(c.GameDir, c.CacheDir, c.NoCache)
 	if len(c.Include) > 0 {
 		o.Include = c.Include
-	}
-	if c.GameDir != nil {
-		o.GameDir = *c.GameDir
-	}
-	if c.CacheDir != nil {
-		o.CacheDir = *c.CacheDir
 	}
 	o.ServerConfig = c.ServerConfig
 	c.MaxTextureSize.apply(&o.ModelOptions)
@@ -130,7 +119,6 @@ func (c ClientExportCmd) Run(a *app) error {
 		}
 		o.ModelOptions.WebPQuality = *c.WebPQuality
 	}
-	o.NoCache = c.NoCache
 	if c.NoCompress {
 		o.ModelOptions.Compress = false
 	}
@@ -166,6 +154,12 @@ func (t textureSize) apply(options *export.TankExportOptions) {
 	case t.width != 0:
 		options.MaxTextureSize = &export.TextureSize{Width: t.width, Height: t.height}
 	}
+}
+
+// clientSourceFlags reads the game and cache flags shared by the client export
+// commands; nil means the flag was not given.
+func clientSourceFlags(gameDir, cacheDir *string, noCache bool) (string, string, bool) {
+	return derefFlag(gameDir), derefFlag(cacheDir), noCache
 }
 
 // derefFlag reads an optional flag value; nil means the flag was not given.

@@ -1,67 +1,58 @@
 package client
 
 import (
-	"encoding/json"
-	"strings"
-	"unicode"
-
-	"github.com/thecoooler/blitz-client/internal/lossy"
-	"github.com/thecoooler/blitz-client/internal/rs"
+	blitz "github.com/thecoooler/blitz-client"
+	"go.yaml.in/yaml/v3"
 )
 
-func readLocalizedNames(dataDir string) (map[string]string, error) {
-	names := make(map[string]string)
-	path := ResolveClientAsset(dataDir, "Strings/ru.yaml")
-	if path == "" {
-		return names, nil
+// Localization is a client localization document. A nil value is an explicit
+// null entry, which is not the same as an absent key.
+type Localization map[string]*string
+
+// Resolved returns the non-null translations. The catalog uses these strings
+// where export preserves the null entries.
+func (localization Localization) Resolved() map[string]string {
+	resolved := make(map[string]string, len(localization))
+	for key, value := range localization {
+		if value != nil {
+			resolved[key] = *value
+		}
 	}
-	data, err := ReadClientAsset(path)
+	return resolved
+}
+
+// DecodeLocalization parses a Strings/ru.yaml document without dropping nulls.
+func DecodeLocalization(data []byte) (Localization, error) {
+	var entries map[string]*string
+	if err := yaml.Unmarshal(data, &entries); err != nil {
+		return nil, err
+	}
+	return Localization(entries), nil
+}
+
+// ReadLocalization reads Strings/ru.yaml. A missing resource yields an empty
+// document, like the catalog's optional localization.
+func ReadLocalization(source CatalogSource) (Localization, error) {
+	const relative = "Strings/ru.yaml"
+	if !source.Exists(relative) {
+		return Localization{}, nil
+	}
+	data, err := source.Open(relative)
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range rs.Lines(lossy.String(data)) {
-		if key, value, ok := parseQuotedYAMLPair(strings.TrimLeftFunc(line, unicode.IsSpace)); ok {
-			names[key] = value
-		}
+	localization, err := DecodeLocalization(data)
+	if err != nil {
+		return nil, blitz.ErrorAt("CLIENT_YAML_INVALID", err.Error(), source.Location(relative))
 	}
-	return names, nil
+	return localization, nil
 }
 
-func parseQuotedYAMLPair(line string) (string, string, bool) {
-	key, consumed, ok := quotedJSONString(line)
-	if !ok {
-		return "", "", false
+// readLocalizedNames is the catalog's resolved-string projection.
+func readLocalizedNames(dataDir string) (map[string]string, error) {
+	localization, err := ReadLocalization(directorySource{dir: dataDir})
+	if err != nil {
+		return nil, err
 	}
-	rest, ok := strings.CutPrefix(strings.TrimLeftFunc(line[consumed:], unicode.IsSpace), ":")
-	if !ok {
-		return "", "", false
-	}
-	rest = strings.TrimLeftFunc(rest, unicode.IsSpace)
-	value, consumed, ok := quotedJSONString(rest)
-	if !ok || strings.TrimSpace(rest[consumed:]) != "" {
-		return "", "", false
-	}
-	return key, value, true
-}
-
-func quotedJSONString(source string) (string, int, bool) {
-	if !strings.HasPrefix(source, `"`) {
-		return "", 0, false
-	}
-	escaped := false
-	for index := 1; index < len(source); index++ {
-		switch {
-		case source[index] == '\\' && !escaped:
-			escaped = true
-		case source[index] == '"' && !escaped:
-			var parsed string
-			if json.Unmarshal([]byte(source[:index+1]), &parsed) != nil {
-				return "", 0, false
-			}
-			return parsed, index + 1, true
-		default:
-			escaped = false
-		}
-	}
-	return "", 0, false
+	return localization.Resolved(), nil
 }

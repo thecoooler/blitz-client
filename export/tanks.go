@@ -66,12 +66,32 @@ func validateTankOptions(options *TankExportOptions) error {
 type assetResolver func(rel string) string
 
 func filesResolver(files map[string]sourceFile) assetResolver {
+	fold := client.CaseInsensitiveFS()
+	indexed := make(map[string]sourceFile, len(files))
+	for relative, source := range files {
+		key, ok := client.LogicalResourceKey(filepath.ToSlash(relative), fold)
+		if !ok {
+			continue
+		}
+		if _, exists := indexed[key]; !exists {
+			indexed[key] = source
+		}
+	}
 	return func(rel string) string {
-		rel = strings.TrimSuffix(path.Clean(strings.ReplaceAll(rel, `\`, "/")), ".dvpl")
-		if !safeDataPath(rel) {
+		key, ok := client.LogicalResourceKey(rel, fold)
+		if !ok {
 			return ""
 		}
-		return files[filepath.FromSlash(rel)].path
+		return indexed[key].path
+	}
+}
+
+// resourcesResolver maps a logical client path to the file selected by the
+// shared Client resources module, including the cache overlay.
+func resourcesResolver(res *client.Resources) assetResolver {
+	return func(rel string) string {
+		file, _ := res.Path(rel)
+		return file
 	}
 }
 
@@ -246,15 +266,7 @@ func readResolved(resolve assetResolver, rel string) ([]byte, error) {
 }
 
 func readDecoded(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, blitz.IOError("could not read resource", path, err)
-	}
-	plain, _, err := resources.DecodeDVPL(data)
-	if err != nil {
-		return nil, fmt.Errorf("could not decode %s: %v", path, err)
-	}
-	return plain, nil
+	return client.ReadClientAsset(path)
 }
 
 // webpEncoderName probes ffmpeg once for a built-in WebP encoder. When ffmpeg
