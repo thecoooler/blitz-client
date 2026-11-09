@@ -113,16 +113,24 @@ func xmlValue(n *xml.Node) any {
 	return value
 }
 
-type snapshotReader struct{ files map[string]sourceFile }
+type snapshotReader struct {
+	resources *client.Resources
+	files     map[string]sourceFile
+}
 
 func (r snapshotReader) read(rel string) ([]byte, error) {
-	f, ok := r.files[filepath.FromSlash(rel)]
-	if !ok {
+	if !r.has(rel) {
 		return nil, blitz.ErrorAt("CLIENT_DATA_MISSING", "required export resource is missing", rel)
 	}
-	return client.ReadClientAsset(f.path)
+	if r.resources != nil {
+		return r.resources.Open(rel)
+	}
+	return client.ReadClientAsset(r.files[filepath.FromSlash(rel)].path)
 }
 func (r snapshotReader) has(rel string) bool {
+	if r.resources != nil {
+		return r.resources.Exists(rel)
+	}
 	_, ok := r.files[filepath.FromSlash(rel)]
 	return ok
 }
@@ -186,8 +194,8 @@ func (r snapshotReader) document(rel string) (any, error) {
 	return v, nil
 }
 
-func extractSnapshot(files map[string]sourceFile, included []string, out string) (*Snapshot, error) {
-	r := snapshotReader{files: files}
+func extractSnapshot(resources *client.Resources, files map[string]sourceFile, included []string, out string) (*Snapshot, error) {
+	r := snapshotReader{resources: resources, files: files}
 	data, icons := slices.Contains(included, "data"), slices.Contains(included, "icons")
 	nations, err := r.availableNations()
 	if err != nil {
@@ -337,7 +345,7 @@ func extractSnapshot(files map[string]sourceFile, included []string, out string)
 		}
 	}
 	for _, name := range []string{"maps.yaml", "maps.yml"} {
-		if _, ok := files[name]; ok {
+		if r.has(name) {
 			b, err := r.read(name)
 			if err != nil {
 				return nil, err
@@ -415,11 +423,11 @@ func extractIcons(r snapshotReader, out string, tank *SnapshotTank, parameters a
 		}
 		if resource != "" {
 			for _, ext := range []string{"", ".packed.webp", "@2x.packed.webp", ".webp", ".png"} {
-				source, ok := r.files[filepath.FromSlash(rel+ext)]
-				if !ok || FileTypeOf(source.path) != FileTypeImages {
+				candidate := rel + ext
+				if !r.has(candidate) || FileTypeOf(candidate) != FileTypeImages {
 					continue
 				}
-				b, err := client.ReadClientAsset(source.path)
+				b, err := r.read(candidate)
 				if err != nil {
 					return err
 				}

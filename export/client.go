@@ -130,6 +130,10 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 		}
 		roots = append(roots, cache)
 	}
+	clientResources, err := client.OpenResources(resourceDir, cache)
+	if err != nil {
+		return nil, err
+	}
 	out, err := resolveOutputPath(o.OutputDir)
 	if err != nil {
 		return nil, err
@@ -165,7 +169,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 			return nil, err
 		}
 	}
-	snapshot, err := extractSnapshot(files, included, out)
+	snapshot, err := extractSnapshot(clientResources, files, included, out)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +177,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	var itemsFile string
 	var missingItemIcons []string
 	if slices.Contains(included, "icons") {
-		if iconReport, itemsFile, missingItemIcons, err = exportItemIcons(resourceDir, out); err != nil {
+		if iconReport, itemsFile, missingItemIcons, err = exportItemIcons(clientResources, resourceDir, out); err != nil {
 			return nil, err
 		}
 	}
@@ -186,7 +190,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 		client.ApplyCrewSkillTraining(snapshot.CrewSkills, training)
 	}
 	if slices.Contains(included, "models") {
-		if err := exportModels(snapshot, filesResolver(files), filepath.Join(out, "assets/tanks"), &o.ModelOptions); err != nil {
+		if err := exportModels(snapshot, resourcesResolver(clientResources), filepath.Join(out, "assets/tanks"), &o.ModelOptions); err != nil {
 			return nil, err
 		}
 	}
@@ -227,7 +231,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 // exportItemIcons writes the item icon sets, their catalog and items.json.
 // The item definitions and UI sprite mappings are read from the client's Data
 // directory, like the icon resources themselves.
-func exportItemIcons(resourceDir, out string) (*IconExportReport, string, []string, error) {
+func exportItemIcons(resources *client.Resources, resourceDir, out string) (*IconExportReport, string, []string, error) {
 	items, err := client.ReadClientItems(resourceDir)
 	if err != nil {
 		return nil, "", nil, err
@@ -236,7 +240,7 @@ func exportItemIcons(resourceDir, out string) (*IconExportReport, string, []stri
 	if err != nil {
 		return nil, "", nil, err
 	}
-	report, index, err := exportIcons(resourceDir, out, existingIconSets(resourceDir, iconSets), itemIconReferences(items, sprites))
+	report, index, err := exportIconsWithResources(resources, resourceDir, out, existingIconSets(resources, iconSets), itemIconReferences(items, sprites))
 	if err != nil {
 		return nil, "", nil, err
 	}

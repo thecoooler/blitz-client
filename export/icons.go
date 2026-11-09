@@ -73,12 +73,12 @@ var iconSets = []iconSet{
 
 // existingIconSets drops source directories missing from the client and sets
 // left without any sources, so uninstalled optional icon folders are not fatal.
-func existingIconSets(resourceDir string, sets []iconSet) []iconSet {
+func existingIconSets(resources *client.Resources, sets []iconSet) []iconSet {
 	out := make([]iconSet, 0, len(sets))
 	for _, set := range sets {
 		var sources []string
 		for _, source := range set.sources {
-			if isDir(filepath.Join(resourceDir, filepath.FromSlash(source))) {
+			if resources.IsDir(source) {
 				sources = append(sources, source)
 			}
 		}
@@ -159,6 +159,9 @@ type iconSource struct {
 	file     string // file on disk, possibly .dvpl
 	scale    int
 	sprite   *sprite.Sprite
+	// resources, when set, resolves referenced atlases through the cache-aware
+	// resource view instead of the Data-only path helper.
+	resources *client.Resources
 }
 
 // iconIndex maps a set ID and a sprite reference to the icon file relative
@@ -172,6 +175,14 @@ type iconIndex map[string]map[string]string
 // previous catalog and absent from the new one are removed; other files are
 // kept.
 func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[string][]string) (*IconExportReport, iconIndex, error) {
+	resources, err := client.OpenResources(resourceDir, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	return exportIconsWithResources(resources, resourceDir, outputDir, sets, references)
+}
+
+func exportIconsWithResources(resources *client.Resources, resourceDir, outputDir string, sets []iconSet, references map[string][]string) (*IconExportReport, iconIndex, error) {
 	catalogPath, err := iconPath(outputDir, "assets/icons/catalog.json")
 	if err != nil {
 		return nil, nil, err
@@ -179,7 +190,7 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 	previous := previousIconFiles(catalogPath)
 	report := &IconExportReport{Catalog: catalogPath}
 	catalog := IconCatalog{FormatVersion: iconCatalogFormatVersion, Sets: []IconSetEntry{}}
-	directories := iconDirectories{resourceDir: resourceDir, cache: map[string]map[string]iconSource{}, textures: map[string]bool{}}
+	directories := iconDirectories{resourceDir: resourceDir, resources: resources, cache: map[string]map[string]iconSource{}, textures: map[string]bool{}}
 	// Discover every directory before selecting icons: an atlas can be named
 	// by a descriptor in another directory or set.
 	for _, set := range sets {
@@ -194,11 +205,10 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 				return nil, nil, err
 			}
 			directory := path.Dir(clean)
-			absolute, err := iconPath(resourceDir, directory)
-			if err != nil {
+			if _, err := iconPath(resourceDir, directory); err != nil {
 				return nil, nil, err
 			}
-			if isDir(absolute) {
+			if resources.IsDir(directory) {
 				if _, err := directories.directory(directory); err != nil {
 					return nil, nil, err
 				}
@@ -277,6 +287,7 @@ func exportIcons(resourceDir, outputDir string, sets []iconSet, references map[s
 // iconDirectories discovers the icons of client directories once each.
 type iconDirectories struct {
 	resourceDir string
+	resources   *client.Resources
 	cache       map[string]map[string]iconSource
 	textures    map[string]bool
 }
@@ -315,11 +326,10 @@ func (d *iconDirectories) set(set iconSet, references []string) ([]iconSource, m
 			return nil, nil, err
 		}
 		directory, name := path.Dir(clean), path.Base(clean)
-		absolute, err := iconPath(d.resourceDir, directory)
-		if err != nil {
+		if _, err := iconPath(d.resourceDir, directory); err != nil {
 			return nil, nil, err
 		}
-		if !isDir(absolute) {
+		if !d.resources.IsDir(directory) {
 			continue
 		}
 		icons, err := d.icons(directory)
@@ -356,19 +366,19 @@ func (d *iconDirectories) directory(directory string) (map[string]iconSource, er
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(absolute)
+	if !d.resources.IsDir(directory) {
+		return nil, blitz.IOError("could not read icon directory", absolute, fs.ErrNotExist)
+	}
+	entries, err := d.resources.List(directory)
 	if err != nil {
-		return nil, blitz.IOError("could not read icon directory", absolute, err)
+		return nil, err
 	}
 	files := map[string]string{}
-	for _, entry := range entries {
-		if entry.Type().IsRegular() {
-			name := unpackedPath(entry.Name())
-			// A plain file takes precedence over its .dvpl sibling.
-			if _, ok := files[name]; !ok || !isPacked(entry.Name()) {
-				files[name] = entry.Name()
-			}
+	for _, logical := range entries {
+		if directory != "." && path.Dir(logical) != directory {
+			continue
 		}
+		files[path.Base(logical)] = logical
 	}
 	if d.textures == nil {
 		d.textures = map[string]bool{}
@@ -380,15 +390,20 @@ func (d *iconDirectories) directory(directory string) (map[string]iconSource, er
 			continue
 		}
 		if strings.ContainsAny(name, `\:`) {
-			return nil, blitz.ErrorAt("ICON_EXPORT_INVALID", "icon file name contains a path separator or drive prefix", filepath.Join(absolute, files[name]))
+			return nil, blitz.ErrorAt("ICON_EXPORT_INVALID", "icon file name contains a path separator or drive prefix", filepath.Join(absolute, name))
+		}
+		logical := files[name]
+		file, ok := d.resources.Path(logical)
+		if !ok {
+			continue
 		}
 		id, double := strings.CutSuffix(stem, "@2x")
-		source := iconSource{id: id, relative: path.Join(directory, name), file: filepath.Join(absolute, files[name]), scale: 1}
+		source := iconSource{id: id, relative: logical, file: file, scale: 1, resources: d.resources}
 		if double {
 			source.scale = 2
 		}
 		if kind == "sprite" {
-			data, err := client.ReadClientAsset(source.file)
+			data, err := d.resources.Open(logical)
 			if err != nil {
 				return nil, err
 			}
@@ -410,7 +425,7 @@ func (d *iconDirectories) directory(directory string) (map[string]iconSource, er
 			}
 		} else {
 			// Packed images may carry their own canvas and frame.
-			data, err := client.ReadClientAsset(source.file)
+			data, err := d.resources.Open(logical)
 			if err != nil {
 				return nil, err
 			}
@@ -509,7 +524,12 @@ func renderIcon(resourceDir string, source iconSource, index int, atlases map[st
 			if _, err := iconPath(resourceDir, texture+".dvpl"); err != nil {
 				return IconEntry{}, nil, err
 			}
-			file := client.ResolveClientAsset(resourceDir, filepath.FromSlash(texture))
+			var file string
+			if source.resources != nil {
+				file, _ = source.resources.Path(texture)
+			} else {
+				file = client.ResolveClientAsset(resourceDir, filepath.FromSlash(texture))
+			}
 			if file == "" {
 				return IconEntry{}, nil, blitz.ErrorAt("ICON_EXPORT_INVALID", "sprite atlas does not exist",
 					filepath.Join(resourceDir, filepath.FromSlash(texture)))

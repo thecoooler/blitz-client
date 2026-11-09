@@ -886,6 +886,12 @@ func main() {
 }
 ```
 
+For direct access to logical client resources, `client.OpenResources(dataDir, cacheDir)`
+returns a `*client.Resources` whose `Open`, `Exists`, `List`, and `Path` methods
+apply the same cache-over-Data precedence, plain-over-DVPL selection, and DVPL
+decoding as the exporters. On Windows and macOS lookups follow the filesystem's
+case-insensitive rules.
+
 Errors are `*blitzclient.Error` values with `Code`, `Message`, and an optional
 `Path`; use `blitzclient.AsError(err)` to recover them. The replay API follows the
 same shape:

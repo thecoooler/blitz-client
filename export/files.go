@@ -16,7 +16,6 @@ import (
 	"github.com/thecoooler/blitz-client/internal/glob"
 	"github.com/thecoooler/blitz-client/internal/pathx"
 	"github.com/thecoooler/blitz-client/internal/rs"
-	"github.com/thecoooler/blitz-client/resources"
 )
 
 // ClientFileType is a category of unpacked client files.
@@ -269,11 +268,9 @@ func ExportClientFilesWithProgress(options ClientFilesExportOptions, progress fu
 		}
 		report.SourceBytes += uint64(len(data))
 		if source.packed {
-			decoded, kind, err := resources.DecodeDVPL(data)
+			decoded, kind, err := client.DecodeClientAsset(data, source.path)
 			if err != nil {
-				typed := *blitz.AsError(err)
-				typed.Path = source.path
-				return nil, &typed
+				return nil, err
 			}
 			if !kind.DVPL {
 				return nil, blitz.ErrorAt("DVPL_INVALID", "file with .dvpl extension has no DVPL footer", source.path)
@@ -328,6 +325,11 @@ func unpackedPath(path string) string {
 
 func collectFiles(root string, options ClientFilesExportOptions, fromCache bool, files map[string]sourceFile, skipped *int) error {
 	local := map[string]sourceFile{}
+	// spellings detects two files that differ only in case on a filesystem
+	// that would treat them as one name. A plain file and its .dvpl sibling
+	// are the same resource; plain and packed names are tracked separately.
+	plainSpellings := map[string]string{}
+	packedSpellings := map[string]string{}
 	directories := []string{root}
 	selectAll := len(options.Types) == 0 || slices.Contains(options.Types, FileTypeAll)
 	for len(directories) > 0 {
@@ -357,6 +359,17 @@ func collectFiles(root string, options ClientFilesExportOptions, fromCache bool,
 			packed := isPacked(path)
 			relative, _ := filepath.Rel(root, path)
 			relative = unpackedPath(relative)
+			logical, _ := client.LogicalResourceKey(filepath.ToSlash(relative), false)
+			folded, _ := client.LogicalResourceKey(filepath.ToSlash(relative), client.CaseInsensitiveFS())
+			spellings := plainSpellings
+			if packed {
+				spellings = packedSpellings
+			}
+			if previous, ok := spellings[folded]; ok && previous != logical {
+				return blitz.ErrorAt("CLIENT_RESOURCE_COLLISION",
+					"client files differ only in case: "+previous+" and "+logical, path)
+			}
+			spellings[folded] = logical
 			if previous, ok := local[relative]; !ok || (previous.packed && !packed) {
 				local[relative] = sourceFile{path: path, packed: packed, fromCache: fromCache}
 			}
