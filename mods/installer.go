@@ -228,9 +228,11 @@ func ValidateMod(modPath, gameDir string) (*ValidationReport, error) {
 	}
 
 	files := []FileValidation{}
-	occupied := map[string]string{}
+	planner := newTargetPlanner(game, state, manifest, func(string) error {
+		return blitz.NewError("MANIFEST_DUPLICATE_TARGET", "multiple entries resolve to the same game file")
+	})
 	for _, logicalPath := range paths {
-		target, size, err := validateTarget(game, state, manifest, logicalPath, occupied)
+		target, size, err := validateTarget(planner, logicalPath)
 		if err != nil {
 			typed := blitz.AsError(err)
 			var targetPath *string
@@ -254,52 +256,12 @@ func ValidateMod(modPath, gameDir string) (*ValidationReport, error) {
 	}, nil
 }
 
-func validateTarget(game *client.ResolvedGameDir, state *installerState, manifest *Manifest, logicalPath string,
-	occupied map[string]string) (string, int, error) {
-	target, err := resolveLogicalTarget(game, logicalPath)
+func validateTarget(planner *targetPlanner, logicalPath string) (string, int, error) {
+	plan, err := planner.plan(logicalPath)
 	if err != nil {
 		return "", 0, err
 	}
-	key := lowerKey(target)
-	previous, exists := occupied[key]
-	occupied[key] = logicalPath
-	if exists && previous != logicalPath {
-		return "", 0, blitz.NewError("MANIFEST_DUPLICATE_TARGET", "multiple entries resolve to the same game file")
-	}
-	current, err := os.ReadFile(target)
-	if err != nil {
-		return "", 0, blitz.IOError("could not read game resource", target, err)
-	}
-	snapshot, crc, managed, err := managedResource(state, target)
-	if err != nil {
-		return "", 0, err
-	}
-	base := current
-	if managed {
-		if resources.CRC32(current) != crc {
-			return "", 0, blitz.ErrorAt("INSTALLED_FILE_CHANGED", "managed resource changed outside the installer", target)
-		}
-		if base, err = readBaseSnapshot(game, target, snapshot); err != nil {
-			return "", 0, err
-		}
-	}
-	added, err := newOperations(manifest, logicalPath)
-	if err != nil {
-		return "", 0, err
-	}
-	operations := otherOperations(state, manifest.ID, target)
-	for _, operation := range added {
-		operations = append(operations, modOperation{manifest.ID, operation})
-	}
-	sortByMod(operations)
-	if len(operations) == 0 {
-		return target, len(base), nil
-	}
-	output, err := composeResource(target, base, operations)
-	if err != nil {
-		return "", 0, err
-	}
-	return target, len(output), nil
+	return plan.target, len(plan.output), nil
 }
 
 func checkInstalledFiles(game *client.ResolvedGameDir, installed *installedMod, readContext string, checkSnapshot bool) error {
@@ -320,12 +282,8 @@ func checkInstalledFiles(game *client.ResolvedGameDir, installed *installedMod, 
 				return blitz.ErrorAt("STATE_INVALID_BASE", "installed state base snapshot path is invalid", file.BaseSnapshot)
 			}
 		}
-		current, err := os.ReadFile(expected)
-		if err != nil {
-			return blitz.IOError(readContext, expected, err)
-		}
-		if resources.CRC32(current) != file.InstalledCRC32 {
-			return blitz.ErrorAt("INSTALLED_FILE_CHANGED", "managed resource changed outside the installer", expected)
+		if _, err := readCurrentChecked(expected, file.InstalledCRC32, readContext); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -362,58 +320,27 @@ func InstallMod(modPath, gameDir string) (*InstallReport, error) {
 		}
 	}
 
+	planner := newTargetPlanner(game, state, manifest, func(target string) error {
+		return blitz.ErrorAt("MANIFEST_DUPLICATE_TARGET", "multiple entries resolve to the same game file", target)
+	})
 	var prepared []preparedFile
-	targets := map[string]bool{}
 	for _, logicalPath := range affectedPaths(manifest, previous) {
-		target, err := resolveLogicalTarget(game, logicalPath)
+		plan, err := planner.plan(logicalPath)
 		if err != nil {
 			return nil, err
 		}
-		key := lowerKey(target)
-		if targets[key] {
-			return nil, blitz.ErrorAt("MANIFEST_DUPLICATE_TARGET", "multiple entries resolve to the same game file", target)
+		file := preparedFile{
+			logicalPath:        logicalPath,
+			target:             plan.target,
+			baseSnapshot:       plan.baseSnapshot,
+			baseBytes:          plan.base,
+			createBaseSnapshot: !plan.managed,
+			operations:         plan.added,
+			output:             plan.output,
+			oldCurrent:         plan.current,
 		}
-		targets[key] = true
-		oldCurrent, err := os.ReadFile(target)
-		if err != nil {
-			return nil, blitz.IOError("could not read game resource", target, err)
-		}
-		snapshot, crc, managed, err := managedResource(state, target)
-		if err != nil {
+		if file.createAdjacentOrigin, err = inspectAdjacentOriginal(plan.target + backupSuffix); err != nil {
 			return nil, err
-		}
-		file := preparedFile{logicalPath: logicalPath, target: target, oldCurrent: oldCurrent}
-		if managed {
-			if resources.CRC32(oldCurrent) != crc {
-				return nil, blitz.ErrorAt("INSTALLED_FILE_CHANGED", "managed resource changed outside the installer", target)
-			}
-			if file.baseBytes, err = readBaseSnapshot(game, target, snapshot); err != nil {
-				return nil, err
-			}
-			file.baseSnapshot = snapshot
-		} else {
-			if file.baseSnapshot, err = baseSnapshotPath(game, target); err != nil {
-				return nil, err
-			}
-			file.baseBytes = oldCurrent
-			file.createBaseSnapshot = true
-		}
-		if file.createAdjacentOrigin, err = inspectAdjacentOriginal(target + backupSuffix); err != nil {
-			return nil, err
-		}
-		if file.operations, err = newOperations(manifest, logicalPath); err != nil {
-			return nil, err
-		}
-		operations := otherOperations(state, manifest.ID, target)
-		for _, operation := range file.operations {
-			operations = append(operations, modOperation{manifest.ID, operation})
-		}
-		sortByMod(operations)
-		file.output = file.baseBytes
-		if len(operations) > 0 {
-			if file.output, err = composeResource(target, file.baseBytes, operations); err != nil {
-				return nil, err
-			}
 		}
 		prepared = append(prepared, file)
 	}
@@ -559,12 +486,9 @@ func RemoveMod(modID, gameDir string) (*RemovalReport, error) {
 				return nil, err
 			}
 		}
-		current, err := os.ReadFile(file.Target)
+		current, err := readCurrentChecked(file.Target, file.InstalledCRC32, "could not read game file before restore")
 		if err != nil {
-			return nil, blitz.IOError("could not read game file before restore", file.Target, err)
-		}
-		if resources.CRC32(current) != file.InstalledCRC32 {
-			return nil, blitz.ErrorAt("INSTALLED_FILE_CHANGED", "managed resource changed outside the installer", file.Target)
+			return nil, err
 		}
 		restore = append(restore, restoreItem{file.Target, file.BaseSnapshot, output, current})
 	}
