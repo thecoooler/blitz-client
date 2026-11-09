@@ -3,7 +3,7 @@
 There is one entity export command and one interchange format:
 
 ```sh
-# All sections (default): data + tank icons + 3D/PBR models + maps + mechanics
+# All sections (default): data + tank icons + 3D/PBR models + maps + mechanics + modes
 go run ./cmd/blitz-client client export --game-dir /path/to/Data --output-dir /tmp/blitz-all
 
 # Fast offline data export: no image reads, no model conversion
@@ -14,10 +14,11 @@ go run ./cmd/blitz-client client export --output-dir /tmp/blitz-icons --include 
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-models --include models
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-maps --include maps
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-mechanics --include mechanics
+go run ./cmd/blitz-client client export --output-dir /tmp/blitz-modes --include modes
 ```
 
 `--include` accepts `all` (default) or any comma-separated subset of `data`,
-`icons`, `models`, `maps`, `mechanics`; the option may be repeated. Order is immaterial; duplicates collapse. Unknown/empty values
+`icons`, `models`, `maps`, `mechanics`, `modes`; the option may be repeated. Order is immaterial; duplicates collapse. Unknown/empty values
 and combining `all` with individual sections are errors. Every selection writes
 **the same `data.json` schema**, with a canonical `included` array. Tank identities
 are always present so media-only exports can be consumed without another catalog.
@@ -39,6 +40,7 @@ export/
   items.json
   maps.json
   mechanics.json
+  modes.json
   images/tanks/<nation>/<techName>/big.webp
   images/tanks/<nation>/<techName>/small.webp
   assets/icons/catalog.json
@@ -53,6 +55,11 @@ export/
   assets/maps/<space>/minimap.png
   assets/mechanics/<folder>/image.png
   assets/mechanics/<folder>/icon.png
+  assets/modes/<mode>/logo.png
+  assets/modes/<mode>/banner.png
+  assets/modes/<mode>/layer1.png
+  assets/modes/<mode>/layer2.png
+  assets/modes/<mode>/layer3.png
 ```
 
 No separate manifest, maps/tanks/parameters/configuration/component files, model
@@ -62,7 +69,8 @@ each item to its exported icon; `assets/icons/catalog.json` describes the icon
 sets and their source resources. `maps.json` is the normalized index of
 maps.yaml entries that links each map to its exported images. `mechanics.json`
 defines the tank mechanics referenced by vehicle parameter files, their
-localization and their main artwork and icon. A tank record contains its own
+localization and their main artwork and icon. `modes.json` defines the battle
+modes with their localized text, logo, card banner and parallax banner layers. A tank record contains its own
 metadata, parameters, configuration and media references. Shared definitions live
 once under `components`, not as resolved copies inside every turret. Equipment,
 provisions and localization also have one authoritative home. Model files contain
@@ -86,7 +94,7 @@ list is used, and nations without list.xml are skipped.
 Snapshot = {
   format: "blitz-client",
   version: 1,
-  included: ("data" | "icons" | "models" | "maps" | "mechanics")[],
+  included: ("data" | "icons" | "models" | "maps" | "mechanics" | "modes")[],
   game: Game,
   exportedAt: string,     // UTC, RFC 3339, e.g. "2026-10-29T02:03:16Z"
   exporterVersion: string | null, // blitz-client module version, see below
@@ -102,7 +110,7 @@ Snapshot = {
   hangarParameters?: YAMLValue,
   crewSkills?: CrewSkill[],
   crewSkillTraining?: CrewSkillTraining,
-  issues: { tank: string, section: "icons" | "models" | "maps" | "mechanics", message: string }[]
+  issues: { tank: string, section: "icons" | "models" | "maps" | "mechanics" | "modes", message: string }[]
 }
 ```
 
@@ -135,7 +143,7 @@ only when `data` is selected.
 
 Require `format == "blitz-client"` and `version == 1`. Unknown versions must be
 rejected; additional fields may be introduced without changing the version.
-`included` is always canonical: data, icons, models, maps, mechanics, filtered to the selection.
+`included` is always canonical: data, icons, models, maps, mechanics, modes, filtered to the selection.
 `nations` comes from available_nations.yaml, in source order. Tanks are in nation
 order, then list.xml order. Map/object key order never determines component order.
 All media paths are relative to this directory and use `/` (a `./` prefix is valid).
@@ -477,6 +485,43 @@ localization IDs. The exporter applies the confirmed aliases `LVArmor` →
 `PumpShotDescription`). New mechanics whose enum ID cannot be derived from the
 parameter name fall back to a kebab-case artwork folder and the same-name
 localization keys. Mechanics referenced by no exported tank are not listed.
+
+## Battle modes
+
+The `modes` section writes `modes.json`, the normalized index of the client's
+battle modes with their localized text and artwork. Mode IDs, display order and
+localization keys match the `modes` array of `data.json`; this section adds the
+resolved `ru` text and image references so a consumer does not need the
+localization table or image transcoding.
+
+Each entry contains:
+
+- `id`: the client mode string, such as `regular`, `Lunar` or `battle-royale`.
+- `nameKey`/`name`: the title localization key and its `ru` value.
+- `descriptionKey`/`description`: the description key and its `ru` value;
+  `descriptionKey` is null when the client defines no description.
+- `shortDescriptionKey`/`shortDescription`: the short description, with the
+  same null rule. Absent text values are empty strings.
+- `logo`: mode logo at `assets/modes/<mode>/logo.png`, or null.
+- `banner`: mode card banner at `assets/modes/<mode>/banner.png`, or null.
+- `layers`: the parallax banner layers at `assets/modes/<mode>/layer1.png` …
+  `layer3.png`, each as `{ "image": string, "source": IconSource }` in draw
+  order. Missing layers are omitted; the array is absent when none exist.
+- `logoSource`/`bannerSource`: the client resource and sprite frame, like map
+  and mechanic images.
+
+`<mode>` is the lower-case mode ID, such as `lunar` for `Lunar`; it is not
+derived from the localized title. Server-side availability, allowed levels,
+squad limits and event schedules are still not inferred. The `modes` array in
+`data.json` remains the source of localization keys and is present only with
+`data`; a modes-only export contains the complete definitions in `modes.json`.
+
+Artwork is read from `Gfx/Lobby/backgrounds/GameMode/`: `icon_<mode>` for the
+logo, `bg_<mode>_card` for the card banner and `bg_<mode>_layer1` …
+`bg_<mode>_layer3` for the parallax layers. `@2x` wins over the SD variant, and
+packed images are rendered at their embedded sprite canvas. Missing artwork is
+null and is not an issue. `tournament` ships a logo but no card banner or
+layers.
 
 Models retain existing geometry, PBR and armor payload schemas. A viewer enumerates
 `tanks` and selects records with `model`, loads `tank.model.model`, and resolves its

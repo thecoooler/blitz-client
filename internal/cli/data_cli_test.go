@@ -114,7 +114,7 @@ func TestUnifiedExportDefaultAndRemovedCommands(t *testing.T) {
 		t.Fatalf("%s %s", r.stdout, r.stderr)
 	}
 	included := r.json(t)["included"].([]any)
-	if len(included) != 5 || included[0] != "data" || included[1] != "icons" || included[2] != "models" || included[3] != "maps" || included[4] != "mechanics" {
+	if len(included) != 6 || included[0] != "data" || included[1] != "icons" || included[2] != "models" || included[3] != "maps" || included[4] != "mechanics" || included[5] != "modes" {
 		t.Fatalf("wrong defaults: %v", included)
 	}
 	for _, command := range [][]string{{"client", "data", "export"}, {"client", "tanks", "export"}, {"client", "files", "export"}} {

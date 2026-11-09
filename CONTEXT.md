@@ -6,7 +6,10 @@
 - **Battle mode**: a hangar battle type identified by the client's mode string,
   such as `regular` or `bossmode`. Its name, description, and short description
   are localization keys; availability, level limits, and event schedules are
-  server data and are not inferred.
+  server data and are not inferred. The client names the mode artwork by the
+  lower-case mode string in `Gfx/Lobby/backgrounds/GameMode`: `icon_<mode>` is
+  the logo, `bg_<mode>_card` the card banner, and `bg_<mode>_layer1..3` the
+  parallax banner layers.
 - **Model discovery**: finding tanks with both showroom model files. The tank
   identifier comes from the vehicle XML node name. Localization, `userString`,
   and level are optional; without a localized name, the identifier supplies the

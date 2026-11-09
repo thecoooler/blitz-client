@@ -462,7 +462,7 @@ func TestParseIncludes(t *testing.T) {
 		if len(got) == 0 {
 			t.Fatal("empty selection")
 		}
-		if len(input) == 0 && !reflect.DeepEqual(got, []string{"data", "icons", "models", "maps", "mechanics"}) {
+		if len(input) == 0 && !reflect.DeepEqual(got, []string{"data", "icons", "models", "maps", "mechanics", "modes"}) {
 			t.Fatal(got)
 		}
 	}
