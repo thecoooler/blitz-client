@@ -145,6 +145,9 @@ func (c ClientExportCmd) Run(a *app) error {
 		a.printJSON(report)
 	} else {
 		a.printf("Exported %d tanks, %d models (%s)\n", report.Tanks, report.Models, strings.Join(report.Included, ","))
+		if report.MechanicExport != nil {
+			a.printf("Mechanics: %d\n", report.MechanicExport.Mechanics)
+		}
 		if game := report.Game; game != nil && game.VersionText != nil {
 			a.printf("Game: %s\n", *game.VersionText)
 		}

@@ -64,7 +64,7 @@ The executable is `blitz-client`.
 blitz-client client locate [--game-dir <path>] [--json]
 blitz-client client files unpack --output-dir <path> [--game-dir <path>] [--cache-dir <path> | --no-cache] [--types <types>] [--exclude <pattern>] [--dry-run] [--json]
 blitz-client client tanks list [--game-dir <path>] [--nation <nation>] [--json]
-blitz-client client export --output-dir <path> [--game-dir <path>] [--include <all|data,icons,models,maps>]... [--cache-dir <path> | --no-cache] [model options]
+blitz-client client export --output-dir <path> [--game-dir <path>] [--include <all|data,icons,models,maps,mechanics>]... [--cache-dir <path> | --no-cache] [model options]
 
 blitz-client mod list [--game-dir <path>] [--json]
 blitz-client mod validate <mods-dir|mod-dir|mod.yaml|mod.yml> [--game-dir <path>] [--json]
@@ -86,7 +86,7 @@ blitz-client client locate
 blitz-client client tanks list --json
 blitz-client client tanks list --nation ussr
 
-# Complete snapshot: game data, tank UI icons and 3D models
+# Complete snapshot: game data, icons, models, maps and mechanics
 blitz-client client export --game-dir "/path/to/Data" --output-dir "/path/to/export"
 
 # Data only, without image reads or model conversion
@@ -98,6 +98,9 @@ blitz-client client export --output-dir "/path/to/export-models" --include model
 
 # Map metadata with preview and minimap images
 blitz-client client export --output-dir "/path/to/export-maps" --include maps
+
+# Normalized tank mechanics with their main artwork and icon
+blitz-client client export --output-dir "/path/to/export-mechanics" --include mechanics
 ```
 
 `client export` is the only game-data export command. It writes one versioned
@@ -112,15 +115,18 @@ and acceleration economics from a local server cache. Without it, skill `levels`
 are null. Images and model payloads are external binary assets referenced
 by those records. With `icons`, item icon sprite sets are rendered to
 `assets/icons/` and indexed by `items.json`. With `maps`, the map preview and
-minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`. No
-alternate `tanks.json`, model catalog or raw source-document copies are produced. Consumers
+minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`. With
+`mechanics`, tank mechanics are defined in `mechanics.json` with their
+localization and a main artwork image and large icon under `assets/mechanics/`;
+each tank keeps its mechanic membership in `parameters.mechanics`.
+No alternate `tanks.json`, model catalog or raw source-document copies are produced. Consumers
 use the same schema for every selection; `included` declares the requested
 sections. Every export records the client build in `game` (version, build,
 branch, platform), its time in `exportedAt` and the blitz-client version that
 wrote it in `exporterVersion`.
 
 `--include` defaults to `all`, or accepts a comma-separated selection of `data`,
-`icons`, `models`, `maps`; the option may be repeated. `all` includes PBR model assets and
+`icons`, `models`, `maps`, `mechanics`; the option may be repeated. `all` includes PBR model assets and
 can be expensive (`--no-pbr` skips them). There are
 no `--data-only`, `--skip-images` or separate model-export commands. Use a new or
 empty output directory; a failed export removes what it wrote. Resource loading uses the same Data/packs overlay as
