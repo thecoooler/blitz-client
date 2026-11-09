@@ -23,8 +23,10 @@ type Localization struct {
 	RU map[string]*string `json:"ru"`
 }
 
-// Snapshot is the one offline interchange format for data and media consumers.
-// Omitted sections were not requested; included empty sections have empty containers.
+// Snapshot is the one offline interchange format for data and media consumers
+// and the untyped projection returned by ReadClientExport and
+// DecodeClientExport. Omitted sections were not requested; included empty
+// sections have empty containers.
 // Game, ExportedAt (UTC, RFC 3339) and ExporterVersion are written for every
 // selection; packs can change data between exports of the same game version.
 type Snapshot struct {

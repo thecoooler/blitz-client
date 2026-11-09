@@ -145,7 +145,8 @@ Encoding options apply only to model conversion:
 - `--no-pbr` skips PBR maps and `model.pbr.bin`, keeping base-color textures only.
 
 The full contract and consumer examples are in [Game data export](docs/game-data-export.md).
-Go consumers can call `export.ReadClientExport(directory)` to load any selection.
+Go consumers can call `export.ReadClientExport(directory)` to load any selection,
+or `export.DecodeClientExport(reader)` for an `io.Reader`.
 `export.ReadStrictDataExport(directory)` validates a data-only export against typed
 structs, keeping exact numbers, absent vs. null fields and array order;
 `export.ReadPartialClientExportLenient` returns warnings instead of failing on

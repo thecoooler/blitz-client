@@ -540,11 +540,14 @@ snapshot, err := export.ReadClientExport("/path/to/export")
 ```
 
 `ReadClientExport` keeps nested game data as untyped values and does not
-validate it. Package `export` also provides typed readers that validate every
+validate it. `DecodeClientExport` does the same for an `io.Reader`. Both check
+only the v1 document envelope: format, version and the valid `included`
+selection. Package `export` also provides typed readers that validate every
 data section against Go structs:
 
 | Function | Accepts | On schema mismatch |
 | --- | --- | --- |
+| `DecodeClientExport` / `ReadClientExport` | any `--include` selection | envelope error only |
 | `DecodeStrictDataExport` / `ReadStrictDataExport` | data-only exports | error |
 | `DecodePartialClientExport` / `ReadPartialClientExport` | any `--include` selection | error |
 | `DecodePartialClientExportLenient` / `ReadPartialClientExportLenient` | any `--include` selection | `[]SchemaWarning` |
