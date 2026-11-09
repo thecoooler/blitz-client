@@ -23,7 +23,7 @@ type ClientExportOptions struct {
 	NoCache   bool
 	// ServerConfig optionally supplies crew skill training costs from a local cache.
 	ServerConfig string
-	// Include is data, icons, models, maps, or all. Empty means all.
+	// Include is data, icons, models, maps, mechanics, or all. Empty means all.
 	Include      []string
 	ModelOptions TankExportOptions
 }
@@ -42,8 +42,8 @@ func ParseExportIncludes(values []string) ([]string, error) {
 	for _, value := range values {
 		for _, part := range strings.Split(value, ",") {
 			part = strings.TrimSpace(part)
-			if !slices.Contains([]string{"all", "data", "icons", "models", "maps"}, part) {
-				return nil, fmt.Errorf("unknown export section %q; expected all, data, icons, models, maps", part)
+			if !slices.Contains([]string{"all", "data", "icons", "models", "maps", "mechanics"}, part) {
+				return nil, fmt.Errorf("unknown export section %q; expected all, data, icons, models, maps, mechanics", part)
 			}
 			selected[part] = true
 		}
@@ -52,7 +52,7 @@ func ParseExportIncludes(values []string) ([]string, error) {
 		return nil, fmt.Errorf("all cannot be combined with individual export sections")
 	}
 	result := []string{}
-	for _, part := range []string{"data", "icons", "models", "maps"} {
+	for _, part := range []string{"data", "icons", "models", "maps", "mechanics"} {
 		if selected["all"] || selected[part] {
 			result = append(result, part)
 		}
@@ -74,6 +74,8 @@ type ClientExportReport struct {
 	MissingItemIcons []string          `json:"missingItemIcons,omitempty"`
 	// MapExport is set when maps are included.
 	MapExport *MapExportReport `json:"mapExport,omitempty"`
+	// MechanicExport is set when mechanics are included.
+	MechanicExport *MechanicExportReport `json:"mechanicExport,omitempty"`
 }
 
 type ExportIssue struct {
@@ -150,7 +152,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	files := map[string]sourceFile{}
 	skipped := 0
 	types := []ClientFileType{FileTypeConfigs}
-	if slices.Contains(included, "icons") || slices.Contains(included, "models") || slices.Contains(included, "maps") {
+	if slices.Contains(included, "icons") || slices.Contains(included, "models") || slices.Contains(included, "maps") || slices.Contains(included, "mechanics") {
 		types = append(types, FileTypeImages)
 	}
 	if slices.Contains(included, "models") {
@@ -192,6 +194,12 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 			return nil, err
 		}
 	}
+	var mechanicReport *MechanicExportReport
+	if slices.Contains(included, "mechanics") {
+		if mechanicReport, err = exportMechanics(files, resourceDir, out, snapshot); err != nil {
+			return nil, err
+		}
+	}
 	if err := os.MkdirAll(out, 0755); err != nil {
 		return nil, err
 	}
@@ -205,7 +213,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 			count++
 		}
 	}
-	return &ClientExportReport{File: path, Included: included, Game: snapshot.Game, Tanks: len(snapshot.Tanks), Models: count, Issues: snapshot.Issues, IconExport: iconReport, ItemsFile: itemsFile, MissingItemIcons: missingItemIcons, MapExport: mapReport}, nil
+	return &ClientExportReport{File: path, Included: included, Game: snapshot.Game, Tanks: len(snapshot.Tanks), Models: count, Issues: snapshot.Issues, IconExport: iconReport, ItemsFile: itemsFile, MissingItemIcons: missingItemIcons, MapExport: mapReport, MechanicExport: mechanicReport}, nil
 }
 
 // exportItemIcons writes the item icon sets, their catalog and items.json.

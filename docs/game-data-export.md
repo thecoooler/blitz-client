@@ -3,7 +3,7 @@
 There is one entity export command and one interchange format:
 
 ```sh
-# All sections (default): data + tank icons + 3D/PBR models + maps
+# All sections (default): data + tank icons + 3D/PBR models + maps + mechanics
 go run ./cmd/blitz-client client export --game-dir /path/to/Data --output-dir /tmp/blitz-all
 
 # Fast offline data export: no image reads, no model conversion
@@ -13,10 +13,11 @@ go run ./cmd/blitz-client client export --game-dir /path/to/Data --output-dir /t
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-icons --include data,icons
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-models --include models
 go run ./cmd/blitz-client client export --output-dir /tmp/blitz-maps --include maps
+go run ./cmd/blitz-client client export --output-dir /tmp/blitz-mechanics --include mechanics
 ```
 
 `--include` accepts `all` (default) or any comma-separated subset of `data`,
-`icons`, `models`, `maps`; the option may be repeated. Order is immaterial; duplicates collapse. Unknown/empty values
+`icons`, `models`, `maps`, `mechanics`; the option may be repeated. Order is immaterial; duplicates collapse. Unknown/empty values
 and combining `all` with individual sections are errors. Every selection writes
 **the same `data.json` schema**, with a canonical `included` array. Tank identities
 are always present so media-only exports can be consumed without another catalog.
@@ -37,6 +38,7 @@ export/
   data.json
   items.json
   maps.json
+  mechanics.json
   images/tanks/<nation>/<techName>/big.webp
   images/tanks/<nation>/<techName>/small.webp
   assets/icons/catalog.json
@@ -49,6 +51,8 @@ export/
   assets/tanks/<nation>/<techName>/<texture files>
   assets/maps/<space>/preview.png
   assets/maps/<space>/minimap.png
+  assets/mechanics/<folder>/image.png
+  assets/mechanics/<folder>/icon.png
 ```
 
 No separate manifest, maps/tanks/parameters/configuration/component files, model
@@ -56,7 +60,9 @@ catalog or duplicated raw documents are written. `items.json` is the normalized
 index of shells, consumables, provisions, equipment and crew skills that links
 each item to its exported icon; `assets/icons/catalog.json` describes the icon
 sets and their source resources. `maps.json` is the normalized index of
-maps.yaml entries that links each map to its exported images. A tank record contains its own
+maps.yaml entries that links each map to its exported images. `mechanics.json`
+indexes the tank mechanics found in vehicle parameter files, their localization
+and their main artwork and icon. A tank record contains its own
 metadata, parameters, configuration and media references. Shared definitions live
 once under `components`, not as resolved copies inside every turret. Equipment,
 provisions and localization also have one authoritative home. Model files contain
@@ -80,7 +86,7 @@ list is used, and nations without list.xml are skipped.
 Snapshot = {
   format: "blitz-client",
   version: 1,
-  included: ("data" | "icons" | "models")[],
+  included: ("data" | "icons" | "models" | "maps" | "mechanics")[],
   game: Game,
   exportedAt: string,     // UTC, RFC 3339, e.g. "2026-10-29T02:03:16Z"
   exporterVersion: string | null, // blitz-client module version, see below
@@ -95,7 +101,7 @@ Snapshot = {
   hangarParameters?: YAMLValue,
   crewSkills?: CrewSkill[],
   crewSkillTraining?: CrewSkillTraining,
-  issues: { tank: string, section: "icons" | "models" | "maps", message: string }[]
+  issues: { tank: string, section: "icons" | "models" | "maps" | "mechanics", message: string }[]
 }
 ```
 
@@ -108,7 +114,7 @@ Snapshot = {
 
 Require `format == "blitz-client"` and `version == 1`. Unknown versions must be
 rejected; additional fields may be introduced without changing the version.
-`included` is always canonical: data, icons, models, maps, filtered to the selection.
+`included` is always canonical: data, icons, models, maps, mechanics, filtered to the selection.
 `nations` comes from available_nations.yaml, in source order. Tanks are in nation
 order, then list.xml order. Map/object key order never determines component order.
 All media paths are relative to this directory and use `/` (a `./` prefix is valid).
@@ -412,6 +418,39 @@ Every rendered image names its client resource explicitly: `previewSource` and
 with the atlas `path` and the cropped `frame` rectangle, both relative to Data
 and without the `.dvpl` suffix), so consumers can re-derive or re-crop the
 images from the client themselves.
+
+## Tank mechanics
+
+The `mechanics` section writes `mechanics.json`, the normalized index of the
+`mechanics` arrays in `3d/Tanks/Parameters/<nation>/<techName>.yaml`. The raw
+vehicle parameter documents remain in `data.json` when `data` is selected.
+
+Each entry contains:
+
+- `id`: the source parameter name, such as `DrumShot`, `PumpShot` or `LVArmor`.
+- `tanks`: canonical tank IDs in export order, only for tanks that reference the mechanic.
+- `nameKey`/`descriptionKey`: the `TankMechanics/...` localization keys used by the client.
+- `name`/`description`: the `ru` values of those keys; empty when absent. Only `ru` is exported.
+- `image`: main artwork at `assets/mechanics/<folder>/image.png`, or null.
+- `icon`: large mechanic icon at `assets/mechanics/<folder>/icon.png`, or null.
+- `imageSource`/`iconSource`: the client resource and sprite frame, like map images.
+
+`<folder>` is the client artwork directory, such as `drum-reload`; it is not
+derived from `id`. Consumers should use the `image` and `icon` paths instead of
+constructing them from the mechanic name.
+
+Only the main artwork and one large icon are exported from
+`Gfx/Lobby/icons/tank-mechanics/`; the `_s` and `_m` sizes, battle HUD overlays
+and unrelated lobby artwork are deliberately omitted. `@2x` wins over the SD
+variant. Missing artwork is null and is not an issue.
+
+The client's parameter names are not identical to all of its enum and
+localization IDs. The exporter applies the confirmed aliases `LVArmor` →
+`ArmorMoving`, `AlteredSpotDuration` → `ReducedSpotDuration` and `PumpShot` →
+`ArmorPumpShot` (title only; its description key stays
+`PumpShotDescription`). New mechanics whose enum ID cannot be derived from the
+parameter name fall back to a kebab-case artwork folder and the same-name
+localization keys. Mechanics referenced by no exported tank are not listed.
 
 Models retain existing geometry, PBR and armor payload schemas. A viewer enumerates
 `tanks` and selects records with `model`, loads `tank.model.model`, and resolves its
