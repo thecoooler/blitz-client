@@ -73,16 +73,16 @@ type mechanicLocalization struct {
 	descriptionKey string
 }
 
-// MechanicExport is one entry of mechanics.json. Tanks are canonical vehicle
-// IDs in export order. Name and description are the ru localization values
-// behind the keys; both are empty when the client has no such key.
+// MechanicExport is one entry of mechanics.json. It defines the mechanic; the
+// tank-to-mechanic relation remains solely in each tank's parameters.mechanics.
+// Name and description are the ru localization values behind the keys; both are
+// empty when the client has no such key.
 type MechanicExport struct {
 	ID             string      `json:"id"`
 	NameKey        string      `json:"nameKey"`
 	Name           string      `json:"name"`
 	DescriptionKey string      `json:"descriptionKey"`
 	Description    string      `json:"description"`
-	Tanks          []string    `json:"tanks"`
 	Image          *string     `json:"image"`
 	Icon           *string     `json:"icon"`
 	ImageSource    *IconSource `json:"imageSource,omitempty"`
@@ -97,43 +97,31 @@ type MechanicExportReport struct {
 	Icons     int    `json:"icons"`
 }
 
-type mechanicTanks struct {
-	tanks []string
-	seen  map[string]bool
-}
-
 // exportMechanics writes mechanics.json and the mechanics artwork under
-// assets/mechanics. The index joins tank parameters, localization and the
-// client's main artwork and large icon for each mechanic. Missing optional
-// media is null, not an error.
+// assets/mechanics. It defines the mechanics referenced by tank parameters,
+// with localization and the client's main artwork and large icon. The tank
+// membership stays in tanks[].parameters.mechanics. Missing optional media is
+// null, not an error.
 func exportMechanics(files map[string]sourceFile, resourceDir, outputDir string, snapshot *Snapshot) (*MechanicExportReport, error) {
 	localized, err := readMechanicLocalization(files)
 	if err != nil {
 		return nil, err
 	}
-	refs := map[string]*mechanicTanks{}
+	used := map[string]bool{}
 	for _, tank := range snapshot.Tanks {
 		names, err := readTankMechanics(files, tank)
 		if err != nil {
 			return nil, err
 		}
 		for _, name := range names {
-			entry := refs[name]
-			if entry == nil {
-				entry = &mechanicTanks{seen: map[string]bool{}}
-				refs[name] = entry
-			}
-			if !entry.seen[tank.ID] {
-				entry.seen[tank.ID] = true
-				entry.tanks = append(entry.tanks, tank.ID)
-			}
+			used[name] = true
 		}
 	}
 
 	report := &MechanicExportReport{}
-	entries := make([]MechanicExport, 0, len(refs))
+	entries := make([]MechanicExport, 0, len(used))
 	atlases := map[string]image.Image{}
-	for _, id := range slices.Sorted(maps.Keys(refs)) {
+	for _, id := range slices.Sorted(maps.Keys(used)) {
 		localization := mechanicLocalizationFor(id)
 		entry := MechanicExport{
 			ID:             id,
@@ -141,7 +129,6 @@ func exportMechanics(files map[string]sourceFile, resourceDir, outputDir string,
 			Name:           localizedValue(localized, localization.nameKey),
 			DescriptionKey: localization.descriptionKey,
 			Description:    localizedValue(localized, localization.descriptionKey),
-			Tanks:          refs[id].tanks,
 		}
 		directory, ok := mechanicMediaDirs[id]
 		if !ok {

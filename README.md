@@ -114,8 +114,9 @@ are null. Images and model payloads are external binary assets referenced
 by those records. With `icons`, item icon sprite sets are rendered to
 `assets/icons/` and indexed by `items.json`. With `maps`, the map preview and
 minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`. With
-`mechanics`, tank mechanics are indexed by `mechanics.json` with their
-localization and a main artwork image and large icon under `assets/mechanics/`.
+`mechanics`, tank mechanics are defined in `mechanics.json` with their
+localization and a main artwork image and large icon under `assets/mechanics/`;
+each tank keeps its mechanic membership in `parameters.mechanics`.
 No alternate `tanks.json`, model catalog or raw source-document copies are produced. Consumers
 use the same schema for every selection; `included` declares the requested
 sections. Every export records the client build in `game` (version, build,

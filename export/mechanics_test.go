@@ -62,7 +62,7 @@ func readMechanicIndex(t *testing.T, path string) []MechanicExport {
 	return entries
 }
 
-func TestExportMechanicsIndexesTanksLocalizationAndArtwork(t *testing.T) {
+func TestExportMechanicsDefinesLocalizationAndArtwork(t *testing.T) {
 	f := mechanicsFixture(t)
 	snapshot := &Snapshot{Tanks: []SnapshotTank{
 		{ID: "ussr:1", Nation: "ussr", TechName: "TankA"},
@@ -84,9 +84,23 @@ func TestExportMechanicsIndexesTanksLocalizationAndArtwork(t *testing.T) {
 		t.Fatalf("unexpected order %v", ids)
 	}
 
+	// Membership stays in tank parameters; mechanics.json is the definition.
+	raw, err := os.ReadFile(report.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var documents []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &documents); err != nil {
+		t.Fatal(err)
+	}
+	for _, document := range documents {
+		if _, ok := document["tanks"]; ok {
+			t.Fatal("mechanics.json duplicates the tank membership")
+		}
+	}
+
 	drum := entries[1]
-	if !slices.Equal(drum.Tanks, []string{"ussr:1"}) ||
-		drum.NameKey != "TankMechanics/DrumShot" || drum.Name != "Барабанное орудие" ||
+	if drum.NameKey != "TankMechanics/DrumShot" || drum.Name != "Барабанное орудие" ||
 		drum.DescriptionKey != "TankMechanics/DrumShotDescription" || drum.Description != "Описание барабана" {
 		t.Fatalf("unexpected drum entry %+v", drum)
 	}
@@ -118,8 +132,7 @@ func TestExportMechanicsIndexesTanksLocalizationAndArtwork(t *testing.T) {
 	}
 
 	armor := entries[2]
-	if !slices.Equal(armor.Tanks, []string{"ussr:2"}) ||
-		armor.NameKey != "TankMechanics/ArmorMoving" || armor.Name != "Закалённые доспехи" ||
+	if armor.NameKey != "TankMechanics/ArmorMoving" || armor.Name != "Закалённые доспехи" ||
 		armor.Image == nil || *armor.Image != "assets/mechanics/armor-moving/image.png" {
 		t.Fatalf("unexpected LVArmor entry %+v", armor)
 	}
@@ -182,7 +195,7 @@ func TestExportMechanicsSection(t *testing.T) {
 		t.Fatalf("unexpected report %+v", report)
 	}
 	entries := readMechanicIndex(t, filepath.Join(options.OutputDir, "mechanics.json"))
-	if len(entries) != 1 || entries[0].ID != "Test" || !slices.Equal(entries[0].Tanks, []string{"ussr:0", "usa:0"}) {
+	if len(entries) != 1 || entries[0].ID != "Test" {
 		t.Fatalf("unexpected entries %+v", entries)
 	}
 	if entries[0].Image == nil || *entries[0].Image != "assets/mechanics/test/image.png" ||

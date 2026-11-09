@@ -61,8 +61,8 @@ index of shells, consumables, provisions, equipment and crew skills that links
 each item to its exported icon; `assets/icons/catalog.json` describes the icon
 sets and their source resources. `maps.json` is the normalized index of
 maps.yaml entries that links each map to its exported images. `mechanics.json`
-indexes the tank mechanics found in vehicle parameter files, their localization
-and their main artwork and icon. A tank record contains its own
+defines the tank mechanics referenced by vehicle parameter files, their
+localization and their main artwork and icon. A tank record contains its own
 metadata, parameters, configuration and media references. Shared definitions live
 once under `components`, not as resolved copies inside every turret. Equipment,
 provisions and localization also have one authoritative home. Model files contain
@@ -428,7 +428,6 @@ vehicle parameter documents remain in `data.json` when `data` is selected.
 Each entry contains:
 
 - `id`: the source parameter name, such as `DrumShot`, `PumpShot` or `LVArmor`.
-- `tanks`: canonical tank IDs in export order, only for tanks that reference the mechanic.
 - `nameKey`/`descriptionKey`: the `TankMechanics/...` localization keys used by the client.
 - `name`/`description`: the `ru` values of those keys; empty when absent. Only `ru` is exported.
 - `image`: main artwork at `assets/mechanics/<folder>/image.png`, or null.
@@ -438,6 +437,12 @@ Each entry contains:
 `<folder>` is the client artwork directory, such as `drum-reload`; it is not
 derived from `id`. Consumers should use the `image` and `icon` paths instead of
 constructing them from the mechanic name.
+
+The tank-to-mechanic relation is not repeated here. It stays in the vehicle
+parameter documents: a tank belongs to a mechanic when its
+`tanks[].parameters.mechanics[].name` contains that `id`. A mechanics-only
+export contains the definitions and artwork; include `data` as well when the
+tank membership is needed.
 
 Only the main artwork and one large icon are exported from
 `Gfx/Lobby/icons/tank-mechanics/`; the `_s` and `_m` sizes, battle HUD overlays
