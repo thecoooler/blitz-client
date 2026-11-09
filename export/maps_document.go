@@ -1,13 +1,13 @@
 package export
 
 import (
-	"go.yaml.in/yaml/v3"
+	"github.com/thecoooler/blitz-client/client"
 )
 
 // RawMaps mirrors the maps.yaml document carried by the data section. The
 // dynamic keys are the map names; the field set and the client's
 // avaliableInTrainingRoom spelling follow the source document, which the
-// strict reader validates as StrictMaps.
+// catalog decoder validates and aliases.
 type RawMaps struct {
 	Maps map[string]RawMap `json:"maps"`
 }
@@ -36,71 +36,51 @@ type RawRespawn struct {
 	RespawnNumber *int64       `json:"respawnNumber,omitempty"`
 }
 
-// yamlMaps mirrors the YAML layout of maps.yaml for decoding.
-type yamlMaps struct {
-	Maps map[string]yamlMap `yaml:"maps"`
-}
-
-type yamlMap struct {
-	AssaultRespawnPoints     *yamlRespawnSides `yaml:"assaultRespawnPoints"`
-	AvailableModes           []int64           `yaml:"availableModes"`
-	AvaliableInTrainingRoom  *bool             `yaml:"avaliableInTrainingRoom"`
-	ID                       *int64            `yaml:"id"`
-	Levels                   []int64           `yaml:"levels"`
-	LocalName                string            `yaml:"localName"`
-	ShadowMapsAvailable      *bool             `yaml:"shadowMapsAvailable"`
-	SpriteFrame              *int64            `yaml:"spriteFrame"`
-	SupremacyPointsThreshold *int64            `yaml:"supremacyPointsThreshold"`
-	Tags                     string            `yaml:"tags"`
-	VehicleCamouflageKind    string            `yaml:"vehicleCamouflageKind"`
-}
-
-type yamlRespawnSides struct {
-	Allies  []yamlRespawn `yaml:"allies"`
-	Enemies []yamlRespawn `yaml:"enemies"`
-}
-
-type yamlRespawn struct {
-	Points        [][2]float64 `yaml:"points"`
-	RespawnNumber *int64       `yaml:"respawnNumber"`
-}
-
-// parseRawMaps decodes maps.yaml into the typed data-section document.
-func parseRawMaps(data []byte) (*RawMaps, error) {
-	var parsed yamlMaps
-	if err := yaml.Unmarshal(data, &parsed); err != nil {
-		return nil, err
-	}
-	raw := &RawMaps{Maps: make(map[string]RawMap, len(parsed.Maps))}
-	for name, entry := range parsed.Maps {
+// rawMapsFromDocument projects the shared maps document onto the data-section
+// wire shape. The frame and training-room spelling aliases are resolved by the
+// catalog decoder; this projection keeps the document's existing field names.
+func rawMapsFromDocument(document *client.MapsDocument) *RawMaps {
+	raw := &RawMaps{Maps: make(map[string]RawMap, len(document.Maps))}
+	for _, name := range document.Order {
+		entry := document.Maps[name]
+		frame := entry.Frame
+		if frame == nil {
+			frame = entry.SpriteFrame
+		}
+		training := entry.AvaliableInTrainingRoom
+		if training == nil {
+			training = entry.AvailableInTrainingRoom
+		}
 		values := RawMap{
 			AvailableModes:           entry.AvailableModes,
-			AvaliableInTrainingRoom:  entry.AvaliableInTrainingRoom,
+			AvaliableInTrainingRoom:  training,
 			ID:                       entry.ID,
 			Levels:                   entry.Levels,
 			LocalName:                entry.LocalName,
 			ShadowMapsAvailable:      entry.ShadowMapsAvailable,
-			SpriteFrame:              entry.SpriteFrame,
+			SpriteFrame:              frame,
 			SupremacyPointsThreshold: entry.SupremacyPointsThreshold,
 			Tags:                     entry.Tags,
 			VehicleCamouflageKind:    entry.VehicleCamouflageKind,
 		}
 		if entry.AssaultRespawnPoints != nil {
-			sides := &RawRespawnSides{Allies: respawns(entry.AssaultRespawnPoints.Allies), Enemies: respawns(entry.AssaultRespawnPoints.Enemies)}
-			values.AssaultRespawnPoints = sides
+			values.AssaultRespawnPoints = &RawRespawnSides{
+				Allies:  rawRespawns(entry.AssaultRespawnPoints.Allies),
+				Enemies: rawRespawns(entry.AssaultRespawnPoints.Enemies),
+			}
 		}
 		raw.Maps[name] = values
 	}
-	return raw, nil
+	return raw
 }
 
-func respawns(groups []yamlRespawn) []RawRespawn {
+func rawRespawns(groups []client.MapRespawn) []RawRespawn {
 	if len(groups) == 0 {
 		return nil
 	}
 	out := make([]RawRespawn, len(groups))
-	for i, group := range groups {
-		out[i] = RawRespawn{Points: group.Points, RespawnNumber: group.RespawnNumber}
+	for index, group := range groups {
+		out[index] = RawRespawn{Points: group.Points, RespawnNumber: group.RespawnNumber}
 	}
 	return out
 }

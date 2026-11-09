@@ -179,6 +179,16 @@ func (r *Resources) Path(relative string) (string, bool) {
 	return entry.path, true
 }
 
+// Location returns the physical file selected for a logical resource, or the
+// logical path itself when no entry exists. Catalog readers use it for
+// diagnostics.
+func (r *Resources) Location(relative string) string {
+	if entry, ok := r.lookup(relative); ok {
+		return entry.path
+	}
+	return relative
+}
+
 // IsDir reports whether a logical directory exists in Data or the cache.
 func (r *Resources) IsDir(relative string) bool {
 	logical, ok := normalizeLogical(relative)

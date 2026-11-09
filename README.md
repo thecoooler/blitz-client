@@ -181,6 +181,15 @@ The library's `client.DiscoverClientCatalog` also provides localized item,
 shell type and crew skill summaries through `ClientItems`. These summaries
 remain available independently of the snapshot exporter.
 
+The catalog package also exposes its shared source readers:
+`client.ReadAvailableNations`, `client.ReadLocalization`,
+`client.ReadVehicleList`, and `client.ReadMapsDocument`. They accept a
+`client.CatalogSource` (`*client.Resources` satisfies it), so the exporter and
+library callers use the same parsing, aliases and validation while each keeps
+its own output projection. `client.DecodeLocalization`,
+`client.DecodeMapsDocument`, and `client.ParseCrewSkills` provide the same
+parsers for already-read documents.
+
 ## Unpacked client files
 
 Export the effective client resource tree to a directory:

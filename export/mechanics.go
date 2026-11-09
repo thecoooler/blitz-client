@@ -215,11 +215,11 @@ func readRuLocalization(files map[string]sourceFile) (map[string]*string, error)
 	if err != nil {
 		return nil, err
 	}
-	var localized map[string]*string
-	if err := yaml.Unmarshal(data, &localized); err != nil {
+	localized, err := client.DecodeLocalization(data)
+	if err != nil {
 		return nil, blitz.ErrorAt("CLIENT_YAML_INVALID", "Strings/ru.yaml: "+err.Error(), source.path)
 	}
-	return localized, nil
+	return map[string]*string(localized), nil
 }
 
 func localizedValue(localized map[string]*string, key string) string {

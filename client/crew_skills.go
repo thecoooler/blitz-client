@@ -288,43 +288,77 @@ func addCrewXMLValue(out map[string]any, node *xml.Node) {
 	}
 }
 
-// ParseCrewSkills reads skills in XML order without resolving localization keys.
-// The caller supplies the parsed resource so Data/packs overlay rules remain shared.
-func ParseCrewSkills(root *xml.Node) ([]ClientCrewSkill, error) {
-	skills := []ClientCrewSkill{}
+// crewSkillDefinition is one skill parsed from the shared avatar.xml source.
+// Localized summaries and raw parameter-bearing definitions are projections of
+// this one parse.
+type crewSkillDefinition struct {
+	ID          string
+	UserString  string
+	Description string
+	Tip         string
+	Features    string
+	TankClass   string
+	Type        string
+	Parameters  map[string]any
+}
+
+// parseCrewSkillDefinitions reads skills in XML order and resolves the class
+// table once. Duplicate class membership is invalid.
+func parseCrewSkillDefinitions(root *xml.Node) ([]crewSkillDefinition, error) {
+	definitions := []crewSkillDefinition{}
 	if root == nil || root.Child("skills") == nil {
-		return skills, nil
+		return definitions, nil
 	}
 	classes := map[string]string{}
 	if table := root.Child("skillsByClasses"); table != nil {
 		for _, class := range table.Children {
 			for _, skill := range strings.Fields(class.Text) {
 				if previous, ok := classes[skill]; ok {
-					return nil, blitz.NewError("CLIENT_XML_INVALID", fmt.Sprintf(
-						"crew skill %s is listed for both %s and %s", skill, previous, class.Name))
+					return nil, fmt.Errorf(
+						"crew skill %s is listed for both %s and %s", skill, previous, class.Name)
 				}
 				classes[skill] = class.Name
 			}
 		}
 	}
-	text := func(node *xml.Node, name string) string {
-		value, _ := xml.ChildText(node, name)
-		if value == "" {
-			return ""
-		}
-		return value
-	}
 	for _, node := range root.Child("skills").Children {
+		text := func(name string) string {
+			value, _ := xml.ChildText(node, name)
+			return value
+		}
 		kind, _ := xml.ChildText(node, "type")
-		skills = append(skills, ClientCrewSkill{
+		definitions = append(definitions, crewSkillDefinition{
 			ID:          node.Name,
-			UserString:  text(node, "userString"),
-			Description: text(node, "effectDescription"),
-			Tip:         text(node, "tipDescription"),
-			Features:    text(node, "featuresDescription"),
+			UserString:  text("userString"),
+			Description: text("effectDescription"),
+			Tip:         text("tipDescription"),
+			Features:    text("featuresDescription"),
 			TankClass:   classes[node.Name],
 			Type:        kind,
 			Parameters:  crewSkillParameters(node),
+		})
+	}
+	return definitions, nil
+}
+
+// ParseCrewSkills reads skills in XML order without resolving localization keys.
+// The caller supplies the parsed resource so Data/packs overlay rules remain shared.
+func ParseCrewSkills(root *xml.Node) ([]ClientCrewSkill, error) {
+	definitions, err := parseCrewSkillDefinitions(root)
+	if err != nil {
+		return nil, blitz.NewError("CLIENT_XML_INVALID", err.Error())
+	}
+	skills := make([]ClientCrewSkill, 0, len(definitions))
+	for _, definition := range definitions {
+		skills = append(skills, ClientCrewSkill{
+			ID:          definition.ID,
+			UserString:  definition.UserString,
+			Description: definition.Description,
+			Tip:         definition.Tip,
+			Features:    definition.Features,
+			TankClass:   definition.TankClass,
+			Type:        definition.Type,
+			Parameters:  definition.Parameters,
 		})
 	}
 	return skills, nil

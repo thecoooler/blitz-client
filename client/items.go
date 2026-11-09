@@ -166,7 +166,7 @@ func readItemList(dataDir, relative string, localized map[string]string) ([]Clie
 // lists in first-seen order. Nations list only the types their shells need,
 // but a type must have the same image name everywhere.
 func readShellTypes(dataDir string, localized map[string]string) ([]ClientShellType, error) {
-	nations, err := readAvailableNations(dataDir)
+	nations, err := ReadAvailableNations(directorySource{dir: dataDir})
 	if err != nil {
 		return nil, err
 	}
@@ -211,42 +211,33 @@ func readShellTypes(dataDir string, localized map[string]string) ([]ClientShellT
 	return types, nil
 }
 
-// readCrewSkills reads the <skills> of the crew definition in XML order.
+// readCrewSkills reads the <skills> of the crew definition in XML order and
+// projects localized summaries from the shared source parse.
 func readCrewSkills(dataDir string, localized map[string]string) ([]ClientCrewSkill, error) {
 	skills := []ClientCrewSkill{}
 	root, path, err := readOptionalXML(dataDir, "XML/item_defs/tankmen/avatar.xml")
-	if root == nil || root.Child("skills") == nil {
+	if root == nil {
 		return skills, err
 	}
-	classes := map[string]string{}
-	if table := root.Child("skillsByClasses"); table != nil {
-		for _, class := range table.Children {
-			for _, skill := range strings.Fields(class.Text) {
-				if previous, ok := classes[skill]; ok {
-					return nil, blitz.ErrorAt("CLIENT_XML_INVALID", fmt.Sprintf(
-						"crew skill %s is listed for both %s and %s", skill, previous, class.Name), path)
-				}
-				classes[skill] = class.Name
-			}
-		}
+	definitions, err := parseCrewSkillDefinitions(root)
+	if err != nil {
+		return nil, blitz.ErrorAt("CLIENT_XML_INVALID", err.Error(), path)
 	}
-	text := func(node *xml.Node, name string) string {
-		value, _ := xml.ChildText(node, name)
+	text := func(value string) string {
 		if value == "" {
 			return ""
 		}
 		return localize(value, localized)
 	}
-	for _, node := range root.Child("skills").Children {
-		kind, _ := xml.ChildText(node, "type")
+	for _, definition := range definitions {
 		skills = append(skills, ClientCrewSkill{
-			ID:          node.Name,
-			UserString:  text(node, "userString"),
-			Description: text(node, "effectDescription"),
-			Tip:         text(node, "tipDescription"),
-			Features:    text(node, "featuresDescription"),
-			TankClass:   classes[node.Name],
-			Type:        kind,
+			ID:          definition.ID,
+			UserString:  text(definition.UserString),
+			Description: text(definition.Description),
+			Tip:         text(definition.Tip),
+			Features:    text(definition.Features),
+			TankClass:   definition.TankClass,
+			Type:        definition.Type,
 		})
 	}
 	return skills, nil

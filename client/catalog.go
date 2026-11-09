@@ -1,14 +1,12 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
 
 	blitz "github.com/thecoooler/blitz-client"
-	"github.com/thecoooler/blitz-client/internal/lossy"
 	"github.com/thecoooler/blitz-client/internal/rs"
 	"github.com/thecoooler/blitz-client/resources/xml"
 )
@@ -104,7 +102,8 @@ func discoverTanks(dataDir string, fullCatalog bool) (*discoveredTanks, error) {
 	if err != nil {
 		return nil, err
 	}
-	availableNations, err := readAvailableNations(dataDir)
+	source := directorySource{dir: dataDir}
+	availableNations, err := ReadAvailableNations(source)
 	if err != nil {
 		return nil, err
 	}
@@ -112,17 +111,12 @@ func discoverTanks(dataDir string, fullCatalog bool) (*discoveredTanks, error) {
 	modelsByNation := make(map[string][]ClientTank)
 
 	for _, nation := range availableNations {
-		listPath := ResolveClientAsset(dataDir, "XML/item_defs/vehicles/"+nation+"/list.xml")
-		if listPath == "" {
-			continue
-		}
-		data, err := ReadClientAsset(listPath)
+		list, err := ReadVehicleList(source, nation)
 		if err != nil {
 			return nil, err
 		}
-		root, err := xml.Parse(data)
-		if err != nil {
-			return nil, blitz.ErrorAt("CLIENT_XML_INVALID", err.Error(), listPath)
+		if list == nil {
+			continue
 		}
 		var info *Nation
 		for index := range nations {
@@ -130,9 +124,10 @@ func discoverTanks(dataDir string, fullCatalog bool) (*discoveredTanks, error) {
 				info = &nations[index]
 			}
 		}
-		for _, item := range root.Children {
+		for _, entry := range list.Entries {
+			item := entry.Node
 			if fullCatalog {
-				tank, err := tankMetadata(item, nation, localized, listPath)
+				tank, err := tankMetadata(item, nation, localized, list.Path)
 				if err != nil {
 					return nil, err
 				}
@@ -249,249 +244,6 @@ func showroomModel(dataDir string, item *xml.Node, nation string, info *Nation, 
 		}
 	}
 	return tank
-}
-
-func readAvailableNations(dataDir string) ([]string, error) {
-	path := ResolveClientAsset(dataDir, "available_nations.yaml")
-	if path == "" {
-		out := make([]string, len(nations))
-		for index, nation := range nations {
-			out[index] = nation.ID
-		}
-		return out, nil
-	}
-	data, err := ReadClientAsset(path)
-	if err != nil {
-		return nil, err
-	}
-	inList := false
-	var result []string
-	for _, line := range rs.Lines(lossy.String(data)) {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if trimmed == "available_nations:" {
-			inList = true
-			continue
-		}
-		if !inList {
-			continue
-		}
-		value, ok := strings.CutPrefix(trimmed, "-")
-		if !ok {
-			break
-		}
-		if nation := yamlString(strings.TrimSpace(value)); nation != "" {
-			result = append(result, nation)
-		}
-	}
-	if len(result) == 0 {
-		return nil, blitz.ErrorAt("CLIENT_YAML_INVALID", "available_nations.yaml contains no nation entries", path)
-	}
-	return result, nil
-}
-
-// ReadMapsCatalog reads maps.yaml without localization, so LocalName keeps
-// the raw scene path. Names are the maps.yaml entry keys.
-func ReadMapsCatalog(dataDir string) ([]ClientMap, error) {
-	return readMaps(dataDir, nil)
-}
-
-func readMaps(dataDir string, localized map[string]string) ([]ClientMap, error) {
-	path := ResolveClientAsset(dataDir, "maps.yml")
-	if path == "" {
-		path = ResolveClientAsset(dataDir, "maps.yaml")
-	}
-	if path == "" {
-		return nil, blitz.ErrorAt("CLIENT_DATA_INVALID",
-			"maps.yml or maps.yaml was not found in the client resource directory", dataDir)
-	}
-	data, err := ReadClientAsset(path)
-	if err != nil {
-		return nil, err
-	}
-	maps, err := parseMaps(lossy.String(data), localized)
-	if err != nil {
-		return nil, blitz.ErrorAt("CLIENT_YAML_INVALID", err.Error(), path)
-	}
-	return maps, nil
-}
-
-type mapEntry struct {
-	name   string
-	values map[string]string
-}
-
-func parseMaps(source string, localized map[string]string) ([]ClientMap, error) {
-	inMaps := false
-	var current *mapEntry
-	var maps []ClientMap
-	for _, line := range rs.Lines(source) {
-		trimmed := strings.TrimSpace(line)
-		if !inMaps {
-			if trimmed == "maps:" {
-				inMaps = true
-			}
-			continue
-		}
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "        "):
-			if err := finishMap(current, localized, &maps); err != nil {
-				return nil, err
-			}
-			key, ok := strings.CutSuffix(trimmed, ":")
-			if !ok {
-				return nil, fmt.Errorf("invalid map entry %s", rs.Quote(trimmed))
-			}
-			current = &mapEntry{name: yamlString(key), values: map[string]string{}}
-		case strings.HasPrefix(line, "        "):
-			if key, value, ok := strings.Cut(trimmed, ":"); ok && current != nil {
-				current.values[key] = strings.TrimSpace(value)
-			}
-		case !strings.HasPrefix(line, " ") && strings.HasSuffix(trimmed, ":"):
-			goto done
-		}
-	}
-done:
-	if err := finishMap(current, localized, &maps); err != nil {
-		return nil, err
-	}
-	if !inMaps || len(maps) == 0 {
-		return nil, fmt.Errorf("maps.yaml contains no map entries")
-	}
-	return maps, nil
-}
-
-func finishMap(entry *mapEntry, localized map[string]string, output *[]ClientMap) error {
-	if entry == nil {
-		return nil
-	}
-	name := rs.Quote(entry.name)
-	get := func(key string) (string, bool) {
-		value, ok := entry.values[key]
-		return value, ok
-	}
-	localName := ""
-	if value, ok := get("localName"); ok {
-		localName = yamlString(value)
-	}
-	idText, ok := get("id")
-	if !ok {
-		return fmt.Errorf("map %s is missing id", name)
-	}
-	id, err := rs.ParseInt(idText, 64)
-	if err != nil {
-		return fmt.Errorf("map %s has invalid id", name)
-	}
-	frame, ok := optionalNumberField(entry.values, "frame")
-	if !ok {
-		frame, ok = optionalNumberField(entry.values, "spriteFrame")
-	}
-	if !ok {
-		return fmt.Errorf("map %s has neither frame nor spriteFrame", name)
-	}
-	modes := []int64{}
-	if value, ok := get("availableModes"); ok {
-		if modes, err = yamlNumberList(value); err != nil {
-			return err
-		}
-	}
-	training := false
-	for _, key := range []string{"availableInTrainingRoom", "avaliableInTrainingRoom"} {
-		if value, ok := get(key); ok {
-			if parsed, ok := yamlBool(value); ok && parsed {
-				training = true
-			}
-		}
-	}
-	if translated, ok := localized["#maps:"+entry.name+":"+localName]; ok {
-		localName = translated
-	}
-	*output = append(*output, ClientMap{
-		Name:                    entry.name,
-		ID:                      id,
-		LocalName:               localName,
-		AvailableInTrainingRoom: training,
-		AvailableModes:          modes,
-		SpriteFrame:             frame,
-	})
-	return nil
-}
-
-func optionalNumberField(values map[string]string, key string) (int64, bool) {
-	value, ok := values[key]
-	if !ok {
-		return 0, false
-	}
-	value = strings.TrimSpace(value)
-	if value == "" || value == "null" || value == "~" {
-		return 0, false
-	}
-	number, err := rs.ParseInt(value, 64)
-	return number, err == nil
-}
-
-func yamlString(value string) string {
-	value = strings.TrimSpace(value)
-	if strings.HasPrefix(value, `"`) {
-		escaped := false
-		for index := 1; index < len(value); index++ {
-			switch {
-			case value[index] == '\\' && !escaped:
-				escaped = true
-			case value[index] == '"' && !escaped:
-				var parsed string
-				if json.Unmarshal([]byte(value[:index+1]), &parsed) == nil {
-					return parsed
-				}
-				index = len(value)
-			default:
-				escaped = false
-			}
-		}
-	}
-	if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
-		return strings.ReplaceAll(value[1:len(value)-1], "''", "'")
-	}
-	return value
-}
-
-func yamlNumberList(value string) ([]int64, error) {
-	value = strings.TrimSpace(value)
-	body, ok := strings.CutPrefix(value, "[")
-	if ok {
-		body, ok = strings.CutSuffix(body, "]")
-	}
-	if !ok {
-		return nil, fmt.Errorf("expected a numeric YAML list, got %s", rs.Quote(value))
-	}
-	numbers := []int64{}
-	for _, part := range strings.Split(body, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		number, err := rs.ParseInt(part, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid number %s in YAML list", rs.Quote(part))
-		}
-		numbers = append(numbers, number)
-	}
-	return numbers, nil
-}
-
-func yamlBool(value string) (bool, bool) {
-	switch strings.TrimSpace(value) {
-	case "true", "True", "TRUE":
-		return true, true
-	case "false", "False", "FALSE":
-		return false, true
-	}
-	return false, false
 }
 
 func requiredNode(node *xml.Node, name, path string) (*xml.Node, error) {

@@ -135,30 +135,13 @@ func (r snapshotReader) has(rel string) bool {
 	return ok
 }
 
-// availableNations falls back to the built-in nation list, like the tank catalog.
-func (r snapshotReader) availableNations() ([]string, error) {
-	if !r.has("available_nations.yaml") {
-		nations := []string{}
-		for _, nation := range client.Nations() {
-			nations = append(nations, nation.ID)
-		}
-		return nations, nil
-	}
-	b, err := r.read("available_nations.yaml")
-	if err != nil {
-		return nil, err
-	}
-	var available struct {
-		Nations []string `yaml:"available_nations"`
-	}
-	if err := yaml.Unmarshal(b, &available); err != nil {
-		return nil, fmt.Errorf("available_nations.yaml: %w", err)
-	}
-	if len(available.Nations) == 0 {
-		return nil, fmt.Errorf("available_nations.yaml contains no nations")
-	}
-	return available.Nations, nil
-}
+// Exists, Open and Location implement client.CatalogSource. The overlay rules
+// remain here; the catalog owns document parsing and validation.
+func (r snapshotReader) Exists(rel string) bool { return r.has(rel) }
+
+func (r snapshotReader) Open(rel string) ([]byte, error) { return r.read(rel) }
+
+func (r snapshotReader) Location(rel string) string { return rel }
 
 func (r snapshotReader) xml(rel string) (*xml.Node, error) {
 	b, err := r.read(rel)
@@ -197,7 +180,7 @@ func (r snapshotReader) document(rel string) (any, error) {
 func extractSnapshot(resources *client.Resources, files map[string]sourceFile, included []string, out string) (*Snapshot, error) {
 	r := snapshotReader{resources: resources, files: files}
 	data, icons := slices.Contains(included, "data"), slices.Contains(included, "icons")
-	nations, err := r.availableNations()
+	nations, err := client.ReadAvailableNations(r)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +191,6 @@ func extractSnapshot(resources *client.Resources, files map[string]sourceFile, i
 	s := &Snapshot{Format: "blitz-client", Version: 1, Included: included, Game: game,
 		ExportedAt: time.Now().UTC().Format(time.RFC3339), ExporterVersion: exporterVersion(),
 		Nations: []string{}, Tanks: []SnapshotTank{}, Issues: []ExportIssue{}}
-	identities := map[string]bool{}
-	technicalNames := map[string]bool{}
 	if data {
 		s.Components = map[string]map[string]any{}
 	}
@@ -218,24 +199,22 @@ func extractSnapshot(resources *client.Resources, files map[string]sourceFile, i
 			return nil, fmt.Errorf("invalid nation %q", nation)
 		}
 		base := "XML/item_defs/vehicles/" + nation + "/"
-		if !r.has(base + "list.xml") {
+		list, err := client.ReadVehicleList(r, nation)
+		if err != nil {
+			return nil, err
+		}
+		if list == nil {
 			// Like the tank catalog, a listed nation without vehicles is skipped.
 			continue
 		}
 		s.Nations = append(s.Nations, nation)
-		root, err := r.xml(base + "list.xml")
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range root.Children {
-			if item.Name == "nextAvailableId" {
-				continue
-			}
+		for _, entry := range list.Entries {
+			item := entry.Node
 			if !safeDataName(item.Name) {
 				return nil, fmt.Errorf("invalid technical name %q", item.Name)
 			}
-			raw, ok := xml.ChildText(item, "id")
-			if !ok {
+			raw := entry.ID
+			if raw == "" {
 				return nil, fmt.Errorf("%s:%s missing client id", nation, item.Name)
 			}
 			id, err := strconv.ParseInt(raw, 10, 64)
@@ -243,15 +222,6 @@ func extractSnapshot(resources *client.Resources, files map[string]sourceFile, i
 				return nil, fmt.Errorf("%s:%s invalid client id %q", nation, item.Name, raw)
 			}
 			key := nation + ":" + strconv.FormatInt(id, 10)
-			if identities[key] {
-				return nil, fmt.Errorf("duplicate tank identity %s", key)
-			}
-			identities[key] = true
-			technicalKey := nation + ":" + item.Name
-			if technicalNames[technicalKey] {
-				return nil, fmt.Errorf("duplicate technical name %s", technicalKey)
-			}
-			technicalNames[technicalKey] = true
 			tank := SnapshotTank{ID: key, Nation: nation, ClientID: id, TechName: item.Name}
 			if data {
 				// The numeric ID has one authoritative representation on the entity.
@@ -323,8 +293,8 @@ func extractSnapshot(resources *client.Resources, files map[string]sourceFile, i
 	if err != nil {
 		return nil, err
 	}
-	var names map[string]*string
-	if err := yaml.Unmarshal(ru, &names); err != nil {
+	var names client.Localization
+	if names, err = client.DecodeLocalization(ru); err != nil {
 		return nil, fmt.Errorf("Strings/ru.yaml: %w", err)
 	}
 	s.Localization = &Localization{RU: names}
@@ -344,19 +314,10 @@ func extractSnapshot(resources *client.Resources, files map[string]sourceFile, i
 			return nil, err
 		}
 	}
-	for _, name := range []string{"maps.yaml", "maps.yml"} {
-		if r.has(name) {
-			b, err := r.read(name)
-			if err != nil {
-				return nil, err
-			}
-			raw, err := parseRawMaps(b)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", name, err)
-			}
-			s.Maps = raw
-			break
-		}
+	if document, err := client.ReadMapsDocument(r); err != nil {
+		return nil, err
+	} else if document != nil {
+		s.Maps = rawMapsFromDocument(document)
 	}
 	common := "XML/item_defs/vehicles/common/"
 	devices, err := r.document(common + "optional_devices.xml")
