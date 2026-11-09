@@ -5,7 +5,6 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"math/big"
@@ -17,8 +16,6 @@ import (
 	"github.com/thecoooler/blitz-client/internal/jsonx"
 	"github.com/thecoooler/blitz-client/internal/pickle"
 )
-
-const recoveredLayoutVersion = "26.8.0_ruby_apple"
 
 type obj = jsonx.Object
 
@@ -144,7 +141,7 @@ func recoverTelemetry(packets []*Packet, clientVersion string, results *BattleRe
 	for index, packet := range packets {
 		if update := decoder.OnPacket(packet, index, clientVersion); update != nil {
 			value := jsonx.ToValue(update)
-			annotations[index] = obj{"kind": "battle_counter_update", "update": value}
+			annotations[index] = annotation(annotationBattleCounterUpdate, annotationField{"update", value})
 			updates = append(updates, value)
 		}
 	}
@@ -153,7 +150,7 @@ func recoverTelemetry(packets []*Packet, clientVersion string, results *BattleRe
 	report["battle_counter_updates"] = updates
 	report["battle_counter_supported_client_versions"] = jsonx.ToValue(BattleCounterClientVersions)
 	if clientVersion != recoveredLayoutVersion {
-		report["decoder"] = "battle-counters-only"
+		report["decoder"] = telemetryDecoderBattleCountersOnly
 		delete(report, "supported_client_version")
 	}
 	var blocked, assisted any
@@ -181,8 +178,7 @@ func recoverTelemetry(packets []*Packet, clientVersion string, results *BattleRe
 		"damage_blocked_matches_results":  matches(counters.DamageBlocked, expectedBlocked),
 		"damage_assisted_matches_results": matches(counters.DamageAssisted, expectedAssisted),
 	}
-	report["schema_notes"] = append(report["schema_notes"].([]any),
-		"Метод 14 автора боя: ribbon 5 — накопленный заблокированный урон; ribbon 17 — накопленная помощь по засвету или обездвиживанию. Значения u16 читаются прямо из пакета; отдельного разделения видов помощи нет.")
+	report["schema_notes"] = append(report["schema_notes"].([]any), battleCounterSchemaNote())
 	return report
 }
 
@@ -232,7 +228,7 @@ func recoverLayoutTelemetry(packets []*Packet, clientVersion string, results *Ba
 	contextPackets := countPackets(packets, isBasePlayerCreate)
 	if clientVersion != recoveredLayoutVersion {
 		return obj{
-			"decoder":                  "unsupported-client-version",
+			"decoder":                  telemetryDecoderUnsupported,
 			"client_version":           clientVersion,
 			"supported_client_version": recoveredLayoutVersion,
 			"summary": obj{
@@ -240,7 +236,7 @@ func recoverLayoutTelemetry(packets []*Packet, clientVersion string, results *Ba
 				"arena_context_packets":            contextPackets,
 				"arena_context_player_ids":         contextIDs,
 			},
-			"schema_notes":              []any{"Байтовые смещения подтверждены только для указанной версии клиента; исходные пакеты доступны без этих предположений."},
+			"schema_notes":              unsupportedLayoutSchemaNotes(),
 			"shots":                     []any{},
 			"hits":                      []any{},
 			"arena_context":             context,
@@ -339,7 +335,7 @@ func recoverLayoutTelemetry(packets []*Packet, clientVersion string, results *Ba
 	}
 
 	return obj{
-		"decoder":        "empirical-ruby-apple-26.8",
+		"decoder":        telemetryDecoderEmpirical,
 		"client_version": clientVersion,
 		"summary": obj{
 			"packet_layout_decoding_supported":           true,
@@ -372,24 +368,12 @@ func recoverLayoutTelemetry(packets []*Packet, clientVersion string, results *Ba
 		"arena_context":             context,
 		"booster_counter_snapshots": objects(state.boosterSnapshots),
 		"method_48_task_markers":    objects(state.method48Markers),
-		"schema_notes": []any{
-			"Подтверждены только указанные варианты длины; остальные payload остаются сырыми.",
-			"Subtype 25: projectile_id и 3 координаты; число записей сверяется с n_shots в итогах.",
-			"Subtype 35 длиной 49 байт: result_id игрока, projectile_id, marker, origin, velocity и неизвестный float.",
-			"Subtype 9 длиной 33 байта: source result_id, target result_id и 13 непрозрачных байт.",
-			"Пакет 10 длиной 49 байт: entity_id (часто совпадает с result_id игрока), позиция, ещё один вектор, 3 значения ориентации и флаг; названия части полей предварительные.",
-			"Subtype 33 связан с projectile_id из subtype 25; смысл остальных полей не установлен.",
-			"Type 7 opcode 3 с 16-битным значением декодирован как оставшееся HP: значения падают вместе с сообщениями о попаданиях, а ноль совпадает с уничтожением техники. Разницы между последовательными обновлениями HP являются наблюдаемой потерей HP; начальное значение до первого обновления в реплее может отсутствовать.",
-			"Для остальных opcode типа 7 показаны entity_id, числовой opcode и сырые байты тела; смысл opcode не установлен. Тип 5 показан через маркер и сырые байты.",
-			"BasePlayerCreate содержит контекст матча, account_database_ids, player_wait_times и players_battle_categories_ids. Множество account ID совпало с составом результатов в четырёх локальных реплеях, но порядок списка отличается от порядка в результатах.",
-			"Метод 51 в изученных реплеях содержит небольшой pickle-словарь с ключами Booster и целыми значениями. Не установлено, означают ли они остаток предметов, выбранное снаряжение или что-то другое; 9-байтовый префикс сохраняется отдельно.",
-			"Subtype 48 иногда содержит строковый ключ формата tj_* или clan_task_*; значение показывается буквально, связь entity_id с конкретным игроком не установлена.",
-		},
-		"shots":              objects(state.shots),
-		"hits":               objects(state.hits),
-		"health_updates":     objects(state.healthUpdates),
-		"vehicle_updates":    objects(state.vehicleUpdates),
-		"packet_annotations": annotations,
+		"schema_notes":              supportedLayoutSchemaNotes(),
+		"shots":                     objects(state.shots),
+		"hits":                      objects(state.hits),
+		"health_updates":            objects(state.healthUpdates),
+		"vehicle_updates":           objects(state.vehicleUpdates),
+		"packet_annotations":        annotations,
 	}
 }
 
@@ -422,7 +406,9 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				"clock": clock, "projectile_id": projectileID, "position": position, "entity_id": entityID,
 				"packet_index": packetIndex, "launch_records": []any{}, "auxiliary_records": []any{},
 			})
-			return obj{"kind": "projectile_position", "label": "Точка снаряда", "projectile_id": projectileID, "position": position}
+			return annotation(annotationProjectilePosition,
+				annotationField{"projectile_id", projectileID},
+				annotationField{"position", position})
 		}
 	case isUnknownMethod(payload, 35) && len(raw) == 49:
 		sourceResultID, ok1 := readU32(raw, 12)
@@ -437,28 +423,30 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				"origin": origin, "velocity": velocity, "unknown_scalar": jsonx.F64(parameter), "packet_index": packetIndex,
 			}
 			state.launchesByProjectile[projectileID] = append(state.launchesByProjectile[projectileID], launch)
-			return obj{
-				"kind": "projectile_launch", "label": "Запуск снаряда", "projectile_id": projectileID,
-				"source_result_id": sourceResultID, "source_player": playerJSON(players, sourceResultID),
-				"origin": origin, "velocity": velocity, "marker": raw[20], "unknown_scalar": jsonx.F64(parameter),
-			}
+			return annotation(annotationProjectileLaunch,
+				annotationField{"projectile_id", projectileID},
+				annotationField{"source_result_id", sourceResultID},
+				annotationField{"source_player", playerJSON(players, sourceResultID)},
+				annotationField{"origin", origin},
+				annotationField{"velocity", velocity},
+				annotationField{"marker", raw[20]},
+				annotationField{"unknown_scalar", jsonx.F64(parameter)})
 		}
 	case isUnknownMethod(payload, 9) && len(raw) == 33:
-		targetEntity, ok1 := readU32(raw, 0)
-		sourceResultID, ok2 := readU32(raw, 12)
-		bodyTarget, ok3 := readU32(raw, 16)
-		if ok1 && ok2 && ok3 {
+		if body, ok := parseMethod9Body(raw); ok {
 			state.hits = append(state.hits, obj{
-				"clock": clock, "source_result_id": sourceResultID, "source_player": playerJSON(players, sourceResultID),
-				"target_result_id": bodyTarget, "target_player": playerJSON(players, bodyTarget), "entity_id": targetEntity,
-				"target_matches_entity_id": targetEntity == bodyTarget, "opaque_hex": hexString(raw[20:]), "packet_index": packetIndex,
+				"clock": clock, "source_result_id": body.SourceResultID, "source_player": playerJSON(players, body.SourceResultID),
+				"target_result_id": body.TargetResultID, "target_player": playerJSON(players, body.TargetResultID),
+				"entity_id": body.EntityID, "target_matches_entity_id": body.EntityID == body.TargetResultID,
+				"opaque_hex": hexString(body.Opaque), "packet_index": packetIndex,
 			})
-			state.hitRecords = append(state.hitRecords, hitRecord{packet.ClockSecs, bodyTarget, sourceResultID, packetIndex})
-			return obj{
-				"kind": "hit_received", "label": "Сообщение о попадании", "source_result_id": sourceResultID,
-				"source_player": playerJSON(players, sourceResultID), "target_result_id": bodyTarget,
-				"target_player": playerJSON(players, bodyTarget), "opaque_hex": hexString(raw[20:]),
-			}
+			state.hitRecords = append(state.hitRecords, hitRecord{packet.ClockSecs, body.TargetResultID, body.SourceResultID, packetIndex})
+			return annotation(annotationHitReceived,
+				annotationField{"source_result_id", body.SourceResultID},
+				annotationField{"source_player", playerJSON(players, body.SourceResultID)},
+				annotationField{"target_result_id", body.TargetResultID},
+				annotationField{"target_player", playerJSON(players, body.TargetResultID)},
+				annotationField{"opaque_hex", hexString(body.Opaque)})
 		}
 	case isUnknownMethod(payload, 33) && len(raw) == 46:
 		projectileID, ok1 := readU32(raw, 12)
@@ -469,10 +457,10 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				"opaque_hex": hexString(raw[20:]), "packet_index": packetIndex,
 			}
 			state.auxiliariesByProjectile[projectileID] = append(state.auxiliariesByProjectile[projectileID], auxiliary)
-			return obj{
-				"kind": "projectile_auxiliary", "label": "Дополнительное сообщение снаряда",
-				"projectile_id": projectileID, "position": position, "opaque_hex": hexString(raw[20:]),
-			}
+			return annotation(annotationProjectileAuxiliary,
+				annotationField{"projectile_id", projectileID},
+				annotationField{"position", position},
+				annotationField{"opaque_hex", hexString(raw[20:])})
 		}
 	case isUnknownMethod(payload, 51):
 		entityID, ok1 := readU32(raw, 0)
@@ -483,10 +471,10 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				"clock": clock, "entity_id": entityID, "packet_index": packetIndex,
 				"opaque_prefix_hex": hexString(raw[12:21]), "item_counters": counters,
 			})
-			return obj{
-				"kind": "method_51_counters", "label": "Счётчики предметов · метод 51", "entity_id": entityID,
-				"item_counter_count": len(counters), "snapshot_index": snapshotIndex,
-			}
+			return annotation(annotationMethod51Counters,
+				annotationField{"entity_id", entityID},
+				annotationField{"item_counter_count", len(counters)},
+				annotationField{"snapshot_index", snapshotIndex})
 		}
 	case isUnknownMethod(payload, 48):
 		entityID, ok1 := readU32(raw, 0)
@@ -496,10 +484,10 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 			state.method48Markers = append(state.method48Markers, obj{
 				"clock": clock, "entity_id": entityID, "task_key": taskKey, "packet_index": packetIndex,
 			})
-			return obj{
-				"kind": "method_48_task_marker", "label": "Ключ задачи · метод 48", "entity_id": entityID,
-				"task_key": taskKey, "marker_index": markerIndex,
-			}
+			return annotation(annotationMethod48TaskMarker,
+				annotationField{"entity_id", entityID},
+				annotationField{"task_key", taskKey},
+				annotationField{"marker_index", markerIndex})
 		}
 	case isUnknownType(10)(payload) && len(raw) == 49:
 		resultID, ok1 := readU32(raw, 0)
@@ -514,10 +502,11 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				"correction_vector": correction, "orientation_values": orientation, "flag": raw[48],
 				"packet_index": packetIndex,
 			})
-			return obj{
-				"kind": "vehicle_transform", "label": "Обновление положения техники", "entity_id": resultID,
-				"player": playerJSON(players, resultID), "position": position, "update_index": updateIndex,
-			}
+			return annotation(annotationVehicleTransform,
+				annotationField{"entity_id", resultID},
+				annotationField{"player", playerJSON(players, resultID)},
+				annotationField{"position", position},
+				annotationField{"update_index", updateIndex})
 		}
 	case isUnknownType(7)(payload) && len(raw) == 14 && u32Is(raw, 4, 3) && u32Is(raw, 8, 2):
 		entityID, ok1 := readU32(raw, 0)
@@ -540,11 +529,14 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				"packet_index": packetIndex, "matched_hit_packet_indices": []any{}, "matched_hit_source_result_ids": []any{},
 			})
 			state.healthRecords = append(state.healthRecords, healthRecord{packet.ClockSecs, entityID, packetIndex, hpLost})
-			return obj{
-				"kind": "vehicle_health_update", "label": "Обновление оставшегося HP", "entity_id": entityID,
-				"player": playerJSON(players, entityID), "remaining_hp": remaining, "previous_hp": previousHP,
-				"health_change": change, "hp_lost_since_previous_update": lost, "health_update_index": updateIndex,
-			}
+			return annotation(annotationVehicleHealthUpdate,
+				annotationField{"entity_id", entityID},
+				annotationField{"player", playerJSON(players, entityID)},
+				annotationField{"remaining_hp", remaining},
+				annotationField{"previous_hp", previousHP},
+				annotationField{"health_change", change},
+				annotationField{"hp_lost_since_previous_update", lost},
+				annotationField{"health_update_index", updateIndex})
 		}
 	case isUnknownType(7)(payload) && len(raw) >= 12:
 		entityID, _ := readU32(raw, 0)
@@ -556,23 +548,57 @@ func decodeTelemetryPacket(packet *Packet, packetIndex int, players map[uint32]o
 				candidate = jsonx.F64(value)
 			}
 		}
-		return obj{
-			"kind": "unclassified_entity_update", "label": fmt.Sprintf("Сообщение типа 7 · код %d", opcode),
-			"entity_id": entityID, "opcode": opcode, "body_word": bodyWord, "tail_hex": hexString(raw[12:]),
-			"candidate_tail_float": candidate,
-		}
+		return annotationWithLabel(annotationUnclassifiedEntityUpdate, unclassifiedType7Label(opcode),
+			annotationField{"entity_id", entityID},
+			annotationField{"opcode", opcode},
+			annotationField{"body_word", bodyWord},
+			annotationField{"tail_hex", hexString(raw[12:])},
+			annotationField{"candidate_tail_float", candidate})
 	case isUnknownType(5)(payload) && len(raw) >= 5:
-		return obj{
-			"kind": "unclassified_entity_message", "label": fmt.Sprintf("Сообщение типа 5 · маркер %d", raw[4]),
-			"first_word": optU32(raw, 0), "marker": raw[4], "tail_hex": hexString(raw[5:]),
-		}
+		return annotationWithLabel(annotationUnclassifiedEntityMessage, unclassifiedType5Label(raw[4]),
+			annotationField{"first_word", optU32(raw, 0)},
+			annotationField{"marker", raw[4]},
+			annotationField{"tail_hex", hexString(raw[5:])})
 	case isUnknownType(13)(payload):
 		if snapshot := findResultsSnapshot(raw, resultsBlob); snapshot != nil {
 			state.resultSnapshots++
-			return obj{"kind": "battle_results_snapshot", "label": "Снимок итогов боя", "snapshot": snapshot}
+			return annotation(annotationBattleResultsSnapshot, annotationField{"snapshot", snapshot})
 		}
 	}
 	return nil
+}
+
+// method9Body is the fixed 33-byte EntityMethod 9 body shared by the hit
+// annotation and the live damage accumulator. Each caller applies its own
+// acceptance rules to the parsed values.
+type method9Body struct {
+	EntityID       uint32
+	SourceResultID uint32
+	TargetResultID uint32
+	Damage         uint16
+	Flag           byte
+	Opaque         []byte
+}
+
+func parseMethod9Body(raw []byte) (method9Body, bool) {
+	if len(raw) != 33 {
+		return method9Body{}, false
+	}
+	entityID, ok1 := readU32(raw, 0)
+	sourceResultID, ok2 := readU32(raw, 12)
+	targetResultID, ok3 := readU32(raw, 16)
+	damage, ok4 := readU16(raw, 30)
+	if !ok1 || !ok2 || !ok3 || !ok4 {
+		return method9Body{}, false
+	}
+	return method9Body{
+		EntityID:       entityID,
+		SourceResultID: sourceResultID,
+		TargetResultID: targetResultID,
+		Damage:         damage,
+		Flag:           raw[32],
+		Opaque:         raw[20:],
+	}, true
 }
 
 func u32Is(raw []byte, offset int, expected uint32) bool {
@@ -592,43 +618,57 @@ func NewTelemetryDecoder() *TelemetryDecoder {
 	return &TelemetryDecoder{state: newTelemetryState()}
 }
 
-// OnPacket returns the telemetry for one packet, or nil for client versions
-// with neither supported layouts nor battle counters.
-func (d *TelemetryDecoder) OnPacket(packet *Packet, packetIndex int, clientVersion string) any {
+// OnPacketUpdate returns the typed telemetry for one packet, or nil for client
+// versions with neither supported layouts nor battle counters. The returned
+// slices are detached from the decoder's per-packet state.
+func (d *TelemetryDecoder) OnPacketUpdate(packet *Packet, packetIndex int, clientVersion string) *TelemetryUpdate {
 	layoutSupported := clientVersion == recoveredLayoutVersion
 	counterSupported := SupportsBattleCounters(clientVersion)
 	if !layoutSupported && !counterSupported {
 		return nil
 	}
-	update := d.counters.OnPacket(packet, packetIndex, clientVersion)
-	var annotation any
-	updates := []any{}
+	counterUpdate := d.counters.OnPacket(packet, packetIndex, clientVersion)
+	var packetAnnotation obj
+	counterUpdates := []*BattleCounterUpdate{}
 	switch {
-	case update != nil:
-		value := jsonx.ToValue(update)
-		annotation = obj{"kind": "battle_counter_update", "update": value}
-		updates = append(updates, value)
+	case counterUpdate != nil:
+		packetAnnotation = annotation(annotationBattleCounterUpdate,
+			annotationField{"update", jsonx.ToValue(counterUpdate)})
+		counterUpdates = append(counterUpdates, counterUpdate)
 	case layoutSupported:
-		annotation = decodeTelemetryPacket(packet, packetIndex, map[uint32]obj{}, nil, d.state)
+		if value := decodeTelemetryPacket(packet, packetIndex, map[uint32]obj{}, nil, d.state); value != nil {
+			packetAnnotation = value.(obj)
+		}
 	}
-	details := obj{
-		"packet_layout_decoding_supported":  layoutSupported,
-		"battle_counter_decoding_supported": counterSupported,
-		"battle_counters":                   jsonx.ToValue(d.counters.Counters()),
-		"battle_counter_updates":            updates,
-		"annotation":                        annotation,
-		"shots":                             objects(d.state.shots),
-		"hits":                              objects(d.state.hits),
-		"health_updates":                    objects(d.state.healthUpdates),
-		"vehicle_updates":                   objects(d.state.vehicleUpdates),
-		"booster_counter_snapshots":         objects(d.state.boosterSnapshots),
-		"method_48_task_markers":            objects(d.state.method48Markers),
+	update := &TelemetryUpdate{
+		PacketLayoutDecodingSupported:  layoutSupported,
+		BattleCounterDecodingSupported: counterSupported,
+		BattleCounters:                 d.counters.Counters(),
+		BattleCounterUpdates:           counterUpdates,
+		Annotation:                     packetAnnotation,
+		Shots:                          append([]obj(nil), d.state.shots...),
+		Hits:                           append([]obj(nil), d.state.hits...),
+		HealthUpdates:                  append([]obj(nil), d.state.healthUpdates...),
+		VehicleUpdates:                 append([]obj(nil), d.state.vehicleUpdates...),
+		BoosterCounterSnapshots:        append([]obj(nil), d.state.boosterSnapshots...),
+		Method48TaskMarkers:            append([]obj(nil), d.state.method48Markers...),
 	}
 	// Keep only state needed by subsequent packets, never the full live history.
 	previous := d.state.previousHealth
 	d.state = newTelemetryState()
 	d.state.previousHealth = previous
-	return details
+	return update
+}
+
+// OnPacket returns the telemetry for one packet as the stable JSON-ready
+// object, or nil for client versions with neither supported layouts nor battle
+// counters.
+func (d *TelemetryDecoder) OnPacket(packet *Packet, packetIndex int, clientVersion string) any {
+	update := d.OnPacketUpdate(packet, packetIndex, clientVersion)
+	if update == nil {
+		return nil
+	}
+	return update.details()
 }
 
 func playerLookup(results *BattleResults) map[uint32]obj {

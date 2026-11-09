@@ -3,7 +3,6 @@ package replay
 import (
 	"bytes"
 	"compress/zlib"
-	"encoding/binary"
 	"errors"
 	"io"
 	"io/fs"
@@ -72,20 +71,19 @@ func SupportsDamageEvents(version string) bool {
 
 // AppliedDamage accepts supported versions with matching damage envelopes.
 func AppliedDamage(packet *Packet, version string) *DamageEvent {
-	if !SupportsDamageEvents(version) || packet == nil || packet.Payload.Kind != PayloadEntityMethod || packet.Payload.EntityMethod == nil || packet.Payload.EntityMethod.SubType != 9 || len(packet.RawPayload) != 33 {
+	if !SupportsDamageEvents(version) || packet == nil || packet.Payload.Kind != PayloadEntityMethod || packet.Payload.EntityMethod == nil || packet.Payload.EntityMethod.SubType != 9 {
 		return nil
 	}
-	raw := packet.RawPayload
+	body, ok := parseMethod9Body(packet.RawPayload)
+	if !ok {
+		return nil
+	}
 	// Both observed applied-hit flags (1 and 3) carry actual HP damage.
 	// Flag 3 appears on hits that were previously omitted from the total.
-	if (raw[32] != 1 && raw[32] != 3) || binary.LittleEndian.Uint32(raw) != binary.LittleEndian.Uint32(raw[16:]) {
+	if (body.Flag != 1 && body.Flag != 3) || body.EntityID != body.TargetResultID || body.Damage == 0 {
 		return nil
 	}
-	damage := binary.LittleEndian.Uint16(raw[30:])
-	if damage == 0 {
-		return nil
-	}
-	return &DamageEvent{binary.LittleEndian.Uint32(raw[12:]), binary.LittleEndian.Uint32(raw[16:]), damage}
+	return &DamageEvent{body.SourceResultID, body.TargetResultID, body.Damage}
 }
 
 type livePlayers struct {
