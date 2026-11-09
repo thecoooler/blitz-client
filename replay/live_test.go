@@ -269,7 +269,7 @@ func TestLiveDamageMatchesRealReplayResults(t *testing.T) {
 }
 
 func TestLiveDamageIncludesBothAppliedFlagsAndServerTotal(t *testing.T) {
-	for _, version := range []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple", "26.10.1_ruby"} {
+	for _, version := range []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple"} {
 		t.Run(version, func(t *testing.T) {
 			own, enemy, ally := uint32(11), uint32(22), uint32(33)
 			p := livePlayers{version: version, players: map[uint32]ArenaPlayer{

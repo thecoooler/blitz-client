@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -18,6 +19,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	cliBinary = filepath.Join(dir, "blitz-client")
+	if runtime.GOOS == "windows" {
+		cliBinary += ".exe"
+	}
 	build := exec.Command("go", "build", "-o", cliBinary, "github.com/thecoooler/blitz-client/cmd/blitz-client")
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {

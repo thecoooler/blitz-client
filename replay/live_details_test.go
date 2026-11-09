@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/zlib"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"os"
@@ -226,5 +227,56 @@ func TestLiveResultsRequireMatchingArena(t *testing.T) {
 	}
 	if liveResults(packet, "26.10.0_ruby_apple", true, 124) != nil || liveResults(packet, "26.10.0_ruby_apple", false, 123) != nil {
 		t.Fatal("unmatched results accepted")
+	}
+}
+
+func TestLiveRosterLateAuthorAndChangedPlatoons(t *testing.T) {
+	p := livePlayers{author: "author"}
+	feed := func(id, team uint32, name string, platoon *uint32) {
+		t.Helper()
+		// Exercise actual protobuf fields: descriptor (2), team (4), account
+		// (7), platoon number (11). Team/platoon IDs remain raw identifiers.
+		body := []byte{0x12, 2, 0x11, 0x4b, 0x1a}
+		body = binary.AppendUvarint(body, uint64(len(name)))
+		body = append(body, name...)
+		body = binary.AppendUvarint(append(body, 0x20), uint64(team))
+		body = binary.AppendUvarint(append(body, 0x38), uint64(id))
+		if platoon != nil {
+			body = binary.AppendUvarint(append(body, 0x58), uint64(*platoon))
+		}
+		player, err := decodeArenaPlayer(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		packet := &Packet{Payload: Payload{Kind: PayloadEntityMethod, EntityMethod: &EntityMethod{UpdateArena: &UpdateArena{Players: &ArenaPlayers{Players: []ArenaPlayer{*player}}}}}}
+		if err := p.event(FollowEvent{Event: StreamEvent{Kind: EventPacket, Packet: packet}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	platoon := uint32(4)
+	feed(2, 3, "ally", &platoon)
+	if roster, _ := p.snapshot(""); roster != nil {
+		t.Fatal("invented author before author roster entry")
+	}
+	feed(1, 3, "author", &platoon)
+	feed(3, 7, "enemy", &platoon)
+	roster, _ := p.snapshot("")
+	if roster == nil || roster.AuthorAccountID != 1 || len(roster.Allies) != 2 || len(roster.Enemies) != 1 {
+		t.Fatalf("roster: %+v", roster)
+	}
+	for _, team := range [][]ArenaPlayer{roster.Allies, roster.Enemies} {
+		for _, player := range team {
+			if player.VehicleTypeID != 19217 || player.PlatoonNumber == nil || *player.PlatoonNumber != 4 {
+				t.Fatalf("descriptor/platoon: %+v", player)
+			}
+		}
+	}
+	// A number reused on the other team remains an enemy, and later roster
+	// updates replace platoon membership without mutating previous snapshots.
+	zero := uint32(0)
+	feed(2, 3, "ally", &zero)
+	changed, _ := p.snapshot("")
+	if *changed.Allies[1].PlatoonNumber != 0 || *roster.Allies[1].PlatoonNumber != 4 || changed.Enemies[0].TeamNumber != 7 {
+		t.Fatalf("changed roster: %+v", changed)
 	}
 }

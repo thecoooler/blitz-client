@@ -32,6 +32,11 @@ func basePlayerPayload(t *testing.T, extended bool) ([]byte, map[string]any) {
 		"mmType": 0, "camouflageSlot": 2, "accountDatabaseIds": []any{42},
 		"avgMmr": []any{nil, 3500.5},
 	}
+	return basePlayerPayloadFor(t, extended, context)
+}
+
+func basePlayerPayloadFor(t *testing.T, extended bool, context map[string]any) ([]byte, map[string]any) {
+	t.Helper()
 	encoded := pickleOf(context)
 	out := make([]byte, 10)
 	out = append(out, "\x04Test"...)
@@ -72,6 +77,23 @@ func TestBasePlayerContextDecodesPickleAndPreservesJSONFields(t *testing.T) {
 	}
 }
 
+func TestBasePlayerContextAcceptsIntegerMouseFlag(t *testing.T) {
+	// 26.10.1 replays can store mouseEnabled as an integer rather than a bool.
+	for value, expected := range map[int]bool{0: false, 1: true, 2: true} {
+		raw, _ := basePlayerPayloadFor(t, true, map[string]any{
+			"battleLevel": 10, "battleCategoryId": 1, "mouseEnabled": value,
+			"mmType": 0, "camouflageSlot": 2,
+		})
+		payload, err := NewPayload(0, raw)
+		if err != nil {
+			t.Fatalf("mouseEnabled %d: %v", value, err)
+		}
+		if got := payload.Arguments.IsMouseEnabled; got != expected {
+			t.Fatalf("mouseEnabled %d decoded as %t, want %t", value, got, expected)
+		}
+	}
+}
+
 func TestUpdateArenaDecodesPlayersAndSkipsUnknownProtobufFields(t *testing.T) {
 	// UpdateArena.players.players: nickname=Test, team=1, account=42; the
 	// final field 2 is unmodeled and must be skipped.
@@ -104,28 +126,32 @@ func TestUpdateArenaDecodesPlayersAndSkipsUnknownProtobufFields(t *testing.T) {
 	}
 }
 
-func TestWindows26101RosterMethod(t *testing.T) {
+func Test26101RosterMethod(t *testing.T) {
 	protobuf := []byte("\x0a\x0c\x0a\x0a\x1a\x04Test\x20\x01\x38\x2a")
 	raw := make([]byte, 4)
 	raw = binary.LittleEndian.AppendUint32(raw, 55)
 	raw = binary.LittleEndian.AppendUint32(raw, uint32(len(protobuf)+2))
 	raw = append(raw, 1, byte(len(protobuf)))
 	raw = append(raw, protobuf...)
-	method, err := NewEntityMethodForVersion(raw, "26.10.1_ruby")
-	if err != nil || method.UpdateArena == nil || method.UpdateArena.Players == nil {
-		t.Fatalf("Windows roster method not decoded: %+v %v", method, err)
-	}
-	players := method.UpdateArena.Players.Players
-	if len(players) != 1 || players[0].Nickname != "Test" || players[0].AccountID != 42 || players[0].TeamNumber != 1 {
-		t.Fatalf("Windows roster: %+v", players)
-	}
-	p := livePlayers{}
-	if err := p.event(FollowEvent{Event: StreamEvent{Kind: EventPacket, Packet: &Packet{Payload: Payload{Kind: PayloadEntityMethod, EntityMethod: method}}}}); err != nil {
-		t.Fatal(err)
-	}
-	roster, _ := p.snapshot("Test")
-	if roster == nil || len(roster.Allies) != 1 {
-		t.Fatalf("Windows roster did not start battle: %+v", roster)
+	for _, version := range []string{"26.10.1_ruby", "26.10.1_ruby_apple"} {
+		t.Run(version, func(t *testing.T) {
+			method, err := NewEntityMethodForVersion(raw, version)
+			if err != nil || method.UpdateArena == nil || method.UpdateArena.Players == nil {
+				t.Fatalf("roster method not decoded: %+v %v", method, err)
+			}
+			players := method.UpdateArena.Players.Players
+			if len(players) != 1 || players[0].Nickname != "Test" || players[0].AccountID != 42 || players[0].TeamNumber != 1 {
+				t.Fatalf("roster: %+v", players)
+			}
+			p := livePlayers{}
+			if err := p.event(FollowEvent{Event: StreamEvent{Kind: EventPacket, Packet: &Packet{Payload: Payload{Kind: PayloadEntityMethod, EntityMethod: method}}}}); err != nil {
+				t.Fatal(err)
+			}
+			roster, _ := p.snapshot("Test")
+			if roster == nil || len(roster.Allies) != 1 {
+				t.Fatalf("roster did not start battle: %+v", roster)
+			}
+		})
 	}
 	unknown, err := NewEntityMethodForVersion(raw, "26.11.0_ruby")
 	if err != nil || unknown.UpdateArena != nil {
