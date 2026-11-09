@@ -109,6 +109,7 @@ func (c ClientExportCmd) Run(a *app) error {
 		o.Include = c.Include
 	}
 	o.ServerConfig = c.ServerConfig
+	o.MapsConfig = c.MapsConfig
 	c.MaxTextureSize.apply(&o.ModelOptions)
 	if c.TextureFormat != nil {
 		o.ModelOptions.TextureFormat = *c.TextureFormat

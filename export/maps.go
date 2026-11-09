@@ -32,17 +32,28 @@ const (
 // source fields name the client resource each image was rendered from, with
 // the atlas rectangle for cropped sprite frames.
 type MapExport struct {
-	ID                      int64       `json:"id"`
-	Name                    string      `json:"name"`
-	Scene                   string      `json:"scene"`
-	AvailableInTrainingRoom bool        `json:"availableInTrainingRoom"`
-	AvailableModes          []int64     `json:"availableModes"`
-	SpriteFrame             int64       `json:"spriteFrame"`
-	Preview                 *string     `json:"preview"`
-	Minimap                 *string     `json:"minimap"`
-	PreviewSource           *IconSource `json:"previewSource,omitempty"`
-	MinimapSource           *IconSource `json:"minimapSource,omitempty"`
-	Effects                 []string    `json:"effects,omitempty"`
+	ID                      int64   `json:"id"`
+	Name                    string  `json:"name"`
+	Scene                   string  `json:"scene"`
+	AvailableInTrainingRoom bool    `json:"availableInTrainingRoom"`
+	AvailableModes          []int64 `json:"availableModes"`
+	// GameModes are the client battle modes enabled for this map, such as
+	// regular or battle-royale. It is a distinct, string list from
+	// availableModes (Supremacy/Assault) and is null when no maps configuration
+	// was supplied to the export.
+	GameModes []string `json:"gameModes"`
+	// The remaining fields mirror MapsConfig.MapInfo: the vehicle levels the
+	// map is enabled for and the newbie entry thresholds. They are null without
+	// a maps configuration.
+	Levels             []int64     `json:"levels"`
+	NewbieVehicleLevel *int64      `json:"newbieVehicleLevel"`
+	NewbieBattleCount  *int64      `json:"newbieBattleCount"`
+	SpriteFrame        int64       `json:"spriteFrame"`
+	Preview            *string     `json:"preview"`
+	Minimap            *string     `json:"minimap"`
+	PreviewSource      *IconSource `json:"previewSource,omitempty"`
+	MinimapSource      *IconSource `json:"minimapSource,omitempty"`
+	Effects            []string    `json:"effects,omitempty"`
 }
 
 // MapExportReport summarizes the map part of a client export.
@@ -51,6 +62,11 @@ type MapExportReport struct {
 	Maps     int    `json:"maps"`
 	Previews int    `json:"previews"`
 	Minimaps int    `json:"minimaps"`
+	// WithMapConfig reports whether maps_config supplied per-map fields.
+	WithMapConfig bool `json:"withMapConfig"`
+	// ProgressionThreshold is MapsConfig.progressionThreshold; null without a
+	// maps configuration.
+	ProgressionThreshold *int64 `json:"progressionThreshold,omitempty"`
 }
 
 // mapExportResult keeps one map's rendering outcome until results are
@@ -68,6 +84,12 @@ type mapExportResult struct {
 // or broken per-map resources become issues; only a failure to read maps.yaml
 // or to write the output fails the export.
 func exportMaps(resourceDir, outputDir string, snapshot *Snapshot) (*MapExportReport, error) {
+	return exportMapsWithConfig(resourceDir, outputDir, "", snapshot)
+}
+
+// exportMapsWithConfig is exportMaps with an optional maps_config_*.dat cache.
+// When the path is empty, gameModes is null for every map.
+func exportMapsWithConfig(resourceDir, outputDir, mapsConfig string, snapshot *Snapshot) (*MapExportReport, error) {
 	// Like the data section, a client without maps.yaml exports nothing.
 	if client.ResolveClientAsset(resourceDir, "maps.yml") == "" && client.ResolveClientAsset(resourceDir, "maps.yaml") == "" {
 		snapshot.Issues = append(snapshot.Issues, ExportIssue{Section: "maps", Message: "maps.yml or maps.yaml was not found in the client resource directory"})
@@ -77,6 +99,10 @@ func exportMaps(resourceDir, outputDir string, snapshot *Snapshot) (*MapExportRe
 		return &MapExportReport{File: filepath.Join(outputDir, "maps.json")}, nil
 	}
 	maps, err := client.ReadMapsCatalog(resourceDir)
+	if err != nil {
+		return nil, err
+	}
+	gameModes, err := resolveMapConfig(mapsConfig, maps, snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -115,10 +141,22 @@ func exportMaps(resourceDir, outputDir string, snapshot *Snapshot) (*MapExportRe
 	close(jobs)
 	wg.Wait()
 
-	report := &MapExportReport{Maps: len(maps)}
+	report := &MapExportReport{Maps: len(maps), WithMapConfig: gameModes != nil}
+	if gameModes != nil {
+		threshold := gameModes.ProgressionThreshold
+		report.ProgressionThreshold = &threshold
+	}
 	entries := make([]MapExport, 0, len(maps))
 	for i := range maps {
 		result := &results[i]
+		if gameModes != nil {
+			if info, ok := gameModes.Maps[maps[i].Name]; ok {
+				result.entry.GameModes = info.GameModes
+				result.entry.Levels = info.Levels
+				result.entry.NewbieVehicleLevel = info.NewbieVehicleLevel
+				result.entry.NewbieBattleCount = info.NewbieBattleCount
+			}
+		}
 		for _, message := range result.issues {
 			snapshot.Issues = append(snapshot.Issues, ExportIssue{Section: "maps", Message: message})
 		}
@@ -187,6 +225,62 @@ func renderMap(resourceDir string, m *client.ClientMap, previewSource *iconSourc
 		result.minimapSource = &icon.Source
 	}
 	return result
+}
+
+// mapConfigProjection is the portion of MapsConfig projected into maps.json.
+type mapConfigProjection struct {
+	ProgressionThreshold int64
+	Maps                 map[string]mapConfigEntry
+}
+
+type mapConfigEntry struct {
+	Levels             []int64
+	NewbieVehicleLevel *int64
+	NewbieBattleCount  *int64
+	GameModes          []string
+}
+
+// resolveMapConfig reads the optional maps_config cache and projects every
+// MapInfo field into the export. An empty path returns nil, which leaves every
+// MapInfo-derived field null. Maps missing from the configuration and unknown
+// mode IDs are recorded as issues, not failures.
+func resolveMapConfig(mapsConfig string, maps []client.ClientMap, snapshot *Snapshot) (*mapConfigProjection, error) {
+	if mapsConfig == "" {
+		return nil, nil
+	}
+	config, err := client.ReadMapsConfig(mapsConfig)
+	if err != nil {
+		return nil, err
+	}
+	projection := &mapConfigProjection{
+		ProgressionThreshold: config.ProgressionThreshold,
+		Maps:                 make(map[string]mapConfigEntry, len(config.Maps)),
+	}
+	for _, info := range config.Maps {
+		modes := make([]string, 0, len(info.GameModes))
+		for _, id := range info.GameModes {
+			if text, ok := client.GameModeName(id); ok {
+				modes = append(modes, text)
+				continue
+			}
+			snapshot.Issues = append(snapshot.Issues, ExportIssue{Section: "maps",
+				Message: fmt.Sprintf("map %s has unknown game mode %d", info.Name, id)})
+			modes = append(modes, strconv.FormatInt(id, 10))
+		}
+		projection.Maps[info.Name] = mapConfigEntry{
+			Levels:             info.Levels,
+			NewbieVehicleLevel: info.NewbieVehicleLevel,
+			NewbieBattleCount:  info.NewbieBattleCount,
+			GameModes:          modes,
+		}
+	}
+	for _, m := range maps {
+		if _, ok := projection.Maps[m.Name]; !ok {
+			snapshot.Issues = append(snapshot.Issues, ExportIssue{Section: "maps",
+				Message: fmt.Sprintf("map %s is absent from the maps configuration; its MapInfo fields are null", m.Name)})
+		}
+	}
+	return projection, nil
 }
 
 // mapSprite resolves a packed image with an embedded sprite descriptor,
