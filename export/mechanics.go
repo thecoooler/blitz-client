@@ -103,7 +103,7 @@ type MechanicExportReport struct {
 // membership stays in tanks[].parameters.mechanics. Missing optional media is
 // null, not an error.
 func exportMechanics(files map[string]sourceFile, resourceDir, outputDir string, snapshot *Snapshot) (*MechanicExportReport, error) {
-	localized, err := readMechanicLocalization(files)
+	localized, err := readRuLocalization(files)
 	if err != nil {
 		return nil, err
 	}
@@ -135,12 +135,12 @@ func exportMechanics(files map[string]sourceFile, resourceDir, outputDir string,
 			directory = kebabCase(id)
 		}
 		if directory != "" {
-			images, err := mechanicImages(files, mechanicMediaRoot+"/"+directory)
+			images, err := artworkImages(files, mechanicMediaRoot+"/"+directory)
 			if err != nil {
 				return nil, err
 			}
 			if source := findMechanicImage(images, "bg_", nil); source != nil {
-				if link, origin, err := writeMechanicImage(resourceDir, outputDir, directory, "image", source, atlases); err != nil {
+				if link, origin, err := writeArtworkImage(resourceDir, outputDir, "assets/mechanics/"+directory, "image", source, atlases); err != nil {
 					snapshot.Issues = append(snapshot.Issues, ExportIssue{Section: "mechanics", Message: err.Error()})
 				} else {
 					entry.Image, entry.ImageSource = link, origin
@@ -148,7 +148,7 @@ func exportMechanics(files map[string]sourceFile, resourceDir, outputDir string,
 				}
 			}
 			if source := findMechanicImage(images, "icon_", []string{"_l", "_m", "_s", ""}); source != nil {
-				if link, origin, err := writeMechanicImage(resourceDir, outputDir, directory, "icon", source, atlases); err != nil {
+				if link, origin, err := writeArtworkImage(resourceDir, outputDir, "assets/mechanics/"+directory, "icon", source, atlases); err != nil {
 					snapshot.Issues = append(snapshot.Issues, ExportIssue{Section: "mechanics", Message: err.Error()})
 				} else {
 					entry.Icon, entry.IconSource = link, origin
@@ -206,7 +206,7 @@ func readTankMechanics(files map[string]sourceFile, tank SnapshotTank) ([]string
 	return names, nil
 }
 
-func readMechanicLocalization(files map[string]sourceFile) (map[string]*string, error) {
+func readRuLocalization(files map[string]sourceFile) (map[string]*string, error) {
 	source, ok := files[filepath.FromSlash("Strings/ru.yaml")]
 	if !ok {
 		return map[string]*string{}, nil
@@ -229,9 +229,9 @@ func localizedValue(localized map[string]*string, key string) string {
 	return ""
 }
 
-// mechanicImages discovers the artwork of one mechanic folder, preferring the
-// @2x variant and a packed image with its embedded sprite descriptor.
-func mechanicImages(files map[string]sourceFile, directory string) (map[string]*iconSource, error) {
+// artworkImages discovers the images of one client artwork folder, preferring
+// the @2x variant and a packed image with its embedded sprite descriptor.
+func artworkImages(files map[string]sourceFile, directory string) (map[string]*iconSource, error) {
 	prefix := directory + "/"
 	images := map[string]*iconSource{}
 	for relative, sourceFile := range files {
@@ -265,14 +265,14 @@ func mechanicImages(files map[string]sourceFile, directory string) (map[string]*
 		} else if ok {
 			source.sprite = descriptor
 		}
-		if previous, ok := images[source.id]; !ok || mechanicImageBetter(source, previous) {
+		if previous, ok := images[source.id]; !ok || artworkImageBetter(source, previous) {
 			images[source.id] = source
 		}
 	}
 	return images, nil
 }
 
-func mechanicImageBetter(candidate, current *iconSource) bool {
+func artworkImageBetter(candidate, current *iconSource) bool {
 	if candidate.scale != current.scale {
 		return candidate.scale > current.scale
 	}
@@ -299,12 +299,12 @@ func findMechanicImage(images map[string]*iconSource, prefix string, suffixes []
 	return nil
 }
 
-func writeMechanicImage(resourceDir, outputDir, directory, name string, source *iconSource, atlases map[string]image.Image) (*string, *IconSource, error) {
+func writeArtworkImage(resourceDir, outputDir, folder, name string, source *iconSource, atlases map[string]image.Image) (*string, *IconSource, error) {
 	icon, encoded, err := renderIcon(resourceDir, *source, 0, atlases)
 	if err != nil {
 		return nil, nil, err
 	}
-	file := "assets/mechanics/" + directory + "/" + name + ".png"
+	file := folder + "/" + name + ".png"
 	absolute, err := iconPath(outputDir, file)
 	if err != nil {
 		return nil, nil, err
