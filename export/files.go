@@ -135,7 +135,7 @@ func ExportClientFilesWithProgress(options ClientFilesExportOptions, progress fu
 	if progress == nil {
 		progress = func(*ClientFilesExportReport) error { return nil }
 	}
-	if options.NoCache && options.CacheDir != "" {
+	if exportCacheConflict(options.CacheDir, options.NoCache) {
 		return nil, blitz.NewError("FILE_EXPORT_OPTIONS_INVALID", "cache_dir and no_cache cannot be combined")
 	}
 	exclusions := make([]*glob.Pattern, 0, len(options.Exclude))
@@ -150,42 +150,25 @@ func ExportClientFilesWithProgress(options ClientFilesExportOptions, progress fu
 		}
 		exclusions = append(exclusions, pattern)
 	}
-	game, err := client.ResolveGameDir(options.GameDir)
+	roots, err := openExportRoots(exportSessionOptions{
+		GameDir:   options.GameDir,
+		CacheDir:  options.CacheDir,
+		NoCache:   options.NoCache,
+		OutputDir: options.OutputDir,
+	})
 	if err != nil {
+		var overlap *outputOverlapError
+		if errors.As(err, &overlap) {
+			return nil, blitz.ErrorAt("FILE_EXPORT_OUTPUT_INVALID", overlap.Error(), overlap.output)
+		}
 		return nil, err
 	}
-	resourceDir, err := canonicalDirectory(game.ResourceDir)
-	if err != nil {
-		return nil, err
-	}
+	resourceDir := roots.ResourceDir
+	outputDir := roots.OutputDir
 	var cacheDir *string
-	switch {
-	case options.NoCache:
-	case options.CacheDir != "":
-		path, err := canonicalDirectory(options.CacheDir)
-		if err != nil {
-			return nil, err
-		}
-		cacheDir = &path
-	case game.CacheDir != nil && isDir(*game.CacheDir):
-		path, err := canonicalDirectory(*game.CacheDir)
-		if err != nil {
-			return nil, err
-		}
-		cacheDir = &path
-	}
-	outputDir, err := resolveOutputPath(options.OutputDir)
-	if err != nil {
-		return nil, err
-	}
-	sources := []string{resourceDir}
-	if cacheDir != nil {
-		sources = append(sources, *cacheDir)
-	}
-	for _, source := range sources {
-		if pathx.HasPrefix(outputDir, source) || pathx.HasPrefix(source, outputDir) {
-			return nil, blitz.ErrorAt("FILE_EXPORT_OUTPUT_INVALID", "output and source directories must not overlap", outputDir)
-		}
+	if roots.CacheDir != "" {
+		cache := roots.CacheDir
+		cacheDir = &cache
 	}
 
 	files := map[string]sourceFile{}
