@@ -123,7 +123,7 @@ func NewEntityMethodForVersion(raw []byte, version string) (*EntityMethod, error
 	}
 	updateArenaMethod := uint32(47)
 	switch version {
-	case "26.10.0_ruby_apple", "26.10.1_ruby":
+	case "26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple":
 		updateArenaMethod = 55
 	}
 	if subType != updateArenaMethod {

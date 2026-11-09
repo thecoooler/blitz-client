@@ -11,7 +11,7 @@ import (
 // BattleCounterClientVersions lists the client versions whose author-only
 // battle counters (EntityMethod 14) are enabled.
 // The Windows layout still needs confirmation against a captured replay.
-var BattleCounterClientVersions = []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple", "26.10.1_ruby"}
+var BattleCounterClientVersions = []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple"}
 
 // BattleCounters holds the author's cumulative server-reported counters.
 type BattleCounters struct {

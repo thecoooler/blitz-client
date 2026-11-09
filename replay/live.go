@@ -66,7 +66,7 @@ type DamageEvent struct {
 }
 
 func SupportsDamageEvents(version string) bool {
-	return version == "26.8.0_ruby_apple" || version == "26.10.0_ruby_apple" || version == "26.10.1_ruby"
+	return version == "26.8.0_ruby_apple" || version == "26.10.0_ruby_apple" || version == "26.10.1_ruby" || version == "26.10.1_ruby_apple"
 }
 
 // AppliedDamage accepts supported versions with matching damage envelopes.

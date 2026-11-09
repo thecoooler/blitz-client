@@ -8,6 +8,17 @@ import (
 
 const counterVersion = "26.10.0_ruby_apple"
 
+func TestSupportedCounterVersions(t *testing.T) {
+	for _, version := range []string{"26.8.0_ruby_apple", "26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple"} {
+		if !SupportsBattleCounters(version) {
+			t.Errorf("missing support for %s", version)
+		}
+	}
+	if SupportsBattleCounters("26.11.0_ruby") {
+		t.Fatal("unverified version enabled counters")
+	}
+}
+
 func basePlayer(t *testing.T, entity uint32) *Packet {
 	t.Helper()
 	encoded := pickleOf(map[string]any{

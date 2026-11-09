@@ -138,8 +138,16 @@ func pyF64(value pickle.Value) (jsonx.F64, error) {
 }
 
 func pyBool(value pickle.Value) (bool, error) {
-	if typed, ok := value.(bool); ok {
+	// The game usually stores a Python bool, but some 26.10 battles write an
+	// integer flag for mouseEnabled (observed 2). Treat it as truthiness
+	// instead of rejecting the whole replay.
+	switch typed := value.(type) {
+	case bool:
 		return typed, nil
+	case int64:
+		return typed != 0, nil
+	case *big.Int:
+		return typed.Sign() != 0, nil
 	}
 	return false, fmt.Errorf("invalid type: %s, expected a boolean", unexpected(value))
 }

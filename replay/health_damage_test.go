@@ -34,7 +34,7 @@ func healthChange(target, source uint32, hp uint16, reason byte, clock float32) 
 }
 
 func TestHealthDamageCountsRammingAndSameFrameUpdatesOnce(t *testing.T) {
-	for _, version := range []string{"26.10.0_ruby_apple", "26.10.1_ruby"} {
+	for _, version := range []string{"26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple"} {
 		t.Run(version, func(t *testing.T) {
 			d := healthDamageDecoder{}
 			d.onPacket(healthSpawn(22, 2070), version)
@@ -137,7 +137,7 @@ func TestLiveDamageCombinesHealthAndHitsWithoutDoubleCounting(t *testing.T) {
 }
 
 func TestLiveRosterDestroyedStateFollowsHealthAndResets(t *testing.T) {
-	for _, version := range []string{"26.10.0_ruby_apple", "26.10.1_ruby"} {
+	for _, version := range []string{"26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple"} {
 		t.Run(version, func(t *testing.T) {
 			own, enemy := uint32(11), uint32(22)
 			players := map[uint32]ArenaPlayer{
