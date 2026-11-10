@@ -121,6 +121,13 @@ Snapshot = {
 `assaultRespawnPoints` (`allies`/`enemies` arrays of
 `{ respawnNumber, points: [[x, y], …] }`).
 
+When `--maps-config` supplies the server cache, each `maps.json` entry also
+carries every `MapsConfig.MapInfo` field: `levels`, `newbieVehicleLevel`,
+`newbieBattleCount` (null when omitted by the client) and `gameModes` (battle
+mode strings such as `regular` or `battle-royale`). These are null without the
+cache. `maps.yaml` itself is unchanged and remains the raw document in
+`data.json`.
+
 `GameMode` is one battle mode named by the client's hangar UI:
 
 ```text
@@ -436,6 +443,31 @@ writes `maps.json`, the normalized index of `maps.yaml` entries:
   exist; the SD variant is the fallback.
 - `effects` lists the surface effect names from the scene's
   `3d/Maps/<scene dir>/blitz/map_effects.yaml`, when present.
+- `gameModes` lists the battle modes the client enables for this map, as the
+  same mode strings used by `modes[].id` (`regular`, `battle-royale`, …). It is
+  a string list, distinct from the numeric `availableModes`, which are the
+  Supremacy/Assault battle types from `maps.yaml`.
+- `levels`, `newbieVehicleLevel` and `newbieBattleCount` mirror the remaining
+  `MapsConfig.MapInfo` fields.
+
+All four come from the optional `maps_config_*.dat` server cache passed with
+`--maps-config`; without it they are null. A map absent from that cache keeps
+null plus an issue, and an unrecognized mode ID is kept in its decimal spelling
+with an issue. The cache's root `MapsConfig` message itself has only
+`progressionThreshold` and `mapList`; the threshold is reported in
+`mapExport.progressionThreshold` of the export command's report.
+
+```sh
+go run ./cmd/blitz-client client export --include maps \
+  --output-dir /tmp/blitz-maps \
+  --maps-config ~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache
+```
+
+`--maps-config` accepts the `maps_config_*.dat` file or the cache directory that
+holds it (the newest file in the directory is read). Like `--server-config`, it
+reads a local cache only: the container is a `KA`-wrapped `MapsConfig` protobuf,
+and the mode IDs resolve through the client's `eGameMode` table. It requires the
+`maps` section.
 
 A missing maps.yaml records one issue and writes an empty index. Missing or
 broken per-map images leave `preview`/`minimap` null and add an issue, like

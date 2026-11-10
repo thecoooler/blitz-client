@@ -99,6 +99,10 @@ blitz-client client export --output-dir "/path/to/export-models" --include model
 # Map metadata with preview and minimap images
 blitz-client client export --output-dir "/path/to/export-maps" --include maps
 
+# Map metadata plus the battle modes each map is enabled in
+blitz-client client export --output-dir "/path/to/export-maps" --include maps \
+  --maps-config ~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache
+
 # Normalized tank mechanics with their main artwork and icon
 blitz-client client export --output-dir "/path/to/export-mechanics" --include mechanics
 
@@ -118,7 +122,12 @@ and acceleration economics from a local server cache. Without it, skill `levels`
 are null. Images and model payloads are external binary assets referenced
 by those records. With `icons`, item icon sprite sets are rendered to
 `assets/icons/` and indexed by `items.json`. With `maps`, the map preview and
-minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`. With
+minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`.
+Add `--maps-config <cache dir|maps_config_*.dat>` to fill each map's `gameModes`
+(client battle modes such as `regular` or `battle-royale`) plus the cache's other
+`MapInfo` fields (`levels`, `newbieVehicleLevel`, `newbieBattleCount`); they are
+null without that cache, and `gameModes` is separate from the numeric
+`availableModes` (Supremacy/Assault). With
 `mechanics`, tank mechanics are defined in `mechanics.json` with their
 localization and a main artwork image and large icon under `assets/mechanics/`;
 each tank keeps its mechanic membership in `parameters.mechanics`. With `modes`,

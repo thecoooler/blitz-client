@@ -22,6 +22,9 @@ type ClientExportOptions struct {
 	NoCache   bool
 	// ServerConfig optionally supplies crew skill training costs from a local cache.
 	ServerConfig string
+	// MapsConfig optionally supplies per-map battle modes from a local cache
+	// (maps_config_*.dat, or the directory holding it).
+	MapsConfig string
 	// Include is data, icons, models, maps, mechanics, modes, or all. Empty means all.
 	Include      []string
 	ModelOptions TankExportOptions
@@ -99,6 +102,9 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	if o.ServerConfig != "" && !slices.Contains(included, "data") {
 		return nil, blitz.NewError("USAGE", "--server-config requires the data section")
 	}
+	if o.MapsConfig != "" && !slices.Contains(included, "maps") {
+		return nil, blitz.NewError("USAGE", "--maps-config requires the maps section")
+	}
 	if o.OutputDir == "" {
 		return nil, blitz.NewError("USAGE", "output directory is required")
 	}
@@ -169,7 +175,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 	}
 	var mapReport *MapExportReport
 	if slices.Contains(included, "maps") {
-		if mapReport, err = exportMaps(roots.ResourceDir, out, snapshot); err != nil {
+		if mapReport, err = exportMapsWithConfig(roots.ResourceDir, out, o.MapsConfig, snapshot); err != nil {
 			return nil, err
 		}
 	}
