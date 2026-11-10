@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -137,6 +138,47 @@ func TestReadMapsConfigDirectoryPicksNewest(t *testing.T) {
 	}
 	if config.ProgressionThreshold != 2 || len(config.Maps) != 1 || config.Maps[0].Name != "new" {
 		t.Fatalf("expected the newest cache, got %+v", config)
+	}
+}
+
+func TestFindDefaultMapsConfig(t *testing.T) {
+	relative := map[string]string{
+		"darwin":  "Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache",
+		"windows": "Documents/TanksBlitz/cache",
+	}[runtime.GOOS]
+	if relative == "" {
+		if got := FindDefaultMapsConfig(); got != "" {
+			t.Fatalf("FindDefaultMapsConfig on %s = %q, want empty", runtime.GOOS, got)
+		}
+		return
+	}
+	homeEnv := map[string]string{"darwin": "HOME", "windows": "USERPROFILE"}[runtime.GOOS]
+	home := t.TempDir()
+	t.Setenv(homeEnv, home)
+	if got := FindDefaultMapsConfig(); got != "" {
+		t.Fatalf("FindDefaultMapsConfig without a cache = %q, want empty", got)
+	}
+	dir := filepath.Join(home, relative)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	older := filepath.Join(dir, "maps_config_Russia_1L.dat")
+	newer := filepath.Join(dir, "maps_config_Russia_2L.dat")
+	if err := os.WriteFile(older, buildMapsConfig(t, 1, []MapInfo{{Name: "old"}}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newer, buildMapsConfig(t, 2, []MapInfo{{Name: "new"}}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(older, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newer, stamp.Add(time.Minute), stamp.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindDefaultMapsConfig(); got != newer {
+		t.Fatalf("FindDefaultMapsConfig = %q, want %q", got, newer)
 	}
 }
 

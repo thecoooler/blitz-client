@@ -107,6 +107,22 @@ func resolveMapsConfig(path string) (string, error) {
 	return newest, nil
 }
 
+// FindDefaultMapsConfig returns the newest maps_config_*.dat in this OS's
+// standard client cache directory, or "" when the OS has no standard path or
+// nothing is cached there. The maps configuration is optional enrichment, so
+// absence is not an error.
+func FindDefaultMapsConfig() string {
+	dir, err := blitz.DefaultMapsConfigDir()
+	if err != nil {
+		return ""
+	}
+	path, err := resolveMapsConfig(dir)
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
 // mapConfigPayload returns the protobufConfig payload of a KA container.
 func mapConfigPayload(data []byte) ([]byte, error) {
 	if len(data) < 8 || string(data[:2]) != string(mapConfigContainerMagic) {

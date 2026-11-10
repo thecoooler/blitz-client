@@ -121,7 +121,7 @@ Snapshot = {
 `assaultRespawnPoints` (`allies`/`enemies` arrays of
 `{ respawnNumber, points: [[x, y], …] }`).
 
-When `--maps-config` supplies the server cache, each `maps.json` entry also
+When the client's maps server cache is present, each `maps.json` entry also
 carries every `MapsConfig.MapInfo` field: `levels`, `newbieVehicleLevel`,
 `newbieBattleCount` (null when omitted by the client) and `gameModes` (battle
 mode strings such as `regular` or `battle-royale`). These are null without the
@@ -450,8 +450,8 @@ writes `maps.json`, the normalized index of `maps.yaml` entries:
 - `levels`, `newbieVehicleLevel` and `newbieBattleCount` mirror the remaining
   `MapsConfig.MapInfo` fields.
 
-All four come from the optional `maps_config_*.dat` server cache passed with
-`--maps-config`; without it they are null. A map absent from that cache keeps
+All four come from the optional `maps_config_*.dat` server cache; without it
+they are null. A map absent from that cache keeps
 null plus an issue, and an unrecognized mode ID is kept in its decimal spelling
 with an issue. The cache's root `MapsConfig` message itself has only
 `progressionThreshold` and `mapList`; the threshold is reported in
@@ -459,15 +459,18 @@ with an issue. The cache's root `MapsConfig` message itself has only
 
 ```sh
 go run ./cmd/blitz-client client export --include maps \
-  --output-dir /tmp/blitz-maps \
-  --maps-config ~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache
+  --output-dir /tmp/blitz-maps
 ```
 
-`--maps-config` accepts the `maps_config_*.dat` file or the cache directory that
-holds it (the newest file in the directory is read). Like `--server-config`, it
-reads a local cache only: the container is a `KA`-wrapped `MapsConfig` protobuf,
-and the mode IDs resolve through the client's `eGameMode` table. It requires the
-`maps` section.
+When the `maps` section is exported, the cache is read automatically from the
+platform's standard client cache directory — macOS:
+`~/Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache`;
+Windows: `%USERPROFILE%\Documents\TanksBlitz\cache`; the
+newest `maps_config_*.dat` in it wins. The cache is read locally only: the
+container is a `KA`-wrapped `MapsConfig` protobuf, and the mode IDs resolve
+through the client's `eGameMode` table. Without the directory, without a
+`maps_config_*.dat` file in it, or on an OS without a standard path, the
+per-map `MapInfo` fields stay null. A corrupt cache file fails the export.
 
 A missing maps.yaml records one issue and writes an empty index. Missing or
 broken per-map images leave `preview`/`minimap` null and add an issue, like
