@@ -109,7 +109,15 @@ func (c ClientExportCmd) Run(a *app) error {
 		o.Include = c.Include
 	}
 	o.ServerConfig = c.ServerConfig
-	o.MapsConfig = c.MapsConfig
+	included, err := export.ParseExportIncludes(o.Include)
+	if err != nil {
+		return usageError(err.Error())
+	}
+	// The maps server cache is a platform default, used only when maps are
+	// exported; an unreadable or absent cache leaves the MapInfo fields null.
+	if slices.Contains(included, "maps") {
+		o.MapsConfig = client.FindDefaultMapsConfig()
+	}
 	c.MaxTextureSize.apply(&o.ModelOptions)
 	if c.TextureFormat != nil {
 		o.ModelOptions.TextureFormat = *c.TextureFormat

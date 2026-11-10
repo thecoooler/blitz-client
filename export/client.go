@@ -103,7 +103,7 @@ func ExportClient(o ClientExportOptions) (report *ClientExportReport, err error)
 		return nil, blitz.NewError("USAGE", "--server-config requires the data section")
 	}
 	if o.MapsConfig != "" && !slices.Contains(included, "maps") {
-		return nil, blitz.NewError("USAGE", "--maps-config requires the maps section")
+		return nil, blitz.NewError("USAGE", "the maps configuration requires the maps section")
 	}
 	if o.OutputDir == "" {
 		return nil, blitz.NewError("USAGE", "output directory is required")

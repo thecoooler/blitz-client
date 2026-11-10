@@ -72,7 +72,6 @@ type ClientExportCmd struct {
 	NoCache        bool        `help:"Do not read or write the cache"`
 	Include        []string    `enum:"all,data,icons,models,maps,mechanics,modes" placeholder:"section" help:"Snapshot sections to export (repeatable)"`
 	ServerConfig   string      `placeholder:"path" help:"Server config used to restore crew skill data"`
-	MapsConfig     string      `placeholder:"path" help:"maps_config_*.dat cache or its directory, used to add per-map levels, newbie thresholds and game modes"`
 	MaxTextureSize textureSize `placeholder:"original|N|WxH" help:"Model texture size"`
 	TextureFormat  *string     `enum:"png,webp" placeholder:"format" help:"Model texture format"`
 	WebPQuality    *uint8      `placeholder:"0-100" help:"WebP texture quality (0 to 100)"`
