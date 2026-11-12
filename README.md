@@ -19,7 +19,7 @@ executable is `cmd/blitz-client`.
 
 | Package | Responsibility | Depends on |
 | --- | --- | --- |
-| `blitzclient` (root) | Shared `Error` type (`NewError`, `ErrorAt`, `AsError`), default cache and replay directories | none |
+| `blitzclient` (root) | Shared `Error` type (`NewError`, `ErrorAt`, `AsError`), default cache, replay and journal directories | none |
 | `resources` | DVPL codecs | root |
 | `resources/xml`, `resources/archive`, `resources/sprite` | Client XML parser, SC2/SCG archives, sprite descriptors | `resources` |
 | `client` | Client location, resource lookup, localization, tank and map catalogs | `resources` |
@@ -27,6 +27,7 @@ executable is `cmd/blitz-client`.
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
 | `replay` | Archive/standalone analysis, byte framing, file following, telemetry | none |
 | `game` | Running client process, window focus and state for overlays | none |
+| `logs` | Client journal discovery and parsing, macOS crash-report summaries | root |
 | `internal/cli` | The `blitz-client` command line | all of the above |
 
 Module dependencies run from high-level operations toward resource readers:
