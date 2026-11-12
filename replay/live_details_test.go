@@ -69,6 +69,26 @@ func TestLiveDetailsFixtureAndDetachedSnapshots(t *testing.T) {
 			t.Fatalf("author ID differs from roster: %+v", player)
 		}
 	}
+	platoons := map[uint32]int{}
+	for _, team := range [][]ArenaPlayer{state.Roster.Allies, state.Roster.Enemies} {
+		for _, player := range team {
+			if player.VehicleTypeID == 0 {
+				t.Fatalf("fixture descriptor: %+v", player)
+			}
+			if player.PlatoonNumber != nil {
+				platoons[*player.PlatoonNumber]++
+			}
+		}
+	}
+	// The fixture records two three-player platoons, one per team, in field 10.
+	if len(platoons) != 2 {
+		t.Fatalf("fixture platoons: %v", platoons)
+	}
+	for id, size := range platoons {
+		if size != 3 {
+			t.Fatalf("fixture platoon %d size: %d", id, size)
+		}
+	}
 	idle, err := w.Poll()
 	if err != nil || idle.Result != nil || idle.Kind != "battle" {
 		t.Fatalf("idle EOF: %+v %v", idle, err)
@@ -235,14 +255,14 @@ func TestLiveRosterLateAuthorAndChangedPlatoons(t *testing.T) {
 	feed := func(id, team uint32, name string, platoon *uint32) {
 		t.Helper()
 		// Exercise actual protobuf fields: descriptor (2), team (4), account
-		// (7), platoon number (11). Team/platoon IDs remain raw identifiers.
+		// (7), platoon identifier (10). Team/platoon IDs remain raw identifiers.
 		body := []byte{0x12, 2, 0x11, 0x4b, 0x1a}
 		body = binary.AppendUvarint(body, uint64(len(name)))
 		body = append(body, name...)
 		body = binary.AppendUvarint(append(body, 0x20), uint64(team))
 		body = binary.AppendUvarint(append(body, 0x38), uint64(id))
 		if platoon != nil {
-			body = binary.AppendUvarint(append(body, 0x58), uint64(*platoon))
+			body = binary.AppendUvarint(append(body, 0x50), uint64(*platoon))
 		}
 		player, err := decodeArenaPlayer(body)
 		if err != nil {

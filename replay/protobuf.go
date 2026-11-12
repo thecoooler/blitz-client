@@ -236,9 +236,15 @@ type ArenaPlayer struct {
 	TeamNumber      uint32  `json:"team_number"`
 	AccountID       uint32  `json:"account_id"`
 	ClanTag         *string `json:"clan_tag"`
-	// PlatoonNumber is local to a team. Only a positive equal number on the
-	// author's team identifies a platoon mate; nil and zero do not.
+	// PlatoonNumber is the shared platoon identifier of the roster protobuf
+	// (field 10); players of one platoon carry the same value. It is local to
+	// a team, so only a positive equal number among the author's allies
+	// identifies a platoon mate; nil and zero do not.
 	PlatoonNumber *uint32 `json:"platoon_number"`
+	// Damage holds this player's live totals where they can be attributed.
+	// Direct damage accumulates from applied hits; assisted and blocked
+	// values come from battle results and stay nil until those arrive.
+	Damage BattleDamage `json:"damage"`
 }
 
 func decodeUpdateArena(data []byte) (*UpdateArena, error) {
@@ -298,7 +304,10 @@ func decodeArenaPlayer(data []byte) (*ArenaPlayer, error) {
 			if value, err = r.stringField(wire); err == nil {
 				player.ClanTag = &value
 			}
-		case 11:
+		case 10:
+			// Shared platoon identifier; players in the same platoon carry
+			// the same value. Confirmed against live 26.10.1 recordings;
+			// field 11 never appears in them.
 			var value uint32
 			if value, err = r.uint32Field(wire); err == nil {
 				player.PlatoonNumber = &value
