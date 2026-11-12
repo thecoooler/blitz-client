@@ -34,9 +34,14 @@ func ErrorAt(code, message, path string) *Error {
 	return &Error{Code: code, Message: message, Path: path}
 }
 
-// IOError wraps an operating-system error with context and a path.
+// IOError wraps an operating-system error with context and a path. Permission
+// failures keep a stable code so callers can explain how to grant access.
 func IOError(context, path string, err error) *Error {
-	return ErrorAt("IO_ERROR", context+": "+IOMessage(err), path)
+	code := "IO_ERROR"
+	if errors.Is(err, fs.ErrPermission) {
+		code = "IO_PERMISSION_DENIED"
+	}
+	return ErrorAt(code, context+": "+IOMessage(err), path)
 }
 
 // IOMessage formats an operating-system error like Rust's io::Error Display

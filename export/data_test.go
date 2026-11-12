@@ -549,7 +549,7 @@ func TestUnreadableModelResourceIsFatal(t *testing.T) {
 	if _, err := os.ReadFile(f.path("packs/3d/Tanks/USSR/Tank.scg.dvpl")); err == nil {
 		t.Skip("permissions are not enforced")
 	}
-	if _, err := ExportClient(o); err == nil || !strings.Contains(err.Error(), "IO_ERROR") {
+	if _, err := ExportClient(o); err == nil || !strings.Contains(err.Error(), "IO_PERMISSION_DENIED") {
 		t.Fatalf("unreadable resource was not fatal: %v", err)
 	}
 }
