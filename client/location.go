@@ -70,6 +70,20 @@ func ResolveGameDir(explicit string) (*ResolvedGameDir, error) {
 	return resolved(canonical, "explicit"), nil
 }
 
+// ResolveGameInstallation resolves an explicit or detected directory and
+// requires a recognized resource root. Mutating operations use it so an
+// arbitrary writable directory cannot be treated as the game installation.
+func ResolveGameInstallation(explicit string) (*ResolvedGameDir, error) {
+	resolvedDir, err := ResolveGameDir(explicit)
+	if err != nil {
+		return nil, err
+	}
+	if resolvedDir.ResourceDir == resolvedDir.GameDir {
+		return nil, blitz.ErrorAt("GAME_DIR_INVALID", "the directory does not contain a recognized game resource root", resolvedDir.GameDir)
+	}
+	return resolvedDir, nil
+}
+
 func resolved(canonical, source string) *ResolvedGameDir {
 	gameDir, resourceDir := normalizeExplicitDir(canonical)
 	return &ResolvedGameDir{
