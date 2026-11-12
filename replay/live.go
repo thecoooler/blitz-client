@@ -211,6 +211,7 @@ func (p *livePlayers) snapshot(fallback string) (*BattleRoster, BattleDamage) {
 		return nil, BattleDamage{}
 	}
 	roster := &BattleRoster{AuthorNickname: author, AuthorAccountID: own.AccountID, Allies: []ArenaPlayer{}, Enemies: []ArenaPlayer{}}
+	ownIndex := -1
 	ids := make([]uint32, 0, len(p.players))
 	for id := range p.players {
 		ids = append(ids, id)
@@ -233,11 +234,15 @@ func (p *livePlayers) snapshot(fallback string) (*BattleRoster, BattleDamage) {
 			player.PlatoonNumber = &v
 		}
 		if player.TeamNumber == own.TeamNumber {
+			if ownIndex < 0 && player.Nickname == own.Nickname {
+				ownIndex = len(roster.Allies)
+			}
 			roster.Allies = append(roster.Allies, player)
 		} else {
 			roster.Enemies = append(roster.Enemies, player)
 		}
 	}
+	p.applyLiveDamage(roster)
 	damage := BattleDamage{}
 	if own.VehicleEntityID != nil && SupportsDamageEvents(p.version) {
 		var total uint64
@@ -269,14 +274,57 @@ func (p *livePlayers) snapshot(fallback string) (*BattleRoster, BattleDamage) {
 		dealt := uint64(p.results.Author.DamageDealt)
 		damage.Dealt = &dealt
 		for _, row := range p.results.PlayerResults {
+			applyResultDamage(roster, row)
 			if row.Info.AccountID == own.AccountID {
 				assisted, blocked := uint64(row.Info.DamageAssisted1), uint64(row.Info.DamageBlocked)
 				damage.Assisted, damage.Blocked = &assisted, &blocked
-				break
 			}
 		}
 	}
+	if ownIndex >= 0 {
+		roster.Allies[ownIndex].Damage = damage
+	}
 	return roster, damage
+}
+
+// applyLiveDamage attributes direct damage to each ally from applied hits.
+// Only the author receives live counter ribbons, so assisted and blocked
+// values for other players stay nil until battle results arrive.
+func (p *livePlayers) applyLiveDamage(roster *BattleRoster) {
+	if !SupportsDamageEvents(p.version) {
+		return
+	}
+	for i := range roster.Allies {
+		player := &roster.Allies[i]
+		if player.VehicleEntityID == nil {
+			continue
+		}
+		var dealt, health uint64
+		for _, enemy := range roster.Enemies {
+			if enemy.VehicleEntityID == nil {
+				continue
+			}
+			key := [2]uint32{*player.VehicleEntityID, *enemy.VehicleEntityID}
+			dealt = saturatingAdd(dealt, p.pairs[key])
+			health = saturatingAdd(health, p.healthPairs[key])
+		}
+		dealt = max(dealt, health)
+		player.Damage.Dealt = &dealt
+	}
+}
+
+// applyResultDamage replaces one ally's live estimate with final results.
+func applyResultDamage(roster *BattleRoster, row PlayerResults) {
+	for i := range roster.Allies {
+		player := &roster.Allies[i]
+		if player.AccountID == 0 || player.AccountID != row.Info.AccountID {
+			continue
+		}
+		dealt := uint64(row.Info.DamageDealt)
+		assisted := uint64(row.Info.DamageAssisted1)
+		blocked := uint64(row.Info.DamageBlocked)
+		player.Damage = BattleDamage{Dealt: &dealt, Assisted: &assisted, Blocked: &blocked}
+	}
 }
 
 type liveRecording struct {

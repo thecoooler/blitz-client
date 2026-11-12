@@ -237,6 +237,14 @@ func TestLiveDamageMatchesRealReplayResults(t *testing.T) {
 	if state.Damage.Dealt == nil || *state.Damage.Dealt != 2066 {
 		t.Fatalf("real applied damage: %+v", state.Damage)
 	}
+	for _, ally := range state.Roster.Allies {
+		if ally.Nickname != "iCooLER" {
+			continue
+		}
+		if ally.Damage.Dealt == nil || *ally.Damage.Dealt != *state.Damage.Dealt {
+			t.Fatalf("author roster damage: %+v", ally.Damage)
+		}
+	}
 	resultsFile, err := z.Open("battle_results.dat")
 	if err != nil {
 		t.Fatal(err)
