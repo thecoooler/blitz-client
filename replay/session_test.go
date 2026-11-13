@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -132,5 +133,74 @@ func TestSessionExclusionsRecalculateAndPreserveHistory(t *testing.T) {
 	restored := filtered.WithExcludedBattles(nil)
 	if !reflect.DeepEqual(restored, day) {
 		t.Fatalf("restored stats differ: %+v", restored)
+	}
+}
+
+func TestSessionPlatoonMatesAggregateAcrossBattles(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.Local)
+	platoon := uint32(5)
+	author := func(platoonID *uint32, team int32) ResultPlayer {
+		return ResultPlayer{AccountID: 42, Info: ResultPlayerInfo{Team: team, PlatoonID: platoonID}}
+	}
+	mate := func(accountID uint32, platoonID *uint32, team int32, damage uint32) ResultPlayer {
+		return ResultPlayer{AccountID: accountID, Info: ResultPlayerInfo{Nickname: fmt.Sprintf("mate-%d", accountID), Team: team, PlatoonID: platoonID}}
+	}
+	row := func(accountID, damage, assisted, blocked, destroyed uint32) PlayerResults {
+		return PlayerResults{Info: PlayerResultsInfo{AccountID: accountID, DamageDealt: damage, DamageAssisted1: assisted, DamageBlocked: blocked, NEnemiesDestroyed: destroyed}}
+	}
+	win, lose, zero := int32(1), int32(2), uint32(0)
+	battles := []sessionBattle{
+		{time: now, arena: "win", results: &BattleResults{TimestampSecs: now.Unix(), Author: Author{AccountID: 42, TeamNumber: 1, DamageDealt: 100}, WinnerTeamNumber: &win,
+			Players: []ResultPlayer{
+				author(&platoon, 1),
+				mate(7, &platoon, 1, 700),
+				// Zero numbers are not a platoon, and an enemy sharing the
+				// author's number is a different platoon.
+				mate(8, &zero, 1, 800),
+				mate(9, &platoon, 2, 900),
+			},
+			PlayerResults: []PlayerResults{row(7, 700, 70, 21, 2)}}},
+		{time: now.Add(time.Minute), arena: "loss", results: &BattleResults{TimestampSecs: now.Unix() + 60, Author: Author{AccountID: 42, TeamNumber: 1, DamageDealt: 50}, WinnerTeamNumber: &lose,
+			Players: []ResultPlayer{
+				author(&platoon, 1),
+				mate(7, &platoon, 1, 300),
+			},
+			PlayerResults: []PlayerResults{row(7, 300, 30, 9, 1)}}},
+		{time: now.Add(2 * time.Minute), arena: "solo", results: &BattleResults{TimestampSecs: now.Unix() + 120, Author: Author{AccountID: 42, TeamNumber: 2}}},
+	}
+	players := summarizeSession(battles, now)
+	if len(players) != 1 {
+		t.Fatalf("%+v", players)
+	}
+	p := players[0]
+	if len(p.Platoon) != 1 {
+		t.Fatalf("platoon: %+v", p.Platoon)
+	}
+	m := p.Platoon[0]
+	if m.AccountID != 7 || m.Nickname != "mate-7" || m.Battles != 2 || m.Wins != 1 || m.Losses != 1 || m.Draws != 0 || m.Unknown != 0 ||
+		m.Damage != 1000 || m.Assisted != 100 || m.Blocked != 30 || m.Destroyed != 3 {
+		t.Fatalf("mate totals: %+v", m)
+	}
+	// History is newest first: the solo battle has no platoon, the others
+	// carry the mate.
+	if len(p.History) != 3 || len(p.History[0].Platoon) != 0 {
+		t.Fatalf("solo battle platoon: %+v", p.History)
+	}
+	for _, battle := range p.History[1:] {
+		if len(battle.Platoon) != 1 || battle.Platoon[0].AccountID != 7 {
+			t.Fatalf("battle platoon: %+v", battle)
+		}
+	}
+	// Excluded battles leave the platoon totals, but stay in history.
+	excluded := map[string]bool{p.History[2].Key(42): true}
+	filtered := DailySession{Date: "2026-10-24", Players: players}.WithExcludedBattles(excluded).Players[0]
+	if len(filtered.Platoon) != 1 || filtered.Platoon[0].Battles != 1 || filtered.Platoon[0].Damage != 300 || filtered.Platoon[0].Wins != 0 || filtered.Platoon[0].Losses != 1 {
+		t.Fatalf("excluded platoon: %+v", filtered.Platoon)
+	}
+	if len(filtered.History) != 3 || !filtered.History[2].Excluded {
+		t.Fatalf("excluded history: %+v", filtered.History)
+	}
+	if len(p.Platoon) != 1 || p.Platoon[0].Battles != 2 {
+		t.Fatalf("source mutated: %+v", p.Platoon)
 	}
 }

@@ -24,6 +24,20 @@ type SessionStats struct {
 	Survived                              int
 	Damage, Assisted, Blocked, Destroyed  uint64
 	History                               []SessionBattleResult
+	// Platoon aggregates the author's platoon mates over the battles they
+	// played together, in order of first appearance. Survival is absent:
+	// battle results carry hitpoints for the author only.
+	Platoon []SessionPlatoonMember
+}
+
+// SessionPlatoonMember holds one platoon mate's totals across the session
+// battles that mate played with the author. Its outcome counters repeat the
+// author's, since platoon mates share the team result.
+type SessionPlatoonMember struct {
+	AccountID                             uint32
+	Nickname                              string
+	Battles, Wins, Losses, Draws, Unknown int
+	Damage, Assisted, Blocked, Destroyed  uint64
 }
 
 type SessionOutcome string
@@ -44,6 +58,16 @@ type SessionBattleResult struct {
 	Damage                       uint32
 	Assisted, Blocked, Destroyed uint32
 	Excluded                     bool
+	// Platoon holds the author's platoon mates of this battle and their
+	// results. A battle without a known platoon leaves it empty.
+	Platoon []SessionPlatoonResult
+}
+
+// SessionPlatoonResult is one platoon mate's result in one battle.
+type SessionPlatoonResult struct {
+	AccountID                            uint32
+	Nickname                             string
+	Damage, Assisted, Blocked, Destroyed uint32
 }
 
 // Key identifies the author's battle independently of the replay filename.
@@ -73,6 +97,8 @@ func (d DailySession) WithExcludedBattles(excluded map[string]bool) DailySession
 func (p *SessionStats) recalculate() {
 	p.Battles, p.Wins, p.Losses, p.Draws, p.Unknown, p.Survived = 0, 0, 0, 0, 0, 0
 	p.Damage, p.Assisted, p.Blocked, p.Destroyed = 0, 0, 0, 0
+	p.Platoon = nil
+	mates := map[uint32]int{}
 	for _, battle := range p.History {
 		if battle.Excluded {
 			continue
@@ -95,6 +121,33 @@ func (p *SessionStats) recalculate() {
 		p.Assisted += uint64(battle.Assisted)
 		p.Blocked += uint64(battle.Blocked)
 		p.Destroyed += uint64(battle.Destroyed)
+		for _, mate := range battle.Platoon {
+			index, ok := mates[mate.AccountID]
+			if !ok {
+				index = len(p.Platoon)
+				mates[mate.AccountID] = index
+				p.Platoon = append(p.Platoon, SessionPlatoonMember{AccountID: mate.AccountID, Nickname: mate.Nickname})
+			}
+			entry := &p.Platoon[index]
+			if entry.Nickname == "" {
+				entry.Nickname = mate.Nickname
+			}
+			entry.Battles++
+			switch battle.Outcome {
+			case SessionVictory:
+				entry.Wins++
+			case SessionDefeat:
+				entry.Losses++
+			case SessionDraw:
+				entry.Draws++
+			default:
+				entry.Unknown++
+			}
+			entry.Damage += uint64(mate.Damage)
+			entry.Assisted += uint64(mate.Assisted)
+			entry.Blocked += uint64(mate.Blocked)
+			entry.Destroyed += uint64(mate.Destroyed)
+		}
 	}
 }
 
@@ -219,6 +272,7 @@ func summarizeSession(battles []sessionBattle, now time.Time) []SessionStats {
 			entry.Assisted, entry.Blocked, entry.Destroyed = row.Info.DamageAssisted1, row.Info.DamageBlocked, row.Info.NEnemiesDestroyed
 			break
 		}
+		entry.Platoon = sessionPlatoon(r)
 		p.History = append(p.History, entry)
 	}
 	out := make([]SessionStats, 0, len(players))
@@ -234,4 +288,38 @@ func summarizeSession(battles []sessionBattle, now time.Time) []SessionStats {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].AccountID < out[j].AccountID })
 	return out
+}
+
+// sessionPlatoon collects the author's platoon mates of one battle. Platoon
+// numbers are local to a team, so only allies sharing the author's positive
+// number count; a missing, nil or zero number means no known platoon. Mates
+// keep the roster order, and their counters come from the battle results.
+func sessionPlatoon(r *BattleResults) []SessionPlatoonResult {
+	own := -1
+	for i := range r.Players {
+		if r.Players[i].AccountID == r.Author.AccountID {
+			own = i
+			break
+		}
+	}
+	if own < 0 || r.Players[own].Info.PlatoonID == nil || *r.Players[own].Info.PlatoonID == 0 {
+		return nil
+	}
+	results := make(map[uint32]PlayerResultsInfo, len(r.PlayerResults))
+	for _, row := range r.PlayerResults {
+		results[row.Info.AccountID] = row.Info
+	}
+	var mates []SessionPlatoonResult
+	for i, player := range r.Players {
+		info := player.Info
+		if i == own || info.Team != r.Players[own].Info.Team || info.PlatoonID == nil || *info.PlatoonID != *r.Players[own].Info.PlatoonID {
+			continue
+		}
+		mate := SessionPlatoonResult{AccountID: player.AccountID, Nickname: info.Nickname}
+		if row, ok := results[player.AccountID]; ok {
+			mate.Damage, mate.Assisted, mate.Blocked, mate.Destroyed = row.DamageDealt, row.DamageAssisted1, row.DamageBlocked, row.NEnemiesDestroyed
+		}
+		mates = append(mates, mate)
+	}
+	return mates
 }
