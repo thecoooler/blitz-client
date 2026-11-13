@@ -32,9 +32,14 @@ const (
 // source fields name the client resource each image was rendered from, with
 // the atlas rectangle for cropped sprite frames.
 type MapExport struct {
-	ID                      int64   `json:"id"`
-	Name                    string  `json:"name"`
-	Scene                   string  `json:"scene"`
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Scene string `json:"scene"`
+	// Season is the map's terrain season from the client's
+	// vehicleCamouflageKind: summer, winter or desert. Alternate layouts that
+	// omit the kind inherit it from another entry with the same scene; a map
+	// whose scene has no kind keeps an empty string.
+	Season                  string  `json:"season"`
 	AvailableInTrainingRoom bool    `json:"availableInTrainingRoom"`
 	AvailableModes          []int64 `json:"availableModes"`
 	// GameModes are the client battle modes enabled for this map, such as
@@ -102,6 +107,7 @@ func exportMapsWithConfig(resourceDir, outputDir, mapsConfig string, snapshot *S
 	if err != nil {
 		return nil, err
 	}
+	seasons := mapSeasons(maps)
 	gameModes, err := resolveMapConfig(mapsConfig, maps, snapshot)
 	if err != nil {
 		return nil, err
@@ -149,6 +155,7 @@ func exportMapsWithConfig(resourceDir, outputDir, mapsConfig string, snapshot *S
 	entries := make([]MapExport, 0, len(maps))
 	for i := range maps {
 		result := &results[i]
+		result.entry.Season = seasons[i]
 		if gameModes != nil {
 			if info, ok := gameModes.Maps[maps[i].Name]; ok {
 				result.entry.GameModes = info.GameModes
@@ -186,6 +193,31 @@ func exportMapsWithConfig(resourceDir, outputDir, mapsConfig string, snapshot *S
 	}
 	report.File = file
 	return report, nil
+}
+
+// mapSeasons resolves the exported season of every map. The season is the
+// client's vehicleCamouflageKind. Alternate layouts of one scene usually omit
+// the field, so they inherit the kind of another entry with the same scene. A
+// scene without any kind keeps an empty season.
+func mapSeasons(maps []client.ClientMap) []string {
+	byScene := make(map[string]string, len(maps))
+	for _, m := range maps {
+		kind := strings.TrimSpace(m.VehicleCamouflageKind)
+		if kind == "" || m.LocalName == "" {
+			continue
+		}
+		if _, seen := byScene[m.LocalName]; !seen {
+			byScene[m.LocalName] = kind
+		}
+	}
+	seasons := make([]string, len(maps))
+	for i, m := range maps {
+		seasons[i] = strings.TrimSpace(m.VehicleCamouflageKind)
+		if seasons[i] == "" && m.LocalName != "" {
+			seasons[i] = byScene[m.LocalName]
+		}
+	}
+	return seasons
 }
 
 // renderMap renders one map's preview and minimap. Missing or broken client

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"image/color"
+
+	"github.com/thecoooler/blitz-client/client"
 )
 
 func mapsFixture(t *testing.T) *filesFixture {
@@ -19,10 +21,12 @@ func mapsFixture(t *testing.T) *filesFixture {
         localName: "17_karelia_ka/17_karelia_ka.sc2"
         spriteFrame: 1
         availableModes: [0, 1]
+        vehicleCamouflageKind: "summer"
     skit:
         id: 2
         localName: "29_skit_sk/29_skit_sk.sc2"
         spriteFrame: 0
+        vehicleCamouflageKind: "desert"
     lost:
         id: 3
         localName: "40_lost_ls/40_lost_ls.sc2"
@@ -74,7 +78,7 @@ func TestExportMapsRendersPreviewsAndMinimaps(t *testing.T) {
 		t.Fatalf("unexpected index %+v", entries)
 	}
 	if entries[0].Name != "karelia" || entries[0].ID != 1 || entries[0].Scene != "17_karelia_ka/17_karelia_ka.sc2" ||
-		entries[0].SpriteFrame != 1 || entries[0].AvailableInTrainingRoom {
+		entries[0].SpriteFrame != 1 || entries[0].AvailableInTrainingRoom || entries[0].Season != "summer" {
 		t.Fatalf("unexpected entry %+v", entries[0])
 	}
 	if len(entries[0].AvailableModes) != 2 || entries[0].AvailableModes[0] != 0 || entries[0].AvailableModes[1] != 1 {
@@ -102,8 +106,12 @@ func TestExportMapsRendersPreviewsAndMinimaps(t *testing.T) {
 		t.Fatalf("unexpected effects %+v", entries[0].Effects)
 	}
 	// skit used the SD minimap fallback.
-	if entries[1].Minimap == nil || *entries[1].Minimap != "assets/maps/skit/minimap.png" {
+	if entries[1].Minimap == nil || *entries[1].Minimap != "assets/maps/skit/minimap.png" || entries[1].Season != "desert" {
 		t.Fatalf("unexpected skit entry %+v", entries[1])
+	}
+	// lost has no map kind at all, so its season stays empty.
+	if entries[2].Season != "" {
+		t.Fatalf("unexpected lost season %+v", entries[2])
 	}
 	// lost has no minimap: null plus an issue, but its preview renders.
 	if entries[2].Minimap != nil || entries[2].Preview == nil {
@@ -192,5 +200,21 @@ func TestExportMapsSkipsFramesOutsideTheAtlas(t *testing.T) {
 	}
 	if len(snapshot.Issues) != 1 || !strings.Contains(snapshot.Issues[0].Message, "preview atlas has no frame 5") {
 		t.Fatalf("expected a frame issue, got %v", snapshot.Issues)
+	}
+}
+
+func TestMapSeasonsInheritFromScene(t *testing.T) {
+	got := mapSeasons([]client.ClientMap{
+		{Name: "base", LocalName: "scene/a"},
+		{Name: "base_02", LocalName: "scene/a", VehicleCamouflageKind: "winter"},
+		{Name: "other", LocalName: "scene/b", VehicleCamouflageKind: " summer "},
+		{Name: "other_02", LocalName: "scene/b"},
+		{Name: "lost", LocalName: "scene/c"},
+	})
+	want := []string{"winter", "winter", "summer", "summer", ""}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("seasons = %v, want %v", got, want)
+		}
 	}
 }

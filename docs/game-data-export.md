@@ -121,6 +121,10 @@ Snapshot = {
 `assaultRespawnPoints` (`allies`/`enemies` arrays of
 `{ respawnNumber, points: [[x, y], …] }`).
 
+The normalized `maps.json` entry adds `season`, derived from
+`vehicleCamouflageKind` and inherited across layouts of the same scene (see
+[Maps](#maps)).
+
 When the client's maps server cache is present, each `maps.json` entry also
 carries every `MapsConfig.MapInfo` field: `levels`, `newbieVehicleLevel`,
 `newbieBattleCount` (null when omitted by the client) and `gameModes` (battle
@@ -438,6 +442,10 @@ writes `maps.json`, the normalized index of `maps.yaml` entries:
 - `preview` is cropped from the map preview atlas
   `Gfx/UI/MapsListDialog/back_maps[@2x].packed.webp`; the maps.yaml
   `spriteFrame` is the atlas frame index. The atlas is decoded once and shared.
+- `season` is the client's `vehicleCamouflageKind`: `summer`, `winter` or
+  `desert`. Alternate layouts of one scene usually omit the kind in
+  `maps.yaml`, so they inherit it from another entry with the same scene; a map
+  whose scene has no kind keeps an empty string.
 - `minimap` comes from `Gfx/UI/BattleScreenHUD/minimap/<space>/MiniMapSmall[@2x].packed.webp`,
   where `<space>` is the maps.yaml entry key. `@2x` wins when both resolutions
   exist; the SD variant is the fallback.

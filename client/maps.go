@@ -236,6 +236,7 @@ func mapsFromDocument(document *MapsDocument, localized map[string]string) ([]Cl
 			AvailableInTrainingRoom: training,
 			AvailableModes:          modes,
 			SpriteFrame:             *frame,
+			VehicleCamouflageKind:   entry.VehicleCamouflageKind,
 		})
 	}
 	if len(maps) == 0 {

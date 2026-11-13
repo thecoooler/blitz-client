@@ -32,6 +32,10 @@ type ClientMap struct {
 	AvailableInTrainingRoom bool    `json:"availableInTrainingRoom"`
 	AvailableModes          []int64 `json:"availableModes"`
 	SpriteFrame             int64   `json:"spriteFrame"`
+	// VehicleCamouflageKind is the map's terrain kind from maps.yaml, such as
+	// summer, winter or desert. It is empty when the entry omits the field,
+	// which is common for alternate layouts of the same scene.
+	VehicleCamouflageKind string `json:"vehicleCamouflageKind,omitempty"`
 }
 
 // ClientTankMetadata is the complete metadata of one vehicle-list entry.
