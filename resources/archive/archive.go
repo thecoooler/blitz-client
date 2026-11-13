@@ -15,6 +15,20 @@ const (
 	maxValueCount = 16_000_000
 )
 
+// ParseKeyedArchive decodes a standalone keyed archive, such as the client's
+// device settings, without interpreting its entries.
+func ParseKeyedArchive(data []byte) (Value, error) {
+	r := &reader{data: data}
+	value, err := r.archive(nil, 0)
+	if err != nil {
+		return Value{}, err
+	}
+	if r.remaining() != 0 {
+		return Value{}, fmt.Errorf("unparsed keyed archive bytes remain: %d", r.remaining())
+	}
+	return value, nil
+}
+
 // ParseSC2Scene decodes the root keyed archive of an SC2 scene.
 func ParseSC2Scene(data []byte) (Value, error) {
 	r := &reader{data: data}
