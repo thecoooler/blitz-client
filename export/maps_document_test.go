@@ -20,6 +20,7 @@ func TestRawMapsProjectionResolvesSourceAliases(t *testing.T) {
             allies:
                 - points: [[1.5, -2]]
                   respawnNumber: 0
+        vehicleCamouflageKind: winter
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +35,9 @@ func TestRawMapsProjectionResolvesSourceAliases(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first.AvailableModes, []int64{2, 4}) {
 		t.Fatalf("modes: %+v", first)
+	}
+	if first.VehicleCamouflageKind != "winter" {
+		t.Fatalf("camouflage kind: %+v", first)
 	}
 	if first.AssaultRespawnPoints == nil || len(first.AssaultRespawnPoints.Allies) != 1 ||
 		first.AssaultRespawnPoints.Allies[0].Points[0] != [2]float64{1.5, -2} {

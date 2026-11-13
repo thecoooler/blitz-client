@@ -76,6 +76,7 @@ func TestReadMapsCatalogResolvesAliasesAndValidatesEntries(t *testing.T) {
 		"        frame: 4\n"+
 		"        avaliableInTrainingRoom: true\n"+
 		"        availableModes: [1, 2]\n"+
+		"        vehicleCamouflageKind: winter\n"+
 		"    second:\n"+
 		"        id: 8\n"+
 		"        localName: TWO\n"+
@@ -86,7 +87,7 @@ func TestReadMapsCatalogResolvesAliasesAndValidatesEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(maps) != 2 || maps[0].SpriteFrame != 4 || !maps[0].AvailableInTrainingRoom ||
-		!reflect.DeepEqual(maps[0].AvailableModes, []int64{1, 2}) {
+		!reflect.DeepEqual(maps[0].AvailableModes, []int64{1, 2}) || maps[0].VehicleCamouflageKind != "winter" {
 		t.Fatalf("first map: %+v", maps)
 	}
 	if maps[1].SpriteFrame != 5 || !maps[1].AvailableInTrainingRoom || len(maps[1].AvailableModes) != 0 {

@@ -120,7 +120,9 @@ and acceleration economics from a local server cache. Without it, skill `levels`
 are null. Images and model payloads are external binary assets referenced
 by those records. With `icons`, item icon sprite sets are rendered to
 `assets/icons/` and indexed by `items.json`. With `maps`, the map preview and
-minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`.
+minimap sprites are rendered to `assets/maps/` and indexed by `maps.json`. Each map keeps its
+`season` (the client's summer/winter/desert terrain kind, inherited by
+layouts of the same scene).
 Each map's `gameModes` (client battle modes such as `regular` or
 `battle-royale`) plus the maps server cache's other `MapInfo` fields (`levels`,
 `newbieVehicleLevel`, `newbieBattleCount`) are read automatically from the
