@@ -15,11 +15,13 @@ import (
 )
 
 // SessionStats contains totals for one replay author. Unknown outcomes are
-// counted separately and excluded from the win-rate denominator.
+// counted separately and excluded from the win-rate denominator. Survived
+// counts battles the author finished with positive hitpoints.
 type SessionStats struct {
 	AccountID                             uint32
 	Nickname                              string
 	Battles, Wins, Losses, Draws, Unknown int
+	Survived                              int
 	Damage, Assisted, Blocked, Destroyed  uint64
 	History                               []SessionBattleResult
 }
@@ -38,6 +40,7 @@ type SessionBattleResult struct {
 	ArenaID                      string
 	StartedAt                    time.Time
 	Outcome                      SessionOutcome
+	Survived                     bool
 	Damage                       uint32
 	Assisted, Blocked, Destroyed uint32
 	Excluded                     bool
@@ -68,13 +71,16 @@ func (d DailySession) WithExcludedBattles(excluded map[string]bool) DailySession
 }
 
 func (p *SessionStats) recalculate() {
-	p.Battles, p.Wins, p.Losses, p.Draws, p.Unknown = 0, 0, 0, 0, 0
+	p.Battles, p.Wins, p.Losses, p.Draws, p.Unknown, p.Survived = 0, 0, 0, 0, 0, 0
 	p.Damage, p.Assisted, p.Blocked, p.Destroyed = 0, 0, 0, 0
 	for _, battle := range p.History {
 		if battle.Excluded {
 			continue
 		}
 		p.Battles++
+		if battle.Survived {
+			p.Survived++
+		}
 		switch battle.Outcome {
 		case SessionVictory:
 			p.Wins++
@@ -205,7 +211,7 @@ func summarizeSession(battles []sessionBattle, now time.Time) []SessionStats {
 		default:
 			outcome = SessionDefeat
 		}
-		entry := SessionBattleResult{ArenaID: arena, StartedAt: battle.time.In(now.Location()), Outcome: outcome, Damage: r.Author.DamageDealt}
+		entry := SessionBattleResult{ArenaID: arena, StartedAt: battle.time.In(now.Location()), Outcome: outcome, Survived: r.Author.HitpointsLeft > 0, Damage: r.Author.DamageDealt}
 		for _, row := range r.PlayerResults {
 			if row.Info.AccountID != p.AccountID {
 				continue
