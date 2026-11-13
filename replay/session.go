@@ -1,6 +1,8 @@
 package replay
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,18 +27,21 @@ type SessionStats struct {
 	Damage, Assisted, Blocked, Destroyed  uint64
 	History                               []SessionBattleResult
 	// Platoon aggregates the author's platoon mates over the battles they
-	// played together, in order of first appearance. Survival is absent:
-	// battle results carry hitpoints for the author only.
+	// played together, in order of first appearance.
 	Platoon []SessionPlatoonMember
 }
 
 // SessionPlatoonMember holds one platoon mate's totals across the session
 // battles that mate played with the author. Its outcome counters repeat the
-// author's, since platoon mates share the team result.
+// author's, since platoon mates share the team result. Survived counts the
+// battles the mate finished alive and SurvivalKnown the battles whose ending
+// the recording exposed, so a mate's survival rate can read "—" instead of
+// guessing when the recordings stop short of the battle end.
 type SessionPlatoonMember struct {
 	AccountID                             uint32
 	Nickname                              string
 	Battles, Wins, Losses, Draws, Unknown int
+	Survived, SurvivalKnown               int
 	Damage, Assisted, Blocked, Destroyed  uint64
 }
 
@@ -63,11 +68,14 @@ type SessionBattleResult struct {
 	Platoon []SessionPlatoonResult
 }
 
-// SessionPlatoonResult is one platoon mate's result in one battle.
+// SessionPlatoonResult is one platoon mate's result in one battle. Survived
+// stays nil when the recording does not expose the mate's final hitpoints;
+// only the author's are part of the battle results.
 type SessionPlatoonResult struct {
 	AccountID                            uint32
 	Nickname                             string
 	Damage, Assisted, Blocked, Destroyed uint32
+	Survived                             *bool
 }
 
 // Key identifies the author's battle independently of the replay filename.
@@ -147,6 +155,12 @@ func (p *SessionStats) recalculate() {
 			entry.Assisted += uint64(mate.Assisted)
 			entry.Blocked += uint64(mate.Blocked)
 			entry.Destroyed += uint64(mate.Destroyed)
+			if mate.Survived != nil {
+				entry.SurvivalKnown++
+				if *mate.Survived {
+					entry.Survived++
+				}
+			}
 		}
 	}
 }
@@ -164,6 +178,9 @@ type sessionBattle struct {
 	arena    string
 	nickname string
 	results  *BattleResults
+	// survived maps an account to whether it finished the battle alive. Nil
+	// means the recording did not expose the endings of the other players.
+	survived map[uint32]bool
 }
 type cachedSessionBattle struct {
 	size     int64
@@ -222,6 +239,11 @@ func (s *SessionReader) Read(ctx context.Context, directory string, now time.Tim
 					break
 				}
 			}
+			// Only a battle with platoon mates needs the extra pass over the
+			// packet stream, and only it pays for one.
+			if len(sessionPlatoon(results)) > 0 {
+				battle.survived = sessionSurvival(path, results)
+			}
 			cached = cachedSessionBattle{size: info.Size(), modified: info.ModTime(), battle: battle}
 		}
 		next[path] = cached
@@ -273,6 +295,12 @@ func summarizeSession(battles []sessionBattle, now time.Time) []SessionStats {
 			break
 		}
 		entry.Platoon = sessionPlatoon(r)
+		for i := range entry.Platoon {
+			if alive, ok := battle.survived[entry.Platoon[i].AccountID]; ok {
+				value := alive
+				entry.Platoon[i].Survived = &value
+			}
+		}
 		p.History = append(p.History, entry)
 	}
 	out := make([]SessionStats, 0, len(players))
@@ -322,4 +350,56 @@ func sessionPlatoon(r *BattleResults) []SessionPlatoonResult {
 		mates = append(mates, mate)
 	}
 	return mates
+}
+
+// sessionSurvival reports which players of a completed battle finished alive,
+// read from the recording's packet stream: battle results carry the final
+// hitpoints of the author alone. A recording that stops before the battle ends
+// does not reproduce the author's known hitpoints, and then every ending stays
+// unknown instead of a guess.
+func sessionSurvival(path string, results *BattleResults) map[uint32]bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+	archive, err := zip.NewReader(file, info.Size())
+	if err != nil {
+		return nil
+	}
+	data, err := readEntry(archive, path, dataEntry)
+	if err != nil {
+		return nil
+	}
+	stream, err := readDataReplay(bytes.NewReader(data), path)
+	if err != nil {
+		return nil
+	}
+	state := &livePlayers{}
+	if err := state.event(FollowEvent{Event: StreamEvent{Kind: EventHeader, ClientVersion: stream.clientVersion}}); err != nil {
+		return nil
+	}
+	for index, packet := range stream.packets {
+		if err := state.event(FollowEvent{Event: StreamEvent{Kind: EventPacket, Packet: packet, Seq: index}}); err != nil {
+			return nil
+		}
+	}
+	alive := make(map[uint32]bool, len(state.players))
+	for accountID, player := range state.players {
+		if player.VehicleEntityID == nil {
+			continue
+		}
+		if health, known := state.health.vehicles[*player.VehicleEntityID]; known {
+			alive[accountID] = health.hp > 0
+		}
+	}
+	own, ok := alive[results.Author.AccountID]
+	if !ok || own != (results.Author.HitpointsLeft > 0) {
+		return nil
+	}
+	return alive
 }

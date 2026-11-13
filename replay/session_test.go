@@ -204,3 +204,49 @@ func TestSessionPlatoonMatesAggregateAcrossBattles(t *testing.T) {
 		t.Fatalf("source mutated: %+v", p.Platoon)
 	}
 }
+
+func TestSessionPlatoonSurvivalCountsKnownBattles(t *testing.T) {
+	alive, dead := true, false
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.Local)
+	day := DailySession{Date: "2026-10-24", Players: []SessionStats{
+		{AccountID: 42, History: []SessionBattleResult{
+			{ArenaID: "one", StartedAt: now, Outcome: SessionVictory, Damage: 1000, Platoon: []SessionPlatoonResult{
+				{AccountID: 7, Nickname: "mate", Damage: 700, Survived: &alive},
+			}},
+			{ArenaID: "two", StartedAt: now.Add(time.Minute), Outcome: SessionDefeat, Damage: 500, Platoon: []SessionPlatoonResult{
+				{AccountID: 7, Nickname: "mate", Damage: 300, Survived: &dead},
+			}},
+			// A recording that stops before the battle end leaves the ending
+			// unknown, and unknown must not count as a death.
+			{ArenaID: "three", StartedAt: now.Add(2 * time.Minute), Outcome: SessionVictory, Damage: 200, Platoon: []SessionPlatoonResult{
+				{AccountID: 7, Nickname: "mate", Damage: 100},
+			}},
+		}},
+	}}
+	day = day.WithExcludedBattles(nil)
+	mate := day.Players[0].Platoon[0]
+	if mate.Battles != 3 || mate.Wins != 2 || mate.Losses != 1 || mate.Survived != 1 || mate.SurvivalKnown != 2 || mate.Damage != 1100 {
+		t.Fatalf("mate: %+v", mate)
+	}
+	excluded := map[string]bool{day.Players[0].History[0].Key(42): true}
+	filtered := day.WithExcludedBattles(excluded).Players[0].Platoon[0]
+	if filtered.Battles != 2 || filtered.Survived != 0 || filtered.SurvivalKnown != 1 {
+		t.Fatalf("excluded mate: %+v", filtered)
+	}
+}
+
+func TestSessionSurvivalMatchesFixtureAuthor(t *testing.T) {
+	path := "../testdata/sample.tbreplay"
+	analysis, err := AnalyzeReplay(path, Options{})
+	if err != nil || analysis.results == nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	alive := sessionSurvival(path, analysis.results)
+	if alive == nil {
+		t.Fatal("fixture stream did not expose the battle ending")
+	}
+	own, ok := alive[analysis.results.Author.AccountID]
+	if !ok || own != (analysis.results.Author.HitpointsLeft > 0) {
+		t.Fatalf("author survival %v (known %v), hitpoints %d", own, ok, analysis.results.Author.HitpointsLeft)
+	}
+}
