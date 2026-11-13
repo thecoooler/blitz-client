@@ -74,6 +74,9 @@ func TestExportGameModesDefinesLocalizationAndArtwork(t *testing.T) {
 		if ids[index] != want[index] {
 			t.Fatalf("unexpected mode order %v", ids)
 		}
+		if entries[index].Position != index+1 {
+			t.Fatalf("mode %q position = %d, want %d", ids[index], entries[index].Position, index+1)
+		}
 	}
 
 	regular := entries[0]
@@ -163,7 +166,7 @@ func TestExportModesSection(t *testing.T) {
 		t.Fatalf("unexpected report %+v", report)
 	}
 	entries := readModeIndex(t, filepath.Join(options.OutputDir, "modes.json"))
-	if len(entries) != 14 || entries[0].ID != "regular" {
+	if len(entries) != 14 || entries[0].ID != "regular" || entries[0].Position != 1 || entries[13].Position != 14 {
 		t.Fatalf("unexpected entries %+v", entries)
 	}
 	if entries[0].Logo == nil || *entries[0].Logo != "assets/modes/regular/logo.png" ||

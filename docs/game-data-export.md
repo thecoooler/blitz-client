@@ -532,6 +532,9 @@ localization table or image transcoding.
 Each entry contains:
 
 - `id`: the client mode string, such as `regular`, `Lunar` or `battle-royale`.
+- `position`: the 1-based position of the mode in the client's selector. It is
+  unique and matches the order of the `modes` array in `data.json`; consumers
+  display the modes in this order.
 - `nameKey`/`name`: the title localization key and its `ru` value.
 - `descriptionKey`/`description`: the description key and its `ru` value;
   `descriptionKey` is null when the client defines no description.

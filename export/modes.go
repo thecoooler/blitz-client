@@ -15,8 +15,11 @@ const gameModeMediaRoot = "Gfx/Lobby/backgrounds/GameMode"
 // localization and the client's logo, card banner and parallax banner layers.
 // Name, Description and ShortDescription are the ru values behind the keys;
 // both are empty when the client has no such key. Missing artwork is null.
+// Position is the 1-based position of the mode in the client's selector and
+// matches the order of the `modes` array in data.json.
 type GameModeExport struct {
 	ID                  string          `json:"id"`
+	Position            int             `json:"position"`
 	NameKey             string          `json:"nameKey"`
 	Name                string          `json:"name"`
 	DescriptionKey      *string         `json:"descriptionKey"`
@@ -62,11 +65,12 @@ func exportGameModes(files map[string]sourceFile, resourceDir, outputDir string,
 	report := &ModeExportReport{}
 	entries := []GameModeExport{}
 	atlases := map[string]image.Image{}
-	for _, mode := range client.GameModes() {
+	for index, mode := range client.GameModes() {
 		entry := GameModeExport{
-			ID:      mode.ID,
-			NameKey: mode.Name,
-			Name:    localizedValue(localized, mode.Name),
+			ID:       mode.ID,
+			Position: index + 1,
+			NameKey:  mode.Name,
+			Name:     localizedValue(localized, mode.Name),
 		}
 		if mode.Description != nil {
 			entry.DescriptionKey = mode.Description
