@@ -132,8 +132,8 @@ separate from the numeric `availableModes` (Supremacy/Assault). With
 `mechanics`, tank mechanics are defined in `mechanics.json` with their
 localization and a main artwork image and large icon under `assets/mechanics/`;
 each tank keeps its mechanic membership in `parameters.mechanics`. With `modes`,
-battle modes are defined in `modes.json` with their localized text, logo, card
-banner and parallax banner layers under `assets/modes/`.
+battle modes are defined in `modes.json` with their selector position, localized
+text, logo, card banner and parallax banner layers under `assets/modes/`.
 No alternate `tanks.json`, model catalog or raw source-document copies are produced. Consumers
 use the same schema for every selection; `included` declares the requested
 sections. Every export records the client build in `game` (version, build,
