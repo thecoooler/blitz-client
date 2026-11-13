@@ -66,7 +66,7 @@ func TestSummarizeSessionLocalDayAccountsAndOutcomes(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.FixedZone("local", 3*3600))
 	var battles []sessionBattle
 	for i, winner := range []*int32{sessionInt32(1), sessionInt32(2), sessionInt32(0), nil} {
-		r := &BattleResults{TimestampSecs: now.Unix() + int64(i), Author: Author{AccountID: 42, TeamNumber: 1, DamageDealt: 100}, WinnerTeamNumber: winner,
+		r := &BattleResults{TimestampSecs: now.Unix() + int64(i), Author: Author{AccountID: 42, TeamNumber: 1, DamageDealt: 100, HitpointsLeft: []int32{100, 0, -2, 250}[i]}, WinnerTeamNumber: winner,
 			PlayerResults: []PlayerResults{{Info: PlayerResultsInfo{AccountID: 99, DamageAssisted1: 999}}, {Info: PlayerResultsInfo{AccountID: 42, DamageAssisted1: 20, DamageBlocked: 30, NEnemiesDestroyed: 2}}}}
 		battles = append(battles, sessionBattle{time: now, arena: string(rune('a' + i)), results: r})
 	}
@@ -79,7 +79,7 @@ func TestSummarizeSessionLocalDayAccountsAndOutcomes(t *testing.T) {
 		t.Fatalf("%+v", players)
 	}
 	p := players[1]
-	if p.Battles != 4 || p.Wins != 1 || p.Losses != 1 || p.Draws != 1 || p.Unknown != 1 || p.Damage != 400 || p.Assisted != 80 || p.Blocked != 120 || p.Destroyed != 8 {
+	if p.Battles != 4 || p.Wins != 1 || p.Losses != 1 || p.Draws != 1 || p.Unknown != 1 || p.Survived != 2 || p.Damage != 400 || p.Assisted != 80 || p.Blocked != 120 || p.Destroyed != 8 {
 		t.Fatalf("%+v", p)
 	}
 	if len(p.History) != 4 {
@@ -90,6 +90,11 @@ func TestSummarizeSessionLocalDayAccountsAndOutcomes(t *testing.T) {
 			t.Fatalf("history[%d]: %+v", i, p.History[i])
 		}
 	}
+	for i, survived := range []bool{true, false, false, true} {
+		if p.History[i].Survived != survived {
+			t.Fatalf("history[%d] survival: %+v", i, p.History[i])
+		}
+	}
 }
 func sessionInt32(v int32) *int32 { return &v }
 
@@ -97,10 +102,10 @@ func TestSessionExclusionsRecalculateAndPreserveHistory(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.Local)
 	day := DailySession{Date: "2026-10-24", Players: []SessionStats{
 		{AccountID: 42, History: []SessionBattleResult{
-			{ArenaID: "win", StartedAt: now, Outcome: SessionVictory, Damage: 1000, Assisted: 100, Blocked: 200, Destroyed: 1},
-			{ArenaID: "loss", StartedAt: now.Add(time.Minute), Outcome: SessionDefeat, Damage: 3000, Assisted: 500, Blocked: 800, Destroyed: 3},
+			{ArenaID: "win", StartedAt: now, Outcome: SessionVictory, Survived: true, Damage: 1000, Assisted: 100, Blocked: 200, Destroyed: 1},
+			{ArenaID: "loss", StartedAt: now.Add(time.Minute), Outcome: SessionDefeat, Survived: true, Damage: 3000, Assisted: 500, Blocked: 800, Destroyed: 3},
 			{ArenaID: "draw", StartedAt: now.Add(2 * time.Minute), Outcome: SessionDraw, Damage: 2000},
-			{ArenaID: "unknown", StartedAt: now.Add(3 * time.Minute), Outcome: SessionUnknown, Damage: 500},
+			{ArenaID: "unknown", StartedAt: now.Add(3 * time.Minute), Outcome: SessionUnknown, Survived: true, Damage: 500},
 		}},
 		{AccountID: 99, History: []SessionBattleResult{{ArenaID: "loss", Outcome: SessionVictory, Damage: 600}}},
 	}}
@@ -108,7 +113,7 @@ func TestSessionExclusionsRecalculateAndPreserveHistory(t *testing.T) {
 	excluded := map[string]bool{day.Players[0].History[1].Key(42): true}
 	filtered := day.WithExcludedBattles(excluded)
 	p := filtered.Players[0]
-	if p.Battles != 3 || p.Wins != 1 || p.Losses != 0 || p.Draws != 1 || p.Unknown != 1 || p.Damage != 3500 || p.Assisted != 100 || p.Blocked != 200 || p.Destroyed != 1 {
+	if p.Battles != 3 || p.Wins != 1 || p.Losses != 0 || p.Draws != 1 || p.Unknown != 1 || p.Survived != 2 || p.Damage != 3500 || p.Assisted != 100 || p.Blocked != 200 || p.Destroyed != 1 {
 		t.Fatalf("excluded totals: %+v", p)
 	}
 	if len(p.History) != 4 || !p.History[1].Excluded || day.Players[0].History[1].Excluded || day.Players[0].Battles != 4 {
@@ -121,7 +126,7 @@ func TestSessionExclusionsRecalculateAndPreserveHistory(t *testing.T) {
 		excluded[battle.Key(42)] = true
 	}
 	all := day.WithExcludedBattles(excluded).Players[0]
-	if all.Battles != 0 || all.Wins != 0 || all.Losses != 0 || all.Draws != 0 || all.Unknown != 0 || all.Damage != 0 || all.Assisted != 0 || all.Blocked != 0 || all.Destroyed != 0 || len(all.History) != 4 {
+	if all.Battles != 0 || all.Wins != 0 || all.Losses != 0 || all.Draws != 0 || all.Unknown != 0 || all.Survived != 0 || all.Damage != 0 || all.Assisted != 0 || all.Blocked != 0 || all.Destroyed != 0 || len(all.History) != 4 {
 		t.Fatalf("all excluded: %+v", all)
 	}
 	restored := filtered.WithExcludedBattles(nil)
