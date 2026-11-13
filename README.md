@@ -26,6 +26,7 @@ executable is `cmd/blitz-client`.
 | `export` | Unpacked client files, client data, icons and tank bundles, model/armor conversion | `client` |
 | `mods` | Manifests, validation, installation, removal, Git patches | `client` |
 | `replay` | Archive/standalone analysis, byte framing, file following, telemetry | none |
+| `account` | Signed-in client account read from local device settings | `archive` |
 | `game` | Running client process, window focus and state for overlays | none |
 | `logs` | Client journal discovery and parsing, macOS crash-report summaries | root |
 | `internal/cli` | The `blitz-client` command line | all of the above |

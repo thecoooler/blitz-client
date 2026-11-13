@@ -27,6 +27,28 @@ func DefaultCacheDir() (string, error) {
 	}
 }
 
+// DefaultLocalDataDir returns the standard directory holding client-local
+// state, such as device settings and downloaded configuration, without
+// checking whether it exists.
+func DefaultLocalDataDir() (string, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		home, ok := os.LookupEnv("HOME")
+		if !ok {
+			return "", NewError("LOCAL_DATA_DIR_NOT_FOUND", "HOME is not set")
+		}
+		return filepath.Join(home, "Library/Containers/com.tanksblitz/Data/Documents/tb-project/cache"), nil
+	case "windows":
+		profile, ok := os.LookupEnv("USERPROFILE")
+		if !ok {
+			return "", NewError("LOCAL_DATA_DIR_NOT_FOUND", "USERPROFILE is not set")
+		}
+		return filepath.Join(profile, "Documents/TanksBlitz/cache"), nil
+	default:
+		return "", NewError("LOCAL_DATA_DIR_NOT_FOUND", "no standard local-data path is configured for this OS")
+	}
+}
+
 // DefaultMapsConfigDir returns the standard directory holding the maps server
 // cache (maps_config_*.dat) without checking whether it exists.
 func DefaultMapsConfigDir() (string, error) {

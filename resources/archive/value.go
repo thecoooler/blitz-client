@@ -1,5 +1,5 @@
-// Package archive decodes DAVA keyed archives used by SC2 scenes and SCG
-// polygon-group files.
+// Package archive decodes DAVA keyed archives used by SC2 scenes, SCG
+// polygon-group files and client-local settings.
 package archive
 
 import (
