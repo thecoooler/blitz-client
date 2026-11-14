@@ -222,8 +222,11 @@ func (p *livePlayers) snapshot(fallback string) (*BattleRoster, BattleDamage) {
 		if player.VehicleEntityID != nil {
 			v := *player.VehicleEntityID
 			player.VehicleEntityID = &v
-			health, known := p.health.vehicles[v]
-			player.Destroyed = known && health.hp == 0
+			if health, known := p.health.vehicles[v]; known {
+				hitpoints, maxHitpoints := health.hp, health.peak
+				player.Hitpoints, player.MaxHitpoints = &hitpoints, &maxHitpoints
+				player.Destroyed = health.hp == 0
+			}
 		}
 		if player.ClanTag != nil {
 			v := *player.ClanTag

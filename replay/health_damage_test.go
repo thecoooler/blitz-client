@@ -186,3 +186,69 @@ func TestLiveRosterDestroyedStateFollowsHealthAndResets(t *testing.T) {
 		})
 	}
 }
+
+func TestVehicleHealthKeepsHighestObservedHitpoints(t *testing.T) {
+	for _, version := range []string{"26.10.0_ruby_apple", "26.10.1_ruby", "26.10.1_ruby_apple"} {
+		t.Run(version, func(t *testing.T) {
+			d := healthDamageDecoder{}
+			d.onPacket(healthSpawn(22, 2070), version)
+			d.onPacket(healthProperty(22, 1904, 73), version)
+			d.onPacket(healthChange(22, 11, 1804, 2, 74), version)
+			if health := d.vehicles[22]; health.hp != 1804 || health.peak != 2070 {
+				t.Fatalf("damage lowered the peak: %+v", health)
+			}
+			// Repairs raise the peak only above what was already seen.
+			d.onPacket(healthProperty(22, 1990, 75), version)
+			if health := d.vehicles[22]; health.hp != 1990 || health.peak != 2070 {
+				t.Fatalf("partial repair raised the peak: %+v", health)
+			}
+			d.onPacket(healthChange(22, 0, 2100, 0, 76), version)
+			if health := d.vehicles[22]; health.hp != 2100 || health.peak != 2100 {
+				t.Fatalf("repair above the start value kept the old peak: %+v", health)
+			}
+		})
+	}
+}
+
+func TestLiveRosterReportsRemainingAndMaximumHitpoints(t *testing.T) {
+	own, enemy := uint32(11), uint32(22)
+	p := livePlayers{author: "Test", version: counterVersion, players: map[uint32]ArenaPlayer{
+		42: {AccountID: 42, Nickname: "Test", TeamNumber: 1, VehicleEntityID: &own},
+		99: {AccountID: 99, Nickname: "Enemy", TeamNumber: 2, VehicleEntityID: &enemy},
+	}}
+	feed := func(packet *Packet) {
+		t.Helper()
+		if err := p.event(FollowEvent{Event: StreamEvent{Kind: EventPacket, Packet: packet}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roster, _ := p.snapshot("")
+	if roster.Allies[0].Hitpoints != nil || roster.Allies[0].MaxHitpoints != nil {
+		t.Fatal("unknown HP reported as zero")
+	}
+	feed(healthSpawn(own, 2000))
+	feed(healthChange(own, enemy, 1500, 2, 1))
+	feed(healthSpawn(enemy, 1200))
+	roster, _ = p.snapshot("")
+	self, foe := roster.Allies[0], roster.Enemies[0]
+	if self.Hitpoints == nil || *self.Hitpoints != 1500 || self.MaxHitpoints == nil || *self.MaxHitpoints != 2000 {
+		t.Fatalf("own hitpoints: %v / %v", self.Hitpoints, self.MaxHitpoints)
+	}
+	if foe.Hitpoints == nil || *foe.Hitpoints != 1200 || foe.MaxHitpoints == nil || *foe.MaxHitpoints != 1200 {
+		t.Fatalf("enemy hitpoints: %v / %v", foe.Hitpoints, foe.MaxHitpoints)
+	}
+	// Snapshots are detached: rewriting one never changes the source roster.
+	*self.MaxHitpoints = 1
+	again, _ := p.snapshot("")
+	if *again.Allies[0].MaxHitpoints != 2000 {
+		t.Fatal("snapshot hitpoints leak into the source roster")
+	}
+	p.event(FollowEvent{Event: StreamEvent{Kind: EventReset}})
+	p.author, p.version, p.players = "Test", counterVersion, map[uint32]ArenaPlayer{
+		42: {AccountID: 42, Nickname: "Test", TeamNumber: 1, VehicleEntityID: &own},
+	}
+	roster, _ = p.snapshot("")
+	if roster.Allies[0].Hitpoints != nil || roster.Allies[0].MaxHitpoints != nil {
+		t.Fatal("hitpoints survived replay reset")
+	}
+}

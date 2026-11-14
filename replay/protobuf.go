@@ -227,7 +227,13 @@ type ArenaPlayers struct {
 // ArenaPlayer is one roster entry.
 type ArenaPlayer struct {
 	// Destroyed is populated in live snapshots from known vehicle HP.
-	Destroyed       bool    `json:"destroyed,omitempty"`
+	Destroyed bool `json:"destroyed,omitempty"`
+	// Hitpoints and MaxHitpoints are this player's remaining and maximum
+	// health as the live snapshot knows them. Both stay nil when the recording
+	// has no HP packets for the vehicle, and MaxHitpoints is the highest HP
+	// observed, since the recording carries no maximum.
+	Hitpoints       *uint16 `json:"hitpoints,omitempty"`
+	MaxHitpoints    *uint16 `json:"max_hitpoints,omitempty"`
 	VehicleTypeID   uint32  `json:"vehicle_type_id,omitempty"`
 	VehicleLevel    int     `json:"vehicle_level,omitempty"`
 	VehicleName     string  `json:"vehicle_name,omitempty"`

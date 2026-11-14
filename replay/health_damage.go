@@ -10,6 +10,18 @@ type vehicleHealth struct {
 	hp, before  uint16
 	clock       float32
 	beforeKnown bool
+	// peak is the highest HP ever seen for the vehicle. The recording carries
+	// no maximum health, and a vehicle can be repaired in battle, so the
+	// highest observed value stands for it.
+	peak uint16
+}
+
+// withPeak records hp as the vehicle's HP and keeps the highest value seen.
+func (v vehicleHealth) withPeak(hp uint16) uint16 {
+	if v.peak > hp {
+		return v.peak
+	}
+	return hp
 }
 
 type healthDamageDecoder struct{ vehicles map[uint32]vehicleHealth }
@@ -44,24 +56,25 @@ func (d *healthDamageDecoder) onPacket(packet *Packet, version string) *DamageEv
 		d.vehicles = make(map[uint32]vehicleHealth)
 	}
 	target := binary.LittleEndian.Uint32(raw)
+	previous, known := d.vehicles[target]
 	if spawn {
-		d.vehicles[target] = vehicleHealth{hp: remainingHealth(binary.LittleEndian.Uint16(raw[51:])), clock: packet.ClockSecs}
+		hp := remainingHealth(binary.LittleEndian.Uint16(raw[51:]))
+		d.vehicles[target] = vehicleHealth{hp: hp, peak: previous.withPeak(hp), clock: packet.ClockSecs}
 		return nil
 	}
 	hp := remainingHealth(binary.LittleEndian.Uint16(raw[12:]))
-	previous, known := d.vehicles[target]
 	if property {
 		if known && previous.clock == packet.ClockSecs && previous.hp == hp {
 			return nil
 		}
-		d.vehicles[target] = vehicleHealth{hp: hp, before: previous.hp, clock: packet.ClockSecs, beforeKnown: known}
+		d.vehicles[target] = vehicleHealth{hp: hp, peak: previous.withPeak(hp), before: previous.hp, clock: packet.ClockSecs, beforeKnown: known}
 		return nil
 	}
 	before := previous.hp
 	if previous.beforeKnown && previous.clock == packet.ClockSecs && previous.hp == hp {
 		before = previous.before
 	}
-	d.vehicles[target] = vehicleHealth{hp: hp, clock: packet.ClockSecs}
+	d.vehicles[target] = vehicleHealth{hp: hp, peak: previous.withPeak(hp), clock: packet.ClockSecs}
 	if !known || hp >= before {
 		return nil
 	}
