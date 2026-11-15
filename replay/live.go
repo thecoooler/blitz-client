@@ -33,6 +33,10 @@ type LiveReplayState struct {
 	Positions []LiveVehiclePosition `json:"positions,omitempty"`
 	Result    *LiveBattleResult     `json:"result,omitempty"`
 	Counters  LiveBattleCounters    `json:"counters"`
+	// Clock is the battle clock of the newest packet, in seconds since the
+	// recording started. It is what the recording reports, not a wall clock,
+	// so a paused recording pauses it. Nil means no packet has been read yet.
+	Clock *float32 `json:"clock,omitempty"`
 }
 
 // LiveReplayDiagnostics is a detached snapshot of stream decoding progress.
@@ -99,6 +103,8 @@ type livePlayers struct {
 	arenaTypeID                  uint32
 	mode                         *LiveBattleMode
 	hasArena                     bool
+	clock                        float32
+	hasClock                     bool
 	players                      map[uint32]ArenaPlayer
 	pairs                        map[[2]uint32]uint64
 	health                       healthDamageDecoder
@@ -117,6 +123,7 @@ func (p *livePlayers) event(e FollowEvent) error {
 	case EventPacket:
 		p.packets++
 		packet := e.Event.Packet
+		p.observeClock(packet.ClockSecs)
 		if method := packet.Payload.EntityMethod; method != nil {
 			if p.methods == nil {
 				p.methods = map[uint32]bool{}
@@ -170,6 +177,29 @@ func (p *livePlayers) event(e FollowEvent) error {
 	}
 	return nil
 }
+
+// observeClock keeps the battle clock the recording last reported. Some packets
+// carry a zero clock, so the largest report of the session stands: a later zero
+// must not rewind a running battle. A reset clears it with the rest of the
+// battle through livePlayers' zero value.
+func (p *livePlayers) observeClock(clock float32) {
+	if math.IsNaN(float64(clock)) || math.IsInf(float64(clock), 0) {
+		return
+	}
+	if !p.hasClock || clock > p.clock {
+		p.clock, p.hasClock = clock, true
+	}
+}
+
+// snapshotClock returns the battle clock, or nil while no packet has been read.
+func (p *livePlayers) snapshotClock() *float32 {
+	if !p.hasClock {
+		return nil
+	}
+	clock := p.clock
+	return &clock
+}
+
 func saturatingAdd(a, b uint64) uint64 {
 	if math.MaxUint64-a < b {
 		return math.MaxUint64
@@ -451,7 +481,8 @@ func (w *LiveReplayWatcher) Poll() (state LiveReplayState, err error) {
 	if roster != nil {
 		kind = "battle"
 	}
-	state = LiveReplayState{Kind: kind, Path: newest, SessionID: r.session, Roster: roster, Damage: damage}
+	state = LiveReplayState{Kind: kind, Path: newest, SessionID: r.session, Roster: roster, Damage: damage,
+		Clock: r.players.snapshotClock()}
 	w.enrichLiveState(&state, r)
 	return state, nil
 }
