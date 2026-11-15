@@ -27,8 +27,12 @@ type LiveReplayState struct {
 	Mode        *LiveBattleMode       `json:"mode,omitempty"`
 	Map         *LiveBattleMap        `json:"map,omitempty"`
 	Vehicle     *LiveBattleVehicle    `json:"vehicle,omitempty"`
-	Result      *LiveBattleResult     `json:"result,omitempty"`
-	Counters    LiveBattleCounters    `json:"counters"`
+	// Positions holds the last reported placement of each roster vehicle. A
+	// position stops updating for a vehicle out of view; compare its Clock with
+	// the replay clock to tell a live position from a last known one.
+	Positions []LiveVehiclePosition `json:"positions,omitempty"`
+	Result    *LiveBattleResult     `json:"result,omitempty"`
+	Counters  LiveBattleCounters    `json:"counters"`
 }
 
 // LiveReplayDiagnostics is a detached snapshot of stream decoding progress.
@@ -99,6 +103,7 @@ type livePlayers struct {
 	pairs                        map[[2]uint32]uint64
 	health                       healthDamageDecoder
 	healthPairs                  map[[2]uint32]uint64
+	positions                    vehiclePositionDecoder
 	counters                     BattleCounterDecoder
 	results                      *BattleResults
 }
@@ -151,6 +156,7 @@ func (p *livePlayers) event(e FollowEvent) error {
 			key := [2]uint32{hit.SourceEntityID, hit.TargetEntityID}
 			p.pairs[key] = saturatingAdd(p.pairs[key], uint64(hit.Damage))
 		}
+		p.positions.onPacket(packet, p.version)
 		if hit := p.health.onPacket(packet, p.version); hit != nil {
 			if p.healthPairs == nil {
 				p.healthPairs = map[[2]uint32]uint64{}
