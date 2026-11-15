@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -336,5 +337,60 @@ func TestLiveDamageIncludesBothAppliedFlagsAndServerTotal(t *testing.T) {
 				t.Fatal("another author's results replaced damage")
 			}
 		})
+	}
+}
+
+func TestLiveWatcherReportsBattleClock(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "recording_iCooLER.tbreplay")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// A recording starts at zero, runs forward, and some packets report no
+	// clock at all: the newest larger report must stand.
+	stream := header()
+	for _, clock := range []float32{0, 12.5, 41.25, 0} {
+		stream = append(stream, frame(99, clock, []byte{1})...)
+	}
+	path := filepath.Join(dir, "data.replay")
+	if err := os.WriteFile(path, stream, 0600); err != nil {
+		t.Fatal(err)
+	}
+	watcher := NewLiveReplayWatcher(root)
+	defer watcher.Close()
+	state, err := watcher.Poll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Clock == nil || *state.Clock != 41.25 {
+		t.Fatalf("battle clock: %+v", state.Clock)
+	}
+	// A replacement recording is a new session, so the clock starts over.
+	if err := os.WriteFile(path, stream[:3], 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, err = watcher.Poll()
+	if err != nil || state.SessionID != 2 || state.Clock != nil {
+		t.Fatalf("clock survived a reset: %+v %v", state.Clock, err)
+	}
+}
+
+func TestLiveBattleClockIgnoresUnusableReports(t *testing.T) {
+	p := &livePlayers{}
+	if p.snapshotClock() != nil {
+		t.Fatal("clock before any packet")
+	}
+	p.observeClock(7)
+	p.observeClock(float32(math.NaN()))
+	p.observeClock(float32(math.Inf(1)))
+	p.observeClock(0)
+	if clock := p.snapshotClock(); clock == nil || *clock != 7 {
+		t.Fatalf("unusable reports changed the clock: %v", clock)
+	}
+	if err := p.event(FollowEvent{Event: StreamEvent{Kind: EventReset}}); err != nil {
+		t.Fatal(err)
+	}
+	if p.snapshotClock() != nil {
+		t.Fatal("reset retained the clock")
 	}
 }
