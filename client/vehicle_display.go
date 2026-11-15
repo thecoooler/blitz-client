@@ -5,10 +5,40 @@ import (
 	"strings"
 )
 
-// VehicleDisplay is the localized vehicle name and tier used by battle lists.
+// VehicleClass is a vehicle's game class, taken from its catalog tags.
+type VehicleClass string
+
+const (
+	VehicleClassLight     VehicleClass = "light"
+	VehicleClassMedium    VehicleClass = "medium"
+	VehicleClassHeavy     VehicleClass = "heavy"
+	VehicleClassDestroyer VehicleClass = "destroyer"
+)
+
+// vehicleClass reads the class from a vehicle's tag list. Other tags describe
+// rarity or role, and a vehicle without a class tag keeps an empty class.
+func vehicleClass(tags []string) VehicleClass {
+	for _, tag := range tags {
+		switch tag {
+		case "lightTank":
+			return VehicleClassLight
+		case "mediumTank":
+			return VehicleClassMedium
+		case "heavyTank":
+			return VehicleClassHeavy
+		case "AT-SPG":
+			return VehicleClassDestroyer
+		}
+	}
+	return ""
+}
+
+// VehicleDisplay is the localized vehicle name, tier and class used by battle
+// lists.
 type VehicleDisplay struct {
 	Name  string
 	Level int
+	Class VehicleClass
 }
 
 // LoadVehicleDisplayCatalog indexes installed vehicle metadata by compact type
@@ -38,7 +68,7 @@ func LoadVehicleDisplayCatalog(gameDir string) (map[uint32]VehicleDisplay, error
 			continue
 		}
 		descriptor := uint32(id)<<8 | nation<<4 | 1
-		displays[descriptor] = VehicleDisplay{Name: name, Level: int(tank.Level)}
+		displays[descriptor] = VehicleDisplay{Name: name, Level: int(tank.Level), Class: vehicleClass(tank.Tags)}
 	}
 	return displays, nil
 }

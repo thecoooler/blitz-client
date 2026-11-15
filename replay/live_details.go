@@ -33,6 +33,18 @@ type LiveBattleVehicle struct {
 	Level  int    `json:"level,omitempty"`
 }
 
+// LiveVehiclePosition is one vehicle's last reported world placement. Clock is
+// the replay clock of that report: a report older than the current clock is a
+// last known location, not a live one. Positions arrive only for vehicles the
+// client currently keeps, which is why an unreported position stays behind.
+type LiveVehiclePosition struct {
+	EntityID uint32  `json:"entity_id"`
+	X        float32 `json:"x"`
+	Y        float32 `json:"y"`
+	Z        float32 `json:"z"`
+	Clock    float32 `json:"clock"`
+}
+
 // LiveBattleResult is present only after matching author results arrive.
 // Outcome is unknown if the winner or author's team cannot be identified.
 type LiveBattleResult struct {
@@ -83,6 +95,7 @@ func (w *LiveReplayWatcher) enrichLiveState(state *LiveReplayState, r *liveRecor
 	if state.Roster == nil {
 		return
 	}
+	state.Positions = p.positions.snapshot(state.Roster)
 	var own *ArenaPlayer
 	for i := range state.Roster.Allies {
 		player := &state.Roster.Allies[i]

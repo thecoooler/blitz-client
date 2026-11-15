@@ -448,11 +448,23 @@ creation. It buffers any incomplete packet at a temporary end of file.
 directory; the completed test replay ZIP contains both alongside `data.replay`.
 
 `replay.LiveReplayWatcher.Poll` also returns detached typed `Battle`, `Mode`, `Map`,
-`Vehicle`, `Result`, and `Counters` snapshots. `Roster.AuthorAccountID` identifies
+`Vehicle`, `Positions`, `Result`, and `Counters` snapshots. `Roster.AuthorAccountID` identifies
 the replay author in the roster; every row retains the account ID, vehicle type
-descriptor, team number, nickname, optional clan tag and platoon number. Platoon
+descriptor, team number, nickname, optional clan tag and platoon number. A loaded
+vehicle catalog also fills the vehicle name, tier and class: `vehicle_class` is
+`light`, `medium`, `heavy` or `destroyer`, taken from the vehicle's class tag and
+left empty when the catalog is missing or the vehicle carries none. Platoon
 numbers are team-local: only an equal positive number on the author's team
 identifies a platoon mate. Nil and zero do not indicate membership.
+
+`Positions` holds the last reported world placement of each roster vehicle,
+sorted by entity ID, with the replay `clock` of that report. The server streams
+transforms only for vehicles the client keeps, so a vehicle out of view keeps
+its last report: comparing its `clock` with the battle clock tells a live
+position from a last known one. The layout is verified on `26.8.0_ruby_apple`,
+`26.10.0_ruby_apple` and `26.10.1_ruby_apple`; other versions keep the list
+empty. Entities the roster does not know are omitted, because no team could be
+shown for them.
 
 `Mode` contains raw `battle_category_id` and `matchmaker_type` from the
 `BasePlayerCreate` arena context. It is nil when the context is unavailable;
