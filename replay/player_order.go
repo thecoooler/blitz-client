@@ -27,6 +27,7 @@ func (w *LiveReplayWatcher) describePlayers(roster *BattleRoster) {
 		for i := range team {
 			if info, ok := w.vehicleCatalog[team[i].VehicleTypeID]; ok {
 				team[i].VehicleName, team[i].VehicleLevel = info.Name, info.Level
+				team[i].VehicleClass = info.Class
 			}
 		}
 	}

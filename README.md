@@ -450,7 +450,10 @@ directory; the completed test replay ZIP contains both alongside `data.replay`.
 `replay.LiveReplayWatcher.Poll` also returns detached typed `Battle`, `Mode`, `Map`,
 `Vehicle`, `Positions`, `Result`, and `Counters` snapshots. `Roster.AuthorAccountID` identifies
 the replay author in the roster; every row retains the account ID, vehicle type
-descriptor, team number, nickname, optional clan tag and platoon number. Platoon
+descriptor, team number, nickname, optional clan tag and platoon number. A loaded
+vehicle catalog also fills the vehicle name, tier and class: `vehicle_class` is
+`light`, `medium`, `heavy` or `destroyer`, taken from the vehicle's class tag and
+left empty when the catalog is missing or the vehicle carries none. Platoon
 numbers are team-local: only an equal positive number on the author's team
 identifies a platoon mate. Nil and zero do not indicate membership.
 

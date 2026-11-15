@@ -57,10 +57,11 @@ func TestArenaPlayerVehicleDescriptorAndCatalogProjection(t *testing.T) {
 		}
 	}
 	watcher := NewLiveReplayWatcher(t.TempDir())
-	watcher.vehicleCatalog = map[uint32]client.VehicleDisplay{11825: {Name: "BZ-75", Level: 10}}
+	watcher.vehicleCatalog = map[uint32]client.VehicleDisplay{11825: {Name: "BZ-75", Level: 10, Class: client.VehicleClassHeavy}}
 	roster := &BattleRoster{Allies: []ArenaPlayer{{VehicleTypeID: 11825}}, Enemies: []ArenaPlayer{{VehicleTypeID: 999}}}
 	watcher.describePlayers(roster)
-	if roster.Allies[0].VehicleLevel != 10 || roster.Allies[0].VehicleName != "BZ-75" || roster.Enemies[0].VehicleLevel != 0 {
+	if roster.Allies[0].VehicleLevel != 10 || roster.Allies[0].VehicleName != "BZ-75" ||
+		roster.Allies[0].VehicleClass != client.VehicleClassHeavy || roster.Enemies[0].VehicleLevel != 0 {
 		t.Fatalf("projection: %+v", roster)
 	}
 	if err := watcher.LoadVehicleCatalog(t.TempDir()); err == nil {

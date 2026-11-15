@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"math"
 	"unicode/utf8"
+
+	"github.com/thecoooler/blitz-client/client"
 )
 
 const protobufRecursionLimit = 100
@@ -232,16 +234,20 @@ type ArenaPlayer struct {
 	// health as the live snapshot knows them. Both stay nil when the recording
 	// has no HP packets for the vehicle, and MaxHitpoints is the highest HP
 	// observed, since the recording carries no maximum.
-	Hitpoints       *uint16 `json:"hitpoints,omitempty"`
-	MaxHitpoints    *uint16 `json:"max_hitpoints,omitempty"`
-	VehicleTypeID   uint32  `json:"vehicle_type_id,omitempty"`
-	VehicleLevel    int     `json:"vehicle_level,omitempty"`
-	VehicleName     string  `json:"vehicle_name,omitempty"`
-	VehicleEntityID *uint32 `json:"vehicle_entity_id"`
-	Nickname        string  `json:"nickname"`
-	TeamNumber      uint32  `json:"team_number"`
-	AccountID       uint32  `json:"account_id"`
-	ClanTag         *string `json:"clan_tag"`
+	Hitpoints     *uint16 `json:"hitpoints,omitempty"`
+	MaxHitpoints  *uint16 `json:"max_hitpoints,omitempty"`
+	VehicleTypeID uint32  `json:"vehicle_type_id,omitempty"`
+	VehicleLevel  int     `json:"vehicle_level,omitempty"`
+	VehicleName   string  `json:"vehicle_name,omitempty"`
+	// VehicleClass is the vehicle's game class from the loaded client
+	// catalog: light, medium, heavy or destroyer. It stays empty when no
+	// catalog is loaded or the vehicle carries no class tag.
+	VehicleClass    client.VehicleClass `json:"vehicle_class,omitempty"`
+	VehicleEntityID *uint32             `json:"vehicle_entity_id"`
+	Nickname        string              `json:"nickname"`
+	TeamNumber      uint32              `json:"team_number"`
+	AccountID       uint32              `json:"account_id"`
+	ClanTag         *string             `json:"clan_tag"`
 	// PlatoonNumber is the shared platoon identifier of the roster protobuf
 	// (field 10); players of one platoon carry the same value. It is local to
 	// a team, so only a positive equal number among the author's allies
