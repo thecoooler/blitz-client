@@ -87,12 +87,12 @@ func TestLivePlatoonDamageAndResults(t *testing.T) {
 	}
 
 	p.results = &BattleResults{Author: Author{AccountID: 1, DamageDealt: 520}, PlayerResults: []PlayerResults{
-		{Info: PlayerResultsInfo{AccountID: 2, DamageDealt: 620, DamageAssisted1: 430, DamageBlocked: 270}},
+		{Info: PlayerResultsInfo{AccountID: 2, DamageDealt: 620, DamageAssisted1: 430, DamageAssisted2: 40, DamageBlocked: 270}},
 	}}
 	roster, _ = p.snapshot("")
 	members = roster.PlatoonMembers()
 	if len(members) != 1 || *members[0].Damage.Dealt != 620 ||
-		*members[0].Damage.Assisted != 430 || *members[0].Damage.Blocked != 270 {
+		*members[0].Damage.Assisted != 470 || *members[0].Damage.Blocked != 270 {
 		t.Fatalf("platoon mate after results: %+v", members)
 	}
 	// Another author's results must not replace live values.

@@ -68,7 +68,7 @@ func TestSummarizeSessionLocalDayAccountsAndOutcomes(t *testing.T) {
 	var battles []sessionBattle
 	for i, winner := range []*int32{sessionInt32(1), sessionInt32(2), sessionInt32(0), nil} {
 		r := &BattleResults{TimestampSecs: now.Unix() + int64(i), Author: Author{AccountID: 42, TeamNumber: 1, DamageDealt: 100, HitpointsLeft: []int32{100, 0, -2, 250}[i]}, WinnerTeamNumber: winner,
-			PlayerResults: []PlayerResults{{Info: PlayerResultsInfo{AccountID: 99, DamageAssisted1: 999}}, {Info: PlayerResultsInfo{AccountID: 42, DamageAssisted1: 20, DamageBlocked: 30, NEnemiesDestroyed: 2}}}}
+			PlayerResults: []PlayerResults{{Info: PlayerResultsInfo{AccountID: 99, DamageAssisted1: 999}}, {Info: PlayerResultsInfo{AccountID: 42, DamageAssisted1: 20, DamageAssisted2: 10, DamageBlocked: 30, NEnemiesDestroyed: 2}}}}
 		battles = append(battles, sessionBattle{time: now, arena: string(rune('a' + i)), results: r})
 	}
 	// 21:30 UTC on the preceding UTC date belongs to today's local session.
@@ -80,7 +80,7 @@ func TestSummarizeSessionLocalDayAccountsAndOutcomes(t *testing.T) {
 		t.Fatalf("%+v", players)
 	}
 	p := players[1]
-	if p.Battles != 4 || p.Wins != 1 || p.Losses != 1 || p.Draws != 1 || p.Unknown != 1 || p.Survived != 2 || p.Damage != 400 || p.Assisted != 80 || p.Blocked != 120 || p.Destroyed != 8 {
+	if p.Battles != 4 || p.Wins != 1 || p.Losses != 1 || p.Draws != 1 || p.Unknown != 1 || p.Survived != 2 || p.Damage != 400 || p.Assisted != 120 || p.Blocked != 120 || p.Destroyed != 8 {
 		t.Fatalf("%+v", p)
 	}
 	if len(p.History) != 4 {
@@ -145,8 +145,8 @@ func TestSessionPlatoonMatesAggregateAcrossBattles(t *testing.T) {
 	mate := func(accountID uint32, platoonID *uint32, team int32, damage uint32) ResultPlayer {
 		return ResultPlayer{AccountID: accountID, Info: ResultPlayerInfo{Nickname: fmt.Sprintf("mate-%d", accountID), Team: team, PlatoonID: platoonID}}
 	}
-	row := func(accountID, damage, assisted, blocked, destroyed uint32) PlayerResults {
-		return PlayerResults{Info: PlayerResultsInfo{AccountID: accountID, DamageDealt: damage, DamageAssisted1: assisted, DamageBlocked: blocked, NEnemiesDestroyed: destroyed}}
+	row := func(accountID, damage, assisted, assisted2, blocked, destroyed uint32) PlayerResults {
+		return PlayerResults{Info: PlayerResultsInfo{AccountID: accountID, DamageDealt: damage, DamageAssisted1: assisted, DamageAssisted2: assisted2, DamageBlocked: blocked, NEnemiesDestroyed: destroyed}}
 	}
 	win, lose, zero := int32(1), int32(2), uint32(0)
 	battles := []sessionBattle{
@@ -159,13 +159,13 @@ func TestSessionPlatoonMatesAggregateAcrossBattles(t *testing.T) {
 				mate(8, &zero, 1, 800),
 				mate(9, &platoon, 2, 900),
 			},
-			PlayerResults: []PlayerResults{row(7, 700, 70, 21, 2)}}},
+			PlayerResults: []PlayerResults{row(7, 700, 70, 25, 21, 2)}}},
 		{time: now.Add(time.Minute), arena: "loss", results: &BattleResults{TimestampSecs: now.Unix() + 60, Author: Author{AccountID: 42, TeamNumber: 1, DamageDealt: 50}, WinnerTeamNumber: &lose,
 			Players: []ResultPlayer{
 				author(&platoon, 1),
 				mate(7, &platoon, 1, 300),
 			},
-			PlayerResults: []PlayerResults{row(7, 300, 30, 9, 1)}}},
+			PlayerResults: []PlayerResults{row(7, 300, 30, 0, 9, 1)}}},
 		{time: now.Add(2 * time.Minute), arena: "solo", results: &BattleResults{TimestampSecs: now.Unix() + 120, Author: Author{AccountID: 42, TeamNumber: 2}}},
 	}
 	players := summarizeSession(battles, now)
@@ -178,7 +178,7 @@ func TestSessionPlatoonMatesAggregateAcrossBattles(t *testing.T) {
 	}
 	m := p.Platoon[0]
 	if m.AccountID != 7 || m.Nickname != "mate-7" || m.Battles != 2 || m.Wins != 1 || m.Losses != 1 || m.Draws != 0 || m.Unknown != 0 ||
-		m.Damage != 1000 || m.Assisted != 100 || m.Blocked != 30 || m.Destroyed != 3 {
+		m.Damage != 1000 || m.Assisted != 125 || m.Blocked != 30 || m.Destroyed != 3 {
 		t.Fatalf("mate totals: %+v", m)
 	}
 	// History is newest first: the solo battle has no platoon, the others

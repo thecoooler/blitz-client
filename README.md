@@ -398,6 +398,13 @@ and blocked damage 540 at 163.588 seconds. These match the final results.
 A checked 26.8 replay reported assistance 420 → 732, matching the sum of its
 two assisted-damage result fields (312 + 420).
 
+Battle results keep those two kinds apart as `damage_assisted_1` and
+`damage_assisted_2`, while the client reports one assistance total. Roster and
+session totals therefore expose `damage_assisted` as that sum: a player's
+assisted damage is the same number before and after the results arrive. Which
+of the two result fields is spotting and which is immobilization is not
+identified, so neither is exposed as spotting on its own.
+
 `replay inspect --data` includes the same `battle_counters` and update history,
 plus `battle_counter_result_comparison` for completed archives. An absent
 counter or absent final results produces a `null` comparison, not a mismatch.

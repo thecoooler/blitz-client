@@ -342,7 +342,7 @@ func TestLiveDamageMatchesRealReplayResults(t *testing.T) {
 	}
 	for _, row := range results.PlayerResults {
 		if row.Info.AccountID == results.Author.AccountID {
-			if state.Damage.Assisted == nil || *state.Damage.Assisted != uint64(row.Info.DamageAssisted1) {
+			if state.Damage.Assisted == nil || *state.Damage.Assisted != uint64(row.Info.DamageAssisted1)+uint64(row.Info.DamageAssisted2) {
 				t.Fatalf("assistance: %+v", state.Damage)
 			}
 			if state.Damage.Blocked == nil || *state.Damage.Blocked != uint64(row.Info.DamageBlocked) {
