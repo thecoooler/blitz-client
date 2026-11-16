@@ -381,10 +381,81 @@ type LiveReplayWatcher struct {
 	recording      *liveRecording
 	vehicleCatalog map[uint32]client.VehicleDisplay
 	mapCatalog     map[uint32]string
+	// discovery remembers the last directory scan so a caller polling many
+	// times per second reads only the followed replay. A zero interval rescans
+	// on every poll, which is what tests and short-lived callers want.
+	discovery         recordingDiscovery
+	discoveryInterval time.Duration
+	// now is replaced by tests; nil means time.Now.
+	now func() time.Time
+}
+
+// defaultDiscoveryInterval bounds how often the directory is rescanned. The
+// followed data.replay is still polled on every call; only discovering a new
+// recording directory is throttled, so a session switch is noticed within it.
+const defaultDiscoveryInterval = time.Second
+
+// recordingDiscovery is the memoized result of one directory scan.
+type recordingDiscovery struct {
+	path, nickname string
+	found          bool
+	checked        time.Time
 }
 
 func NewLiveReplayWatcher(directory string) *LiveReplayWatcher {
-	return &LiveReplayWatcher{directory: directory}
+	return &LiveReplayWatcher{directory: directory, discoveryInterval: defaultDiscoveryInterval}
+}
+
+// forgetDiscovery forces the next poll to rescan the directory.
+func (w *LiveReplayWatcher) forgetDiscovery() {
+	w.discovery = recordingDiscovery{}
+}
+
+// discover returns the newest recording directory, reusing the previous scan
+// while it is still fresh. An unreadable directory aborts the watch.
+func (w *LiveReplayWatcher) discover() (path, nickname string, found bool, err error) {
+	now := time.Now()
+	if w.now != nil {
+		now = w.now()
+	}
+	if w.discovery.checked != (time.Time{}) && now.Sub(w.discovery.checked) < w.discoveryInterval {
+		return w.discovery.path, w.discovery.nickname, w.discovery.found, nil
+	}
+	w.discovery = recordingDiscovery{checked: now}
+	entries, err := os.ReadDir(w.directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		w.forgetDiscovery()
+		return "", "", false, err
+	}
+	var modified time.Time
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || !strings.HasPrefix(name, "recording_") || !strings.HasSuffix(name, ".tbreplay") {
+			continue
+		}
+		nick := strings.TrimSuffix(strings.TrimPrefix(name, "recording_"), ".tbreplay")
+		if nick == "" {
+			continue
+		}
+		candidate := filepath.Join(w.directory, name)
+		info, e := os.Stat(filepath.Join(candidate, "data.replay"))
+		if e != nil {
+			info, e = entry.Info()
+		}
+		if e != nil {
+			w.forgetDiscovery()
+			return "", "", false, e
+		}
+		t := info.ModTime()
+		if !found || t.After(modified) || (t.Equal(modified) && candidate > path) {
+			path, nickname, modified, found = candidate, nick, t, true
+		}
+	}
+	w.discovery = recordingDiscovery{path: path, nickname: nickname, found: found, checked: now}
+	return path, nickname, found, nil
 }
 func (w *LiveReplayWatcher) Close() error {
 	if w.recording != nil {
@@ -424,39 +495,11 @@ func (w *LiveReplayWatcher) Poll() (state LiveReplayState, err error) {
 			w.Close()
 		}
 	}()
-	entries, err := os.ReadDir(w.directory)
-	if errors.Is(err, fs.ErrNotExist) {
-		w.Close()
-		return LiveReplayState{Kind: "waiting"}, nil
-	}
+	newest, nickname, found, err := w.discover()
 	if err != nil {
 		return state, err
 	}
-	var newest, nickname string
-	var modified time.Time
-	for _, entry := range entries {
-		name := entry.Name()
-		if !entry.IsDir() || !strings.HasPrefix(name, "recording_") || !strings.HasSuffix(name, ".tbreplay") {
-			continue
-		}
-		nick := strings.TrimSuffix(strings.TrimPrefix(name, "recording_"), ".tbreplay")
-		if nick == "" {
-			continue
-		}
-		path := filepath.Join(w.directory, name)
-		info, e := os.Stat(filepath.Join(path, "data.replay"))
-		if e != nil {
-			info, e = entry.Info()
-		}
-		if e != nil {
-			return state, e
-		}
-		t := info.ModTime()
-		if newest == "" || t.After(modified) || (t.Equal(modified) && path > newest) {
-			newest, nickname, modified = path, nick, t
-		}
-	}
-	if newest == "" {
+	if !found {
 		w.Close()
 		return LiveReplayState{Kind: "waiting"}, nil
 	}
@@ -473,6 +516,9 @@ func (w *LiveReplayWatcher) Poll() (state LiveReplayState, err error) {
 		return r.players.event(e)
 	})
 	if err != nil {
+		// The followed directory may have gone away; rescan on the next poll
+		// instead of waiting for the discovery interval.
+		w.forgetDiscovery()
 		return state, err
 	}
 	roster, damage := r.players.snapshot(r.nickname)

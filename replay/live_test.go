@@ -9,11 +9,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestLiveWatcherGrowingStreamResetAndRemoval(t *testing.T) {
 	root := t.TempDir()
 	watcher := NewLiveReplayWatcher(root)
+	// Poll must see every directory change immediately in this test.
+	watcher.discoveryInterval = 0
 	defer watcher.Close()
 	state, err := watcher.Poll()
 	if err != nil || state.Kind != "waiting" {
@@ -118,6 +121,80 @@ func TestLiveWatcherGrowingStreamResetAndRemoval(t *testing.T) {
 	state, err = watcher.Poll()
 	if err != nil || state.Kind != "waiting" {
 		t.Fatalf("dir removed: %+v %v", state, err)
+	}
+}
+func TestLiveWatcherDiscoveryCache(t *testing.T) {
+	root := t.TempDir()
+	now := time.Unix(1_700_000_000, 0)
+	watcher := NewLiveReplayWatcher(root)
+	watcher.now = func() time.Time { return now }
+	defer watcher.Close()
+	if state, err := watcher.Poll(); err != nil || state.Kind != "waiting" {
+		t.Fatalf("initial: %v %v", state, err)
+	}
+	// A recording appears, but the cached scan is still fresh.
+	directory := filepath.Join(root, "recording_iCooLER.tbreplay")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "data.replay")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := watcher.Poll(); err != nil || state.Kind != "waiting" {
+		t.Fatalf("cached scan discovered a new directory: %v %v", state, err)
+	}
+	// An expired cache rescans and starts following.
+	now = now.Add(defaultDiscoveryInterval)
+	state, err := watcher.Poll()
+	if err != nil || state.Kind != "reading" || state.Path != directory {
+		t.Fatalf("rescan: %v %v", state.Path, err)
+	}
+	// A newer recording is not followed until the cache expires again.
+	newer := filepath.Join(root, "recording_Second.tbreplay")
+	if err := os.Mkdir(newer, 0700); err != nil {
+		t.Fatal(err)
+	}
+	newerPath := filepath.Join(newer, "data.replay")
+	if err := os.WriteFile(newerPath, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := first.ModTime().Add(time.Minute)
+	if err := os.Chtimes(newerPath, later, later); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(defaultDiscoveryInterval / 2)
+	if state, err := watcher.Poll(); err != nil || state.Path != directory {
+		t.Fatalf("switch inside cache window: %v %v", state.Path, err)
+	}
+	now = now.Add(defaultDiscoveryInterval)
+	state, err = watcher.Poll()
+	if err != nil || state.Path != newer || state.SessionID != 1 {
+		t.Fatalf("switch after cache expiry: %v %v", state.Path, err)
+	}
+	// Removing the followed directory is noticed on the next scan, which then
+	// falls back to the older recording still on disk.
+	if err := os.RemoveAll(newer); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := watcher.Poll(); err != nil || state.Kind != "reading" || state.Path != newer {
+		t.Fatalf("removal waits for the next scan: %v %v", state.Path, err)
+	}
+	now = now.Add(defaultDiscoveryInterval)
+	if state, err := watcher.Poll(); err != nil || state.Path != directory {
+		t.Fatalf("fallback after removal: %v %v", state.Path, err)
+	}
+	// With no recording left the watcher reports waiting.
+	if err := os.RemoveAll(directory); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(defaultDiscoveryInterval)
+	if state, err := watcher.Poll(); err != nil || state.Kind != "waiting" || state.Path != "" {
+		t.Fatalf("after removal: %v %v", state.Kind, err)
 	}
 }
 func TestAppliedDamageAndRosterTotals(t *testing.T) {
