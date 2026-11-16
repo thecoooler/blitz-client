@@ -64,8 +64,11 @@ type BattleRoster struct {
 
 // Nil damage means unavailable, never zero.
 type BattleDamage struct {
-	Dealt    *uint64 `json:"dealt"`
-	Assisted *uint64 `json:"damage_assisted_1"`
+	Dealt *uint64 `json:"dealt"`
+	// Assisted combines assistance for spotting opponents with assistance for
+	// immobilizing them, which is the single total the client reports to a
+	// player. The battle results keep the two kinds in separate fields.
+	Assisted *uint64 `json:"damage_assisted"`
 	Blocked  *uint64 `json:"damage_blocked"`
 }
 type DamageEvent struct {
@@ -315,7 +318,8 @@ func (p *livePlayers) snapshot(fallback string) (*BattleRoster, BattleDamage) {
 		for _, row := range p.results.PlayerResults {
 			applyResultDamage(roster, row)
 			if row.Info.AccountID == own.AccountID {
-				assisted, blocked := uint64(row.Info.DamageAssisted1), uint64(row.Info.DamageBlocked)
+				assisted := uint64(row.Info.DamageAssisted1) + uint64(row.Info.DamageAssisted2)
+				blocked := uint64(row.Info.DamageBlocked)
 				damage.Assisted, damage.Blocked = &assisted, &blocked
 			}
 		}
@@ -352,7 +356,8 @@ func (p *livePlayers) applyLiveDamage(roster *BattleRoster) {
 	}
 }
 
-// applyResultDamage replaces one ally's live estimate with final results.
+// applyResultDamage replaces one ally's live estimate with final results. The
+// two assisted-damage fields add up to the assistance the client reports.
 func applyResultDamage(roster *BattleRoster, row PlayerResults) {
 	for i := range roster.Allies {
 		player := &roster.Allies[i]
@@ -360,7 +365,7 @@ func applyResultDamage(roster *BattleRoster, row PlayerResults) {
 			continue
 		}
 		dealt := uint64(row.Info.DamageDealt)
-		assisted := uint64(row.Info.DamageAssisted1)
+		assisted := uint64(row.Info.DamageAssisted1) + uint64(row.Info.DamageAssisted2)
 		blocked := uint64(row.Info.DamageBlocked)
 		player.Damage = BattleDamage{Dealt: &dealt, Assisted: &assisted, Blocked: &blocked}
 	}

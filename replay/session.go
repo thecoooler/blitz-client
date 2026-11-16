@@ -291,7 +291,7 @@ func summarizeSession(battles []sessionBattle, now time.Time) []SessionStats {
 			if row.Info.AccountID != p.AccountID {
 				continue
 			}
-			entry.Assisted, entry.Blocked, entry.Destroyed = row.Info.DamageAssisted1, row.Info.DamageBlocked, row.Info.NEnemiesDestroyed
+			entry.Assisted, entry.Blocked, entry.Destroyed = row.Info.DamageAssisted1+row.Info.DamageAssisted2, row.Info.DamageBlocked, row.Info.NEnemiesDestroyed
 			break
 		}
 		entry.Platoon = sessionPlatoon(r)
@@ -345,7 +345,7 @@ func sessionPlatoon(r *BattleResults) []SessionPlatoonResult {
 		}
 		mate := SessionPlatoonResult{AccountID: player.AccountID, Nickname: info.Nickname}
 		if row, ok := results[player.AccountID]; ok {
-			mate.Damage, mate.Assisted, mate.Blocked, mate.Destroyed = row.DamageDealt, row.DamageAssisted1, row.DamageBlocked, row.NEnemiesDestroyed
+			mate.Damage, mate.Assisted, mate.Blocked, mate.Destroyed = row.DamageDealt, row.DamageAssisted1+row.DamageAssisted2, row.DamageBlocked, row.NEnemiesDestroyed
 		}
 		mates = append(mates, mate)
 	}
