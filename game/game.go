@@ -77,8 +77,9 @@ type Window struct {
 	CursorCaptured *bool `json:"cursor_captured"`
 }
 
-// Rect is a rectangle in screen coordinates: pixels on Windows and Linux,
-// points on macOS.
+// Rect is a rectangle in screen coordinates: pixels on Windows and on an X11
+// session, the logical coordinates the compositor lays windows out in on a
+// Wayland one, and points on macOS.
 type Rect struct {
 	X      int `json:"x"`
 	Y      int `json:"y"`

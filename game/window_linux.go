@@ -10,9 +10,10 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// Window state comes from the EWMH properties of an X11 window manager. Wine
-// and Proton windows live on XWayland in Wayland sessions, so they are still
-// visible there; without libX11 or a display, focus is reported as unknown.
+// Window state comes from Hyprland's IPC when the session runs on it, and
+// otherwise from the EWMH properties of an X11 window manager. Wine and Proton
+// windows live on XWayland in Wayland sessions, so they are still visible
+// there; without libX11 or a display, focus is reported as unknown.
 
 const (
 	anyPropertyType   = 0
@@ -147,11 +148,14 @@ var displayOnce = sync.OnceValue(func() bool {
 	return ok
 })
 
-// windowsSupported checks the display once; it does not change during a
+// windowsSupported checks the session once; it does not change during a
 // session.
-func windowsSupported() bool { return displayOnce() }
+func windowsSupported() bool { return hyprlandSupported() || displayOnce() }
 
 func inspectWindows(pids, ignore []int) (windowReport, error) {
+	if report, ok, err := inspectHyprlandWindows(pids, ignore); ok {
+		return report, err
+	}
 	x11.mu.Lock()
 	defer x11.mu.Unlock()
 	session, ok := openX11()

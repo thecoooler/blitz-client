@@ -220,6 +220,13 @@ func macosCandidates() []string {
 
 func linuxCandidates() []string {
 	var out []string
+	// A prefix of PortProton or Proton holds the game where its launcher
+	// installed it, usually drive_c/Games.
+	for _, prefix := range blitz.LinuxPrefixes() {
+		for _, game := range []string{"Tanks_Blitz", "World of Tanks Blitz", "Tanks Blitz"} {
+			out = append(out, filepath.Join(prefix, "drive_c", "Games", game))
+		}
+	}
 	if home, ok := os.LookupEnv("HOME"); ok {
 		for _, steam := range []string{
 			".local/share/Steam",
