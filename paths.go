@@ -7,7 +7,8 @@ import (
 )
 
 // DefaultCacheDir returns the standard Tanks Blitz resource-cache path without
-// checking whether it exists.
+// checking whether it exists. Linux has no standard path: it searches the
+// user's Proton and PortProton prefixes for the folder the client wrote.
 func DefaultCacheDir() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
@@ -22,6 +23,11 @@ func DefaultCacheDir() (string, error) {
 			return "", NewError("CACHE_DIR_NOT_FOUND", "USERPROFILE is not set")
 		}
 		return filepath.Join(profile, "Documents/TanksBlitz/packs"), nil
+	case "linux":
+		if dir, ok := linuxDocumentsPath("TanksBlitz/packs"); ok {
+			return dir, nil
+		}
+		return "", NewError("CACHE_DIR_NOT_FOUND", linuxPrefixesNotFound())
 	default:
 		return "", NewError("CACHE_DIR_NOT_FOUND", "no standard resource-cache path is configured for this OS")
 	}
@@ -44,6 +50,11 @@ func DefaultLocalDataDir() (string, error) {
 			return "", NewError("LOCAL_DATA_DIR_NOT_FOUND", "USERPROFILE is not set")
 		}
 		return filepath.Join(profile, "Documents/TanksBlitz/cache"), nil
+	case "linux":
+		if dir, ok := linuxDocumentsPath("TanksBlitz/cache"); ok {
+			return dir, nil
+		}
+		return "", NewError("LOCAL_DATA_DIR_NOT_FOUND", linuxPrefixesNotFound())
 	default:
 		return "", NewError("LOCAL_DATA_DIR_NOT_FOUND", "no standard local-data path is configured for this OS")
 	}
@@ -65,6 +76,11 @@ func DefaultMapsConfigDir() (string, error) {
 			return "", NewError("MAPS_CONFIG_NOT_FOUND", "USERPROFILE is not set")
 		}
 		return filepath.Join(profile, "Documents/TanksBlitz/cache"), nil
+	case "linux":
+		if dir, ok := linuxDocumentsPath("TanksBlitz/cache"); ok {
+			return dir, nil
+		}
+		return "", NewError("MAPS_CONFIG_NOT_FOUND", linuxPrefixesNotFound())
 	default:
 		return "", NewError("MAPS_CONFIG_NOT_FOUND", "no standard maps-server-cache path is configured for this OS")
 	}
@@ -87,6 +103,11 @@ func DefaultLogDir() (string, error) {
 			return "", NewError("LOG_FOLDER_NOT_FOUND", "USERPROFILE is not set")
 		}
 		return filepath.Join(profile, "Documents/TanksBlitz"), nil
+	case "linux":
+		if dir, ok := linuxDocumentsPath("TanksBlitz"); ok {
+			return dir, nil
+		}
+		return "", NewError("LOG_FOLDER_NOT_FOUND", linuxPrefixesNotFound())
 	default:
 		return "", NewError("LOG_FOLDER_NOT_FOUND", "no standard journal path is configured for this OS")
 	}
@@ -108,7 +129,20 @@ func DefaultReplayDir() (string, error) {
 			return "", NewError("REPLAY_FOLDER_NOT_FOUND", "USERPROFILE is not set; pass --dir")
 		}
 		return filepath.Join(profile, "Documents/TanksBlitz/replays"), nil
+	case "linux":
+		if dir, ok := linuxDocumentsPath("TanksBlitz/replays"); ok {
+			return dir, nil
+		}
+		return "", NewError("REPLAY_FOLDER_NOT_FOUND", linuxPrefixesNotFound()+"; pass --dir")
 	default:
 		return "", NewError("REPLAY_FOLDER_NOT_FOUND", "no standard replay path is configured for this OS; pass --dir")
 	}
+}
+
+// linuxPrefixesNotFound explains a Linux default that no prefix answered.
+func linuxPrefixesNotFound() string {
+	if len(LinuxPrefixes()) == 0 {
+		return "no Proton or PortProton prefix was found under $HOME"
+	}
+	return "no prefix holds a Documents/TanksBlitz folder"
 }

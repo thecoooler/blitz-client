@@ -629,14 +629,17 @@ keyboard input.
 | --- | --- | --- | --- | --- |
 | Windows | Toolhelp snapshot | foreground window | minimized, maximized, fullscreen, cloaked on another virtual desktop | hidden, clipped to a region |
 | macOS | `sysctl` process list | frontmost application | on screen, fullscreen (also reported as maximized) | hidden |
-| Linux | `/proc`, including Wine/Proton | `_NET_ACTIVE_WINDOW` | EWMH hidden, maximized, fullscreen | — |
+| Linux | `/proc`, including Wine/Proton | Hyprland's IPC, otherwise `_NET_ACTIVE_WINDOW` | EWMH hidden, maximized, fullscreen; Hyprland's own states | — |
 
 macOS needs no Screen Recording or Accessibility permission: window titles are
 never read. On macOS, `Minimized` also covers a hidden application and a window
 on another Space. Linux reads windows through libX11 loaded at run time, so it
 works on X11 and for XWayland windows such as Wine and Proton games; without a
 display or libX11, `FocusKnown` is false and `Focused` and `InGame` stay false.
-The package uses no cgo.
+A Hyprland session is asked instead of X11, because its XWayland windows leave
+`_NET_ACTIVE_WINDOW` empty or holding a window that closed long ago; the
+compositor reports positions and sizes in logical coordinates there, as the
+session lays windows out. The package uses no cgo.
 
 `blitz-client game status` prints one snapshot; `--json` prints `State`.
 `--watch` prints an NDJSON line on start and on every change until interrupted,
@@ -826,7 +829,7 @@ The ordered installation candidates are implemented in `client/location.go`.
 
 - Windows: `C:\Games\Tanks_Blitz` first (resources in its `Data` subdirectory), followed by standard Steam, WindowsApps, and user game folders.
 - macOS: `/Applications/Tanks Blitz.app/Contents/Resources/Data` first, then the Steam installation under the user's Library.
-- Linux: common Steam, Flatpak, and Snap installation folders.
+- Linux: the game folders inside the user's Wine and Proton prefixes first (PortProton keeps a prefix per installation, Steam one per Proton game), then the common Steam, Flatpak, and Snap installation folders.
 
 `client locate` returns `game_dir` (installation), `resource_dir` (installed
 resources), `cache_dir` (downloaded resources in `packs`), and `replay_dir`.
@@ -837,11 +840,21 @@ It is also available through `client.DefaultCacheDir()`:
 - Windows (Tanks Blitz): `%USERPROFILE%\Documents\TanksBlitz\packs`, confirmed
   in the inspected wblitz and BlitzHata mod sources. This path has not been
   verified on a Windows installation of this project.
+- Linux: the `packs` folder under `drive_c/users/<user>/Documents/TanksBlitz`
+  of the first prefix that holds one, as the client writes it in a prefix. The
+  same rule gives `DefaultLogDir` the folder beside it and `DefaultReplayDir`
+  its `replays` folder, so a game run by PortProton or Proton is followed
+  without a flag.
+
+`blitzclient.LinuxPrefixes()` lists the prefixes the search reads:
+`~/PortProton/data/prefixes/*`, `~/.local/share/PortProton/prefixes/*`, and the
+`pfx` of each Proton game under the user's Steam `steamapps/compatdata`.
 
 This Windows default targets Tanks Blitz (Lesta). On other operating systems,
 or when the required
 home-directory environment variable is missing, `DefaultCacheDir()` returns
-`CACHE_DIR_NOT_FOUND` and `client locate` reports `cache_dir: null`.
+`CACHE_DIR_NOT_FOUND` and `client locate` reports `cache_dir: null`; on Linux
+that code means no prefix holds a `Documents/TanksBlitz` folder.
 
 The maps server cache used to fill each map's `gameModes` has its own default:
 `blitzclient.DefaultMapsConfigDir()` returns
