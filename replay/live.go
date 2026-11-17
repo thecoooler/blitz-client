@@ -33,6 +33,10 @@ type LiveReplayState struct {
 	Positions []LiveVehiclePosition `json:"positions,omitempty"`
 	Result    *LiveBattleResult     `json:"result,omitempty"`
 	Counters  LiveBattleCounters    `json:"counters"`
+	// Hits is every hit message of the battle in arrival order, oldest first,
+	// including the hits that applied no damage: a bounce still reports who
+	// shot whom. It stays empty on client versions without hit decoding.
+	Hits []LiveHit `json:"hits,omitempty"`
 	// Clock is the battle clock of the newest packet, in seconds since the
 	// recording started. It is what the recording reports, not a wall clock,
 	// so a paused recording pauses it. Nil means no packet has been read yet.
@@ -76,8 +80,48 @@ type DamageEvent struct {
 	Damage                         uint16
 }
 
+// LiveHit is one hit message of a battle: who shot whom, for how much, and
+// whether the hit went through. Damage is what the message reports, so a hit
+// that applied nothing still carries its nominal value.
+type LiveHit struct {
+	Clock          float32 `json:"clock"`
+	SourceEntityID uint32  `json:"source_entity_id"`
+	TargetEntityID uint32  `json:"target_entity_id"`
+	Damage         uint16  `json:"damage"`
+	// Penetrated is flag bit 0, the bit both applied-damage flags carry. A
+	// clear bit marks a hit that took no hitpoints, which is what the overlay
+	// shows as a bounce.
+	Penetrated bool `json:"penetrated"`
+	// ResultCode is the hit's raw outcome code, the byte after the message
+	// prefix. Observed values 0 to 2 accompany hits without hitpoint damage
+	// and 3 to 4 hits with it, but the exact set is not recovered, so the
+	// overlay shows the number as it is until it is.
+	ResultCode uint8 `json:"result_code"`
+	// Shell names the shell when the recording reports one. No layout for it
+	// is recovered yet, so it stays empty and the overlay omits it.
+	Shell string `json:"shell,omitempty"`
+}
+
 func SupportsDamageEvents(version string) bool {
 	return version == "26.8.0_ruby_apple" || version == "26.10.0_ruby_apple" || version == "26.10.1_ruby" || version == "26.10.1_ruby_apple"
+}
+
+// liveHit reads every hit message, including the ones AppliedDamage rejects
+// because they moved no hitpoints. The two share one envelope parser.
+func liveHit(packet *Packet, version string) (LiveHit, bool) {
+	if !SupportsDamageEvents(version) || packet == nil || packet.Payload.Kind != PayloadEntityMethod || packet.Payload.EntityMethod == nil || packet.Payload.EntityMethod.SubType != 9 {
+		return LiveHit{}, false
+	}
+	body, ok := parseMethod9Body(packet.RawPayload)
+	if !ok || body.SourceResultID == 0 || body.TargetResultID == 0 || body.SourceResultID == body.TargetResultID {
+		return LiveHit{}, false
+	}
+	hit := LiveHit{Clock: packet.ClockSecs, SourceEntityID: body.SourceResultID, TargetEntityID: body.TargetResultID,
+		Damage: body.Damage, Penetrated: body.Flag&1 != 0}
+	if len(body.Opaque) > 1 {
+		hit.ResultCode = body.Opaque[1]
+	}
+	return hit, true
 }
 
 // AppliedDamage accepts supported versions with matching damage envelopes.
@@ -115,6 +159,29 @@ type livePlayers struct {
 	positions                    vehiclePositionDecoder
 	counters                     BattleCounterDecoder
 	results                      *BattleResults
+	hits                         []LiveHit
+}
+
+// maxLiveHits bounds the retained history. A battle reports a few hundred hit
+// messages at most, so the bound only stops a runaway recording from growing
+// the snapshot without limit.
+const maxLiveHits = 2000
+
+// addHit appends one hit, dropping the oldest once the history is full.
+func (p *livePlayers) addHit(hit LiveHit) {
+	if len(p.hits) == maxLiveHits {
+		copy(p.hits, p.hits[1:])
+		p.hits = p.hits[:maxLiveHits-1]
+	}
+	p.hits = append(p.hits, hit)
+}
+
+// snapshotHits returns a detached copy in arrival order, oldest first.
+func (p *livePlayers) snapshotHits() []LiveHit {
+	if len(p.hits) == 0 {
+		return nil
+	}
+	return append([]LiveHit(nil), p.hits...)
 }
 
 func (p *livePlayers) event(e FollowEvent) error {
@@ -165,6 +232,9 @@ func (p *livePlayers) event(e FollowEvent) error {
 			}
 			key := [2]uint32{hit.SourceEntityID, hit.TargetEntityID}
 			p.pairs[key] = saturatingAdd(p.pairs[key], uint64(hit.Damage))
+		}
+		if hit, ok := liveHit(packet, p.version); ok {
+			p.addHit(hit)
 		}
 		p.positions.onPacket(packet, p.version)
 		if hit := p.health.onPacket(packet, p.version); hit != nil {
@@ -533,7 +603,7 @@ func (w *LiveReplayWatcher) Poll() (state LiveReplayState, err error) {
 		kind = "battle"
 	}
 	state = LiveReplayState{Kind: kind, Path: newest, SessionID: r.session, Roster: roster, Damage: damage,
-		Clock: r.players.snapshotClock()}
+		Hits: r.players.snapshotHits(), Clock: r.players.snapshotClock()}
 	w.enrichLiveState(&state, r)
 	return state, nil
 }
