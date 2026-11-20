@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -63,6 +64,9 @@ type SessionBattleResult struct {
 	Damage                       uint32
 	Assisted, Blocked, Destroyed uint32
 	Excluded                     bool
+	// BonusType is the battle mode's raw identifier from the replay meta
+	// (arenaBonusType). No human-readable mapping is inferred from it.
+	BonusType uint32
 	// Platoon holds the author's platoon mates of this battle and their
 	// results. A battle without a known platoon leaves it empty.
 	Platoon []SessionPlatoonResult
@@ -100,6 +104,23 @@ func (d DailySession) WithExcludedBattles(excluded map[string]bool) DailySession
 		p.recalculate()
 	}
 	return d
+}
+
+// WithBattles returns a detached session whose history keeps only the battles
+// the filter accepts. Totals and platoon aggregates are recomputed over the
+// kept battles; a battle's own Excluded mark still counts against it, so a
+// caller can compose the filter with the excluded-battle marks in one pass.
+func (p SessionStats) WithBattles(filter func(SessionBattleResult) bool) SessionStats {
+	p.History = append([]SessionBattleResult(nil), p.History...)
+	kept := make([]SessionBattleResult, 0, len(p.History))
+	for _, battle := range p.History {
+		if filter(battle) {
+			kept = append(kept, battle)
+		}
+	}
+	p.History = kept
+	p.recalculate()
+	return p
 }
 
 func (p *SessionStats) recalculate() {
@@ -176,6 +197,7 @@ type DailySession struct {
 type sessionBattle struct {
 	time     time.Time
 	arena    string
+	bonus    uint32
 	nickname string
 	results  *BattleResults
 	// survived maps an account to whether it finished the battle alive. Nil
@@ -232,6 +254,14 @@ func (s *SessionReader) Read(ctx context.Context, directory string, now time.Tim
 				if id, ok := meta["arenaUniqueId"]; ok {
 					battle.arena = fmt.Sprint(id)
 				}
+				if bonus, ok := meta["arenaBonusType"]; ok {
+					if number, ok := bonus.(json.Number); ok {
+						value, err := number.Int64()
+						if err == nil && value >= 0 {
+							battle.bonus = uint32(value)
+						}
+					}
+				}
 			}
 			for _, player := range results.Players {
 				if player.AccountID == results.Author.AccountID {
@@ -286,7 +316,7 @@ func summarizeSession(battles []sessionBattle, now time.Time) []SessionStats {
 		default:
 			outcome = SessionDefeat
 		}
-		entry := SessionBattleResult{ArenaID: arena, StartedAt: battle.time.In(now.Location()), Outcome: outcome, Survived: r.Author.HitpointsLeft > 0, Damage: r.Author.DamageDealt}
+		entry := SessionBattleResult{ArenaID: arena, StartedAt: battle.time.In(now.Location()), Outcome: outcome, Survived: r.Author.HitpointsLeft > 0, Damage: r.Author.DamageDealt, BonusType: battle.bonus}
 		for _, row := range r.PlayerResults {
 			if row.Info.AccountID != p.AccountID {
 				continue
