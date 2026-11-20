@@ -38,6 +38,10 @@ func TestSessionReaderFixtureDeduplicatesAndRefreshes(t *testing.T) {
 	if len(p.History) != 1 || uint64(p.History[0].Damage) != p.Damage || p.History[0].Outcome != SessionVictory {
 		t.Fatalf("fixture history: %+v", p.History)
 	}
+	// The fixture's meta.json carries arenaBonusType 45.
+	if p.History[0].BonusType != 45 {
+		t.Fatalf("fixture bonus type: %+v", p.History[0])
+	}
 	// Corrupt files are retried and a repaired duplicate is deduplicated, too.
 	os.WriteFile(broken, data, 0600)
 	day, err = reader.Read(context.Background(), dir, now)
@@ -232,6 +236,60 @@ func TestSessionPlatoonSurvivalCountsKnownBattles(t *testing.T) {
 	filtered := day.WithExcludedBattles(excluded).Players[0].Platoon[0]
 	if filtered.Battles != 2 || filtered.Survived != 0 || filtered.SurvivalKnown != 1 {
 		t.Fatalf("excluded mate: %+v", filtered)
+	}
+}
+
+// WithBattles keeps only the battles the filter accepts and recomputes both
+// the author's totals and the platoon aggregates over them, leaving the source
+// untouched. The battle's own Excluded mark still counts against it.
+func TestSessionBattleFilterRecalculatesTotalsAndPlatoon(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.Local)
+	day := DailySession{Date: "2026-10-24", Players: []SessionStats{
+		{AccountID: 42, History: []SessionBattleResult{
+			{ArenaID: "one", StartedAt: now, Outcome: SessionVictory, Damage: 1000, BonusType: 5, Platoon: []SessionPlatoonResult{
+				{AccountID: 7, Nickname: "mate", Damage: 700},
+			}},
+			{ArenaID: "two", StartedAt: now.Add(time.Minute), Outcome: SessionDefeat, Damage: 500, BonusType: 23},
+			{ArenaID: "three", StartedAt: now.Add(2 * time.Minute), Outcome: SessionVictory, Damage: 200, BonusType: 5, Platoon: []SessionPlatoonResult{
+				{AccountID: 9, Nickname: "other", Damage: 300},
+			}},
+			{ArenaID: "four", StartedAt: now.Add(3 * time.Minute), Outcome: SessionVictory, Damage: 400, BonusType: 5, Platoon: []SessionPlatoonResult{
+				{AccountID: 7, Nickname: "mate", Damage: 100},
+			}},
+		}},
+	}}
+	day = day.WithExcludedBattles(nil)
+	// Only battles with the chosen mate present, one of them excluded.
+	excluded := map[string]bool{day.Players[0].History[0].Key(42): true}
+	day = day.WithExcludedBattles(excluded)
+	source := day.Players[0]
+	filtered := source.WithBattles(func(battle SessionBattleResult) bool {
+		if battle.Excluded {
+			return false
+		}
+		for _, mate := range battle.Platoon {
+			if mate.AccountID == 7 {
+				return true
+			}
+		}
+		return false
+	})
+	if filtered.Battles != 1 || filtered.Wins != 1 || filtered.Damage != 400 {
+		t.Fatalf("filtered totals: %+v", filtered)
+	}
+	if len(filtered.Platoon) != 1 || filtered.Platoon[0].AccountID != 7 || filtered.Platoon[0].Battles != 1 || filtered.Platoon[0].Damage != 100 {
+		t.Fatalf("filtered platoon: %+v", filtered.Platoon)
+	}
+	if len(filtered.History) != 1 || filtered.History[0].ArenaID != "four" {
+		t.Fatalf("filtered history: %+v", filtered.History)
+	}
+	if source.Battles != 3 || len(source.Platoon) != 2 || len(source.History) != 4 {
+		t.Fatalf("source mutated: %+v", source)
+	}
+	// A mode filter reads the battle's bonus type; the excluded one still stays out.
+	modes := source.WithBattles(func(battle SessionBattleResult) bool { return battle.BonusType == 5 })
+	if modes.Battles != 2 || modes.Damage != 600 || len(modes.Platoon) != 2 {
+		t.Fatalf("mode totals: %+v", modes)
 	}
 }
 
